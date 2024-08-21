@@ -1,0 +1,11 @@
+{
+  "api_url": "${api_url}",
+  "organization_key": "${organization_key}",
+  "api_access_key": "${api_access_key}",
+  "api_secret_key": "${api_secret_key}",
+  "cert_file": "${cert_file}",
+  "key_file": "${key_file}",
+  "ca_file": "${ca_file}",
+  "skip_ssl_verify": true,
+  "ping_interval": 10
+}
