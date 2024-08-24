@@ -29,14 +29,6 @@ NPCAP_PATH = "C:/Program Files/Npcap"
 # Template file names
 FLUENT_BIT_CONF_TEMPLATE = "fluent-bit-template.conf"
 FLUENT_BIT_PARSER_TEMPLATE = "fluent-bit-parser-template.conf"
-SS_AGENT_TEMPLATE = "ss-agent-template.json"
-
-ZEEK_LOG_PATH_LINUX = "/opt/zeek/logs/current/*.log"
-ZEEK_EXCLUDE_PATH_LINUX = "/opt/zeek/logs/current/std*.log"
-ZEEK_LOG_PATH_MACOS = "/usr/local/zeek/logs/current/*.log"
-ZEEK_EXCLUDE_PATH_MACOS = "/usr/local/zeek/logs/current/std*.log"
-ZEEK_LOG_PATH_WINDOWS = r"C:\ProgramData\Zeek\logs\current\*.log"
-ZEEK_EXCLUDE_PATH_WINDOWS = r"C:\ProgramData\Zeek\logs\current\std*.log"
 
 # Parser config file name
 FLUENT_BIT_CONFIG_FILENAME = "ss-fluent-bit.conf"
@@ -46,36 +38,45 @@ FLUENT_BIT_PARSER_CONFIG_FILENAME = "ss-fluent-bit-parsers.conf"
 CACERT_FILENAME = "cacert.crt"
 FLUENT_BIT_CERTS_ZIP_TEMPLATE = "fluent-bit-certificates-{}.zip"
 
-# System directory paths
-
-# Linux paths
-SS_AGENT_SSL_DIR_LINUX = "/etc/ss-agent/ssl"
-SS_AGENT_CONFIG_DIR_LINUX = "/etc/ss-agent/config"
-SS_NETWORK_ANALYZER_CONFIG_DIR_LINUX = "/etc/ss-network-analyzer/config"
+# fluent-bit paths
 FLUENT_BIT_DIR_LINUX = "/etc/fluent-bit"
-FLUENT_BIT_CONFIG_DIR_LINUX = "/etc/fluent-bit/config"
-FLUENT_BIT_SSL_DIR_LINUX = "/etc/fluent-bit/ssl"
-
-# Windows paths
+FLUENT_BIT_DIR_MACOS = "/Library/Application Support/FluentBit"
 FLUENT_BIT_DIR_WINDOWS = r"C:\ProgramData\fluent-bit"
+
+FLUENT_BIT_CONFIG_DIR_LINUX = "/etc/fluent-bit/config"
+FLUENT_BIT_CONFIG_DIR_MACOS = "/Library/Application Support/FluentBit/config"
 FLUENT_BIT_CONFIG_DIR_WINDOWS = r"C:\ProgramData\fluent-bit\config"
+
+FLUENT_BIT_SSL_DIR_LINUX = "/etc/fluent-bit/ssl"
+FLUENT_BIT_SSL_DIR_MACOS = "/Library/Application Support/FluentBit/ssl"
 FLUENT_BIT_SSL_DIR_WINDOWS = r"C:\ProgramData\fluent-bit\ssl"
-SS_AGENT_CONFIG_DIR_WINDOWS = r"C:\ProgramData\ss-agent\config"
-SS_AGENT_SSL_DIR_WINDOWS = r"C:\ProgramData\ss-agent\ssl"
+
+# Network analyzer config paths
+SS_NETWORK_ANALYZER_CONFIG_DIR_LINUX = "/etc/ss-network-analyzer/config"
+SS_NETWORK_ANALYZER_CONFIG_DIR_MACOS = "/Library/Application Support/ss-network-analyzer/config"
 SS_NETWORK_ANALYZER_CONFIG_DIR_WINDOWS = r"C:\ProgramData\ss-network-analyzer\config"
 
-# macOS paths
-FLUENT_BIT_SSL_DIR_MACOS = "/Library/Application Support/FluentBit/ssl"
+# Network analyzer log paths
+SS_NETWORK_ANALYZER_LOG_PATH_LINUX = "/var/log/ss-network-analyzer/*.log"
+SS_NETWORK_ANALYZER_LOG_PATH_MACOS = "/usr/local/var/log/ss-network-analyzer/*.log"
+SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS = r"C:\ProgramData\ss-network-analyzer\*.log"
 
-# macOS paths
-SS_AGENT_SSL_DIR_MACOS = "/Library/Application Support/ss-agent/ssl"
+# Network analyzer config file name
+NETWORK_ANALYZER_CONFIG_FILENAME = "network-analyzer.conf"
+
+# ss-agent config path
+SS_AGENT_CONFIG_DIR_LINUX = "/etc/ss-agent/config"
+SS_AGENT_CONFIG_DIR_WINDOWS = r"C:\ProgramData\ss-agent\config"
 SS_AGENT_CONFIG_DIR_MACOS = "/Library/Application Support/ss-agent/config"
-FLUENT_BIT_CONFIG_DIR_MACOS = "/Library/Application Support/FluentBit"
+SS_AGENT_SSL_DIR_LINUX = "/etc/ss-agent/ssl"
+SS_AGENT_SSL_DIR_MACOS = "/Library/Application Support/ss-agent/ssl"
+SS_AGENT_SSL_DIR_WINDOWS = r"C:\ProgramData\ss-agent\ssl"
+
+# ss-agent config file template
+SS_AGENT_TEMPLATE = "ss-agent-template.json"
 
 # User configuration file
 USER_CONFIG_FILE = "user_config.json"
-
-# Fluent Bit Installer constants
 
 # Repositories
 FLUENT_BIT_REPO = "securityspectrum/fluent-bit"
