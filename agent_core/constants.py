@@ -59,7 +59,7 @@ SS_NETWORK_ANALYZER_CONFIG_DIR_WINDOWS = r"C:\ProgramData\ss-network-analyzer\co
 # Network analyzer log paths
 SS_NETWORK_ANALYZER_LOG_PATH_LINUX = "/var/log/ss-network-analyzer/*.log"
 SS_NETWORK_ANALYZER_LOG_PATH_MACOS = "/usr/local/var/log/ss-network-analyzer/*.log"
-SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS = r"C:\ProgramData\ss-network-analyzer\*.log"
+SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS = r"C:\ProgramData\ss-network-analyzer\logs\*.log"
 
 # Network analyzer config file name
 NETWORK_ANALYZER_CONFIG_FILENAME = "network-analyzer.conf"
