@@ -8,10 +8,10 @@ import requests
 import logging
 from string import Template
 
-from agent_core.constants import ZEEK_EXCLUDE_PATH_LINUX, ZEEK_LOG_PATH_LINUX, \
-    ZEEK_LOG_PATH_MACOS, ZEEK_EXCLUDE_PATH_MACOS, FLUENT_BIT_CONFIG_DIR_LINUX, FLUENT_BIT_SSL_DIR_LINUX, \
+from agent_core.constants import SS_NETWORK_ANALYZER_LOG_PATH_LINUX, \
+    SS_NETWORK_ANALYZER_LOG_PATH_MACOS, FLUENT_BIT_CONFIG_DIR_LINUX, FLUENT_BIT_SSL_DIR_LINUX, \
     FLUENT_BIT_CONFIG_FILENAME, FLUENT_BIT_CONFIG_DIR_MACOS, FLUENT_BIT_SSL_DIR_MACOS, \
-    ZEEK_LOG_PATH_WINDOWS, ZEEK_EXCLUDE_PATH_WINDOWS, FLUENT_BIT_CONFIG_DIR_WINDOWS, \
+    SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS, FLUENT_BIT_CONFIG_DIR_WINDOWS, \
     FLUENT_BIT_SSL_DIR_WINDOWS, CONFIG_DIR_PATH, FLUENT_BIT_CONF_TEMPLATE, FLUENT_BIT_PARSER_CONFIG_FILENAME, \
     FLUENT_BIT_PARSER_TEMPLATE, CACERT_FILENAME
 from agent_core.platform_context import PlatformContext
@@ -29,20 +29,17 @@ class FluentBitConfigurator:
         # Determine paths based on the OS during initialization
         system = platform.system().lower()
         if system == "linux":
-            self.zeek_log_path = ZEEK_LOG_PATH_LINUX
-            self.zeek_exclude_path = ZEEK_EXCLUDE_PATH_LINUX
+            self.ss_network_analyzer_log_path = SS_NETWORK_ANALYZER_LOG_PATH_LINUX
             self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_LINUX) / organization_slug / "cacert.crt"
             self.fluent_bit_config_path = Path(FLUENT_BIT_CONFIG_DIR_LINUX) / FLUENT_BIT_CONFIG_FILENAME
             self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_LINUX) / organization_slug
         elif system == "darwin":
-            self.zeek_log_path = ZEEK_LOG_PATH_MACOS
-            self.zeek_exclude_path = ZEEK_EXCLUDE_PATH_MACOS
+            self.ss_network_analyzer_log_path = SS_NETWORK_ANALYZER_LOG_PATH_MACOS
             self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_MACOS) / organization_slug / "cacert.crt"
             self.fluent_bit_config_path = Path(FLUENT_BIT_CONFIG_DIR_MACOS) / FLUENT_BIT_CONFIG_FILENAME
             self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_MACOS) / organization_slug
         elif system == "windows":
-            self.zeek_log_path = ZEEK_LOG_PATH_WINDOWS
-            self.zeek_exclude_path = ZEEK_EXCLUDE_PATH_WINDOWS
+            self.ss_network_analyzer_log_path = SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS
             self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_WINDOWS) / organization_slug / "cacert.crt"
             self.fluent_bit_config_path = Path(FLUENT_BIT_CONFIG_DIR_WINDOWS) / FLUENT_BIT_CONFIG_FILENAME
             self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_WINDOWS) / organization_slug
@@ -95,8 +92,7 @@ class FluentBitConfigurator:
                 key_server_path=config_data["key_server"]["path"],
                 backend_server_path=config_data["backend_server"]["path"],
                 master_key=secrets["master_key"],
-                zeek_log_path=self.zeek_log_path,
-                zeek_exclude_path=self.zeek_exclude_path,
+                ss_network_analyzer_log_path=self.ss_network_analyzer_log_path,
                 ssl_ca_location=self.ssl_ca_location
             )
             logger.debug(f"Generated Fluent Bit config: {config}")

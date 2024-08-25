@@ -46,24 +46,21 @@ def get_platform_specific_paths():
         fluent_bit_config_dir = FLUENT_BIT_CONFIG_DIR_WINDOWS
         ss_agent_config_dir = SS_AGENT_CONFIG_DIR_WINDOWS
         ss_agent_ssl_dir = SS_AGENT_SSL_DIR_WINDOWS
-        zeek_log_path = ZEEK_LOG_PATH_WINDOWS
-        zeek_exclude_path = ZEEK_EXCLUDE_PATH_WINDOWS
+        zeek_log_path = SS_NETWORK_ANALYZER_LOG_PATH_LINUX
     elif os_name == "linux":
         fluent_bit_config_dir = FLUENT_BIT_CONFIG_DIR_LINUX
         ss_agent_config_dir = SS_AGENT_CONFIG_DIR_LINUX
         ss_agent_ssl_dir = SS_AGENT_SSL_DIR_LINUX
-        zeek_log_path = ZEEK_LOG_PATH_LINUX
-        zeek_exclude_path = ZEEK_EXCLUDE_PATH_LINUX
+        zeek_log_path = SS_NETWORK_ANALYZER_LOG_PATH_LINUX
     elif os_name == "darwin":
         fluent_bit_config_dir = FLUENT_BIT_CONFIG_DIR_MACOS
         ss_agent_config_dir = SS_AGENT_CONFIG_DIR_MACOS
         ss_agent_ssl_dir = SS_AGENT_SSL_DIR_MACOS
-        zeek_log_path = ZEEK_LOG_PATH_MACOS
-        zeek_exclude_path = ZEEK_EXCLUDE_PATH_MACOS
+        zeek_log_path = SS_NETWORK_ANALYZER_LOG_PATH_MACOS
     else:
         raise ValueError(f"Unsupported operating system: {os_name}")
 
-    return fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path, zeek_exclude_path
+    return fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path
 
 
 def main():
@@ -92,7 +89,7 @@ def main():
         api_url = f"{API_URL_DOMAIN}{API_VERSION_PATH}/r/{organization_slug}"
 
         # Get platform-specific paths
-        fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path, zeek_exclude_path = get_platform_specific_paths()
+        fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, ss_network_analyzer_log_path = get_platform_specific_paths()
 
         # Certificate Manager
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
@@ -106,7 +103,7 @@ def main():
 
         # Npcap Installation (only for Windows)
         if current_os == "windows":
-            npcap_url = "https://npcap.com/dist/npcap-1.79.exe"
+            npcap_url = NPCAP_URL_WINDOWS
             installer = NpcapInstaller(download_url=npcap_url)
 
             installer.install_npcap()

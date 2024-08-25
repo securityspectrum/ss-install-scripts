@@ -25,6 +25,7 @@ SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS = r"C:\Program Files\ss-network-anal
 
 # Npcap dirctory
 NPCAP_PATH = "C:/Program Files/Npcap"
+NPCAP_URL_WINDOWS = "https://npcap.com/dist/npcap-1.79.exe"
 
 # Template file names
 FLUENT_BIT_CONF_TEMPLATE = "fluent-bit-template.conf"
