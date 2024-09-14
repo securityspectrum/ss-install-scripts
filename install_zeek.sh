@@ -24,16 +24,16 @@ check_zeek_installed() {
 
 # Function to install required utilities
 install_utilities() {
-    if [[ "$ID" == "ubuntu" || "$ID_LIKE" =~ debian ]]; then
+    if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
         apt update -y
         apt install -y apt-transport-https curl gnupg lsb-release
-    elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ rhel ]]; then
+    elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
         yum install -y epel-release curl
     elif [[ "$ID" == "fedora" ]]; then
         dnf install -y curl redhat-lsb-core
     elif [[ "$ID" == "arch" ]]; then
         pacman -Sy --noconfirm curl lsb-release
-    elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ suse ]]; then
+    elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
         zypper install -y curl lsb-release
     else
         echo "Unsupported distribution for installing utilities."
@@ -48,23 +48,48 @@ install_zeek_ubuntu_debian() {
     # Install required utilities if not present
     install_utilities
 
-    # Add Zeek GPG key
-    curl -fsSL "https://download.opensuse.org/repositories/security:zeek/xUbuntu_$(lsb_release -rs)/Release.key" | apt-key add -
-    if [ $? -ne 0 ]; then
-        echo "Failed to add Zeek GPG key."
+    OS=$(lsb_release -is)
+    DISTRO_VERSION=$(lsb_release -rs)
+
+    if [ "$OS" = "Ubuntu" ]; then
+        echo "Configuring repository for Ubuntu..."
+
+        # Add Zeek GPG key
+        curl -fsSL "https://download.opensuse.org/repositories/security:zeek/xUbuntu_${DISTRO_VERSION}/Release.key" | gpg --dearmor | tee /usr/share/keyrings/zeek-archive-keyring.gpg > /dev/null
+        if [ $? -ne 0 ]; then
+            echo "Failed to add Zeek GPG key."
+            exit 1
+        fi
+
+        # Add Zeek repository
+        echo "deb [signed-by=/usr/share/keyrings/zeek-archive-keyring.gpg] http://download.opensuse.org/repositories/security:/zeek/xUbuntu_${DISTRO_VERSION}/ /" | tee /etc/apt/sources.list.d/zeek.list
+
+        # Update package list and install Zeek
+        apt update -y
+        apt install -y zeek zeekctl
+
+    elif [ "$OS" = "Debian" ]; then
+        echo "Configuring installation for Debian..."
+
+        # Check if Zeek is available in official repositories
+        if apt-cache show zeek > /dev/null 2>&1; then
+            # Install Zeek from official Debian repositories
+            apt update -y
+            apt install -y zeek
+        else
+            echo "Zeek is not available in the official repositories for Debian ${DISTRO_VERSION}."
+            echo "Consider installing Zeek from source."
+            exit 1
+        fi
+    else
+        echo "Unsupported operating system: $OS"
         exit 1
     fi
-
-    # Add Zeek repository
-    echo "deb http://download.opensuse.org/repositories/security:/zeek/xUbuntu_$(lsb_release -rs)/ /" > /etc/apt/sources.list.d/zeek.list
-
-    # Update package list and install Zeek
-    apt update -y
-    apt install -y zeek zeekctl
 
     # Configure Zeek
     configure_zeek
 }
+
 
 # Function to install Zeek on Fedora
 install_zeek_fedora() {
@@ -276,21 +301,22 @@ detect_distro_and_install() {
         install_utilities
     fi
 
-    if [[ "$ID" == "ubuntu" || "$ID_LIKE" =~ debian ]]; then
+    if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
         install_zeek_ubuntu_debian
     elif [[ "$ID" == "fedora" ]]; then
         install_zeek_fedora
-    elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ rhel ]]; then
+    elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
         install_zeek_centos_rhel
     elif [[ "$ID" == "arch" ]]; then
         install_zeek_arch
-    elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ suse ]]; then
+    elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
         install_zeek_opensuse
     else
         echo "Unsupported Linux distribution: $ID"
         exit 1
     fi
 }
+
 
 # Main function to run the installation
 main() {
