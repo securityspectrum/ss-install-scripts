@@ -69,18 +69,20 @@ install_zeek_ubuntu_debian() {
         apt install -y zeek zeekctl
 
     elif [ "$OS" = "Debian" ]; then
-        echo "Configuring installation for Debian..."
+        echo "Configuring repository for Debian..."
 
-        # Check if Zeek is available in official repositories
-        if apt-cache show zeek > /dev/null 2>&1; then
-            # Install Zeek from official Debian repositories
-            apt update -y
-            apt install -y zeek
-        else
-            echo "Zeek is not available in the official repositories for Debian ${DISTRO_VERSION}."
-            echo "Consider installing Zeek from source."
-            exit 1
+        # Add Zeek GPG key for Debian
+        curl -fsSL "https://download.opensuse.org/repositories/security:zeek/Debian_${DISTRO_VERSION}/Release.key" | gpg --dearmor | tee /usr/share/keyrings/zeek-archive-keyring.gpg > /dev/null
+        if [ $? -ne 0 ]; then
+            install_zeek_from_source
         fi
+
+        # Add Zeek repository for Debian
+        echo "deb [signed-by=/usr/share/keyrings/zeek-archive-keyring.gpg] http://download.opensuse.org/repositories/security:/zeek/Debian_${DISTRO_VERSION}/ /" | tee /etc/apt/sources.list.d/zeek.list
+
+        # Update package list and install Zeek
+        apt update -y
+        apt install -y zeek zeekctl || install_zeek_from_source
     else
         echo "Unsupported operating system: $OS"
         exit 1
