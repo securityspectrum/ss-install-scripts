@@ -22,6 +22,16 @@ check_zeek_installed() {
     fi
 }
 
+# Function to check if Zeek is already installed
+is_zeek_installed() {
+    if command -v zeek &> /dev/null || command -v zeek-config &> /dev/null; then
+        echo "Zeek is already installed."
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Function to install required utilities
 install_utilities() {
     if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
@@ -56,7 +66,8 @@ install_zeek_ubuntu() {
     curl -fsSL "https://download.opensuse.org/repositories/security:zeek/xUbuntu_${DISTRO_VERSION}/Release.key" | gpg --dearmor | tee /usr/share/keyrings/zeek-archive-keyring.gpg > /dev/null
     if [ $? -ne 0 ]; then
         echo "Failed to add Zeek GPG key."
-        exit 1
+        install_zeek_from_source
+        return
     fi
 
     # Add Zeek repository
@@ -64,7 +75,10 @@ install_zeek_ubuntu() {
 
     # Update package list and install Zeek
     apt update -y
-    apt install -y zeek zeekctl
+    apt install -y zeek zeekctl || {
+        echo "Package installation failed, attempting to install from source..."
+        install_zeek_from_source
+    }
 
     # Configure Zeek
     configure_zeek
@@ -84,7 +98,9 @@ install_zeek_debian() {
     # Add Zeek GPG key for Debian
     curl -fsSL "https://download.opensuse.org/repositories/security:zeek/Debian_${DISTRO_VERSION}/Release.key" | gpg --dearmor | tee /usr/share/keyrings/zeek-archive-keyring.gpg > /dev/null
     if [ $? -ne 0 ]; then
+        echo "Failed to add Zeek GPG key, attempting to install from source..."
         install_zeek_from_source
+        return
     fi
 
     # Add Zeek repository for Debian
@@ -92,8 +108,10 @@ install_zeek_debian() {
 
     # Update package list and install Zeek
     apt update -y
-    apt install -y zeek zeekctl || install_zeek_from_source
-
+    apt install -y zeek zeekctl || {
+        echo "Package installation failed, attempting to install from source..."
+        install_zeek_from_source
+    }
     # Configure Zeek
     configure_zeek
 }
@@ -160,7 +178,10 @@ install_zeek_rhel7() {
 
     # Update system and install Zeek
     yum update -y
-    yum install -y zeek zeekctl
+    yum install -y zeek zeekctl || {
+        echo "Package installation failed, attempting to install from source..."
+        install_zeek_from_source
+    }
 
     # Configure Zeek
     configure_zeek
@@ -269,17 +290,17 @@ install_zeek_arch() {
     echo "Detected Arch Linux. Proceeding with installation from source..."
 
     # Install required dependencies for building Zeek
-    pacman -Syu --noconfirm base-devel git cmake make gcc flex bison libpcap openssl python3 swig zlib geoip libmaxminddb gperftools
+    sudo pacman -Syu --noconfirm curl wget base-devel git cmake make gcc flex bison libpcap openssl python3 swig zlib geoip libmaxminddb gperftools
 
     # Create a non-root user for building
-    useradd -m builder
-    su - builder -c "
+    sudo useradd -m builder
+    sudo su - builder -c "
         cd /home/builder &&
         git clone --depth=1 https://github.com/zeek/zeek.git &&
         cd zeek &&
         mkdir build &&
         cd build &&
-        cmake .. -DCMAKE_PREFIX_PATH=/usr/lib/libpcap.so &&
+        cmake .. -DCMAKE_PREFIX_PATH=/usr -DPCAP_INCLUDE_DIR=/usr/include -DPCAP_LIBRARY=/usr/lib/libpcap.so &&
         make -j$(nproc) &&
         sudo make install
     "
@@ -287,6 +308,7 @@ install_zeek_arch() {
     # Configure Zeek after installation
     configure_zeek
 }
+
 
 
 
@@ -307,41 +329,80 @@ install_zeek_opensuse() {
     configure_zeek
 }
 
+# Function to install utilities if not present
+install_utilities() {
+    echo "Installing required utilities..."
+    apt update -y
+    apt install -y wget curl lsb-release gnupg build-essential cmake gcc g++ flex bison libpcap-dev libssl-dev python3-dev zlib1g-dev libcaf-dev swig binutils-gold libmmdb-dev libkrb5-dev libfts-dev nodejs
+}
+
+# Function to clean the build directory if necessary
+clean_build_directory() {
+    echo "Cleaning build directory..."
+    if [ -d "build" ]; then
+        make distclean || rm -rf build
+    fi
+}
+
 # Function to install Zeek from source
 install_zeek_from_source() {
     echo "Installing Zeek from source..."
 
+    # Check if Zeek is already installed
+    if is_zeek_installed; then
+        echo "Skipping source installation as Zeek is already installed."
+        return
+    fi
+
     # Install required dependencies for building Zeek from source
     if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
         apt update -y
-        apt install -y cmake make gcc g++ flex bison libpcap-dev libssl-dev python3-dev zlib1g-dev libcaf-opencl-dev libcaf-dev
+        apt install -y curl wget lsb-release gnupg build-essential cmake gcc g++ flex bison libpcap-dev libssl-dev python3-dev zlib1g-dev libcaf-dev swig binutils-gold libkrb5-dev nodejs
     elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
         yum groupinstall -y "Development Tools"
-        yum install -y cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
+        yum install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
     elif [[ "$ID" == "fedora" ]]; then
-        dnf install -y cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
+        dnf install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
     elif [[ "$ID" == "arch" ]]; then
-        pacman -Sy --noconfirm base-devel cmake flex bison libpcap openssl python3 zlib
+        pacman -Sy --noconfirm curl wget base-devel cmake flex bison libpcap openssl python3 zlib
     elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
-        zypper install -y cmake make gcc gcc-c++ flex bison libpcap-devel libopenssl-devel python3-devel zlib-devel
+        zypper install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel libopenssl-devel python3-devel zlib-devel
     else
         echo "Unsupported distribution for source installation."
         exit 1
     fi
 
-    # Download Zeek source code
-    ZEEK_VERSION="5.1.2"
-    wget https://download.zeek.org/zeek-${ZEEK_VERSION}.tar.gz
+
+    # Clean build directory if exists
+    clean_build_directory
+
+    # Download Zeek source code using curl
+    ZEEK_VERSION="7.0.1"  # Your specified Zeek version
+    curl -L -o zeek-${ZEEK_VERSION}.tar.gz https://download.zeek.org/zeek-${ZEEK_VERSION}.tar.gz
+    if [ $? -ne 0 ]; then
+        echo "Failed to download Zeek source code."
+        exit 1
+    fi
+
     tar -xzf zeek-${ZEEK_VERSION}.tar.gz
     cd zeek-${ZEEK_VERSION}
 
     # Build and install Zeek
     ./configure
-    make -j$(nproc)
-    make install
-
     if [ $? -ne 0 ]; then
-        echo "Failed to compile and install Zeek from source."
+        echo "Failed to configure Zeek."
+        exit 1
+    fi
+
+    make -j$(nproc)
+    if [ $? -ne 0 ]; then
+        echo "Failed to compile Zeek."
+        exit 1
+    fi
+
+    make install
+    if [ $? -ne 0 ]; then
+        echo "Failed to install Zeek."
         exit 1
     fi
 
@@ -353,14 +414,17 @@ install_zeek_from_source() {
     configure_zeek
 }
 
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" &> /dev/null
+}
 
-# Function to configure Zeek (common for all distributions)
-configure_zeek() {
-    echo "Configuring Zeek..."
-
-    # Find zeek-config
+# Function to find zeek-config and update PATH if necessary
+find_zeek_config() {
+    # Check if zeek-config is already in the PATH
     if command_exists zeek-config; then
         ZEEK_CONFIG_PATH=$(command -v zeek-config)
+        echo "zeek-config found in PATH at: $ZEEK_CONFIG_PATH"
     else
         echo "zeek-config not found in PATH. Searching common directories..."
         # Limit the search to common directories
@@ -370,8 +434,19 @@ configure_zeek() {
             exit 1
         fi
         # Add zeek-config directory to PATH
-        export PATH=$(dirname "$ZEEK_CONFIG_PATH"):$PATH
+        ZEEK_CONFIG_DIR=$(dirname "$ZEEK_CONFIG_PATH")
+        export PATH="$ZEEK_CONFIG_DIR:$PATH"
+        echo "zeek-config found at $ZEEK_CONFIG_PATH and added to PATH."
     fi
+}
+
+
+# Function to configure Zeek (common for all distributions)
+configure_zeek() {
+    echo "Configuring Zeek..."
+
+    # Use the existing function to find zeek-config
+    find_zeek_config
 
     echo "Found zeek-config at: $ZEEK_CONFIG_PATH"
 
