@@ -41,52 +41,58 @@ install_utilities() {
     fi
 }
 
-# Function to install Zeek on Ubuntu or Debian
-install_zeek_ubuntu_debian() {
-    echo "Detected Ubuntu/Debian. Proceeding with installation..."
+# Function to install Zeek on Ubuntu
+install_zeek_ubuntu() {
+    echo "Detected Ubuntu. Proceeding with installation..."
 
     # Install required utilities if not present
     install_utilities
 
-    OS=$(lsb_release -is)
     DISTRO_VERSION=$(lsb_release -rs)
 
-    if [ "$OS" = "Ubuntu" ]; then
-        echo "Configuring repository for Ubuntu..."
+    echo "Configuring repository for Ubuntu..."
 
-        # Add Zeek GPG key
-        curl -fsSL "https://download.opensuse.org/repositories/security:zeek/xUbuntu_${DISTRO_VERSION}/Release.key" | gpg --dearmor | tee /usr/share/keyrings/zeek-archive-keyring.gpg > /dev/null
-        if [ $? -ne 0 ]; then
-            echo "Failed to add Zeek GPG key."
-            exit 1
-        fi
-
-        # Add Zeek repository
-        echo "deb [signed-by=/usr/share/keyrings/zeek-archive-keyring.gpg] http://download.opensuse.org/repositories/security:/zeek/xUbuntu_${DISTRO_VERSION}/ /" | tee /etc/apt/sources.list.d/zeek.list
-
-        # Update package list and install Zeek
-        apt update -y
-        apt install -y zeek zeekctl
-
-    elif [ "$OS" = "Debian" ]; then
-        echo "Configuring repository for Debian..."
-
-        # Add Zeek GPG key for Debian
-        curl -fsSL "https://download.opensuse.org/repositories/security:zeek/Debian_${DISTRO_VERSION}/Release.key" | gpg --dearmor | tee /usr/share/keyrings/zeek-archive-keyring.gpg > /dev/null
-        if [ $? -ne 0 ]; then
-            install_zeek_from_source
-        fi
-
-        # Add Zeek repository for Debian
-        echo "deb [signed-by=/usr/share/keyrings/zeek-archive-keyring.gpg] http://download.opensuse.org/repositories/security:/zeek/Debian_${DISTRO_VERSION}/ /" | tee /etc/apt/sources.list.d/zeek.list
-
-        # Update package list and install Zeek
-        apt update -y
-        apt install -y zeek zeekctl || install_zeek_from_source
-    else
-        echo "Unsupported operating system: $OS"
+    # Add Zeek GPG key
+    curl -fsSL "https://download.opensuse.org/repositories/security:zeek/xUbuntu_${DISTRO_VERSION}/Release.key" | gpg --dearmor | tee /usr/share/keyrings/zeek-archive-keyring.gpg > /dev/null
+    if [ $? -ne 0 ]; then
+        echo "Failed to add Zeek GPG key."
         exit 1
     fi
+
+    # Add Zeek repository
+    echo "deb [signed-by=/usr/share/keyrings/zeek-archive-keyring.gpg] http://download.opensuse.org/repositories/security:/zeek/xUbuntu_${DISTRO_VERSION}/ /" | tee /etc/apt/sources.list.d/zeek.list
+
+    # Update package list and install Zeek
+    apt update -y
+    apt install -y zeek zeekctl
+
+    # Configure Zeek
+    configure_zeek
+}
+
+# Function to install Zeek on Debian
+install_zeek_debian() {
+    echo "Detected Debian. Proceeding with installation..."
+
+    # Install required utilities if not present
+    install_utilities
+
+    DISTRO_VERSION=$(lsb_release -rs)
+
+    echo "Configuring repository for Debian..."
+
+    # Add Zeek GPG key for Debian
+    curl -fsSL "https://download.opensuse.org/repositories/security:zeek/Debian_${DISTRO_VERSION}/Release.key" | gpg --dearmor | tee /usr/share/keyrings/zeek-archive-keyring.gpg > /dev/null
+    if [ $? -ne 0 ]; then
+        install_zeek_from_source
+    fi
+
+    # Add Zeek repository for Debian
+    echo "deb [signed-by=/usr/share/keyrings/zeek-archive-keyring.gpg] http://download.opensuse.org/repositories/security:/zeek/Debian_${DISTRO_VERSION}/ /" | tee /etc/apt/sources.list.d/zeek.list
+
+    # Update package list and install Zeek
+    apt update -y
+    apt install -y zeek zeekctl || install_zeek_from_source
 
     # Configure Zeek
     configure_zeek
@@ -139,18 +145,116 @@ EOF
     configure_zeek
 }
 
-# Function to install Zeek on CentOS/RHEL
+# Function to install Zeek on RHEL 7
+install_zeek_rhel7() {
+    echo "Detected RHEL 7. Proceeding with installation..."
+
+    # Install required utilities
+    install_utilities
+
+    # Import Zeek GPG key for RHEL 7
+    rpm --import https://download.opensuse.org/repositories/security:zeek/RHEL_7/repodata/repomd.xml.key
+
+    # Add Zeek repository for RHEL 7
+    curl -fsSL -o /etc/yum.repos.d/zeek.repo https://download.opensuse.org/repositories/security:zeek/RHEL_7/security:zeek.repo
+
+    # Update system and install Zeek
+    yum update -y
+    yum install -y zeek zeekctl
+
+    # Configure Zeek
+    configure_zeek
+}
+
+# Function to install Zeek on RHEL 8 (Stream or Vault)
+install_zeek_rhel8() {
+    echo "Detected RHEL 8. Proceeding with installation..."
+
+    # Install required utilities
+    install_utilities
+
+    # Import Zeek GPG key for RHEL 8
+    rpm --import https://download.opensuse.org/repositories/security:zeek/RHEL_8/repodata/repomd.xml.key
+
+    # Add Zeek repository for RHEL 8
+    curl -fsSL -o /etc/yum.repos.d/zeek.repo https://download.opensuse.org/repositories/security:zeek/RHEL_8/security:zeek.repo
+
+    # Update system and install Zeek
+    yum update -y
+    yum install -y zeek zeekctl
+
+    # Configure Zeek
+    configure_zeek
+}
+
+# Function to install Zeek on CentOS/RHEL (detecting versions)
 install_zeek_centos_rhel() {
     echo "Detected CentOS/RHEL. Proceeding with installation..."
 
-    # Install required utilities if not present
+    # Determine if it's RHEL or CentOS and the version
+    OS_VERSION=$(rpm -E %rhel)
+
+    if [[ "$OS_VERSION" == "7" ]]; then
+        install_zeek_rhel7
+    elif [[ "$OS_VERSION" == "8" ]]; then
+        install_zeek_rhel8
+    else
+        echo "Unsupported CentOS/RHEL version: $OS_VERSION"
+        exit 1
+    fi
+}
+
+# Function to install Zeek on CentOS 7
+install_zeek_centos7() {
+    echo "Detected CentOS 7. Proceeding with installation..."
+
+    # Install required utilities
     install_utilities
 
     # Import Zeek GPG key
-    rpm --import https://download.opensuse.org/repositories/security:zeek/RHEL_8/repodata/repomd.xml.key
+    rpm --import https://download.opensuse.org/repositories/security:zeek/CentOS_7/repodata/repomd.xml.key
 
     # Add Zeek repository
-    curl -fsSL -o /etc/yum.repos.d/zeek.repo https://download.opensuse.org/repositories/security:zeek/RHEL_8/security:zeek.repo
+    curl -fsSL -o /etc/yum.repos.d/zeek.repo https://download.opensuse.org/repositories/security:zeek/CentOS_7/security:zeek.repo
+
+    # Update system and install Zeek
+    yum update -y
+    yum install -y zeek zeekctl
+
+    # Configure Zeek
+    configure_zeek
+}
+
+# Function to install Zeek on CentOS 8 (Stream or Vault)
+install_zeek_centos8() {
+    echo "Detected CentOS 8. Proceeding with installation..."
+
+    # Install required utilities
+    install_utilities
+
+    # Check if the system is CentOS 8 Stream or CentOS 8
+    if [[ "$CENTOS_VERSION" == "Stream" ]]; then
+        echo "Installing Zeek on CentOS 8 Stream..."
+
+        # Import Zeek GPG key for CentOS 8 Stream
+        rpm --import https://download.opensuse.org/repositories/security:zeek/CentOS_8_Stream/repodata/repomd.xml.key
+
+        # Add Zeek repository for CentOS 8 Stream
+        curl -fsSL -o /etc/yum.repos.d/zeek.repo https://download.opensuse.org/repositories/security:zeek/CentOS_8_Stream/security:zeek.repo
+
+    else
+        echo "Installing Zeek on CentOS 8 (using Vault repository)..."
+
+        # Update the repository to use CentOS Vault since CentOS 8 has reached EOL
+        sed -i 's|mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-*.repo
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
+
+        # Import Zeek GPG key for CentOS 8
+        rpm --import https://download.opensuse.org/repositories/security:zeek/CentOS_8/repodata/repomd.xml.key
+
+        # Add Zeek repository for CentOS 8
+        curl -fsSL -o /etc/yum.repos.d/zeek.repo https://download.opensuse.org/repositories/security:zeek/CentOS_8/security:zeek.repo
+    fi
 
     # Update system and install Zeek
     yum update -y
@@ -162,31 +266,29 @@ install_zeek_centos_rhel() {
 
 # Function to install Zeek on Arch Linux
 install_zeek_arch() {
-    echo "Detected Arch Linux. Proceeding with installation..."
+    echo "Detected Arch Linux. Proceeding with installation from source..."
 
-    # Install required utilities if not present
-    install_utilities
+    # Install required dependencies for building Zeek
+    pacman -Syu --noconfirm base-devel git cmake make gcc flex bison libpcap openssl python3 swig zlib geoip libmaxminddb gperftools
 
-    # Update system
-    pacman -Syu --noconfirm
+    # Create a non-root user for building
+    useradd -m builder
+    su - builder -c "
+        cd /home/builder &&
+        git clone --depth=1 https://github.com/zeek/zeek.git &&
+        cd zeek &&
+        mkdir build &&
+        cd build &&
+        cmake .. -DCMAKE_PREFIX_PATH=/usr/lib/libpcap.so &&
+        make -j$(nproc) &&
+        sudo make install
+    "
 
-    # Install Zeek from AUR
-    if ! command_exists git; then
-        pacman -S --noconfirm git
-    fi
-
-    if ! command_exists base-devel; then
-        pacman -S --noconfirm base-devel
-    fi
-
-    git clone https://aur.archlinux.org/zeek.git
-    cd zeek
-    makepkg -si --noconfirm
-    cd ..
-
-    # Configure Zeek
+    # Configure Zeek after installation
     configure_zeek
 }
+
+
 
 # Function to install Zeek on openSUSE
 install_zeek_opensuse() {
@@ -204,6 +306,53 @@ install_zeek_opensuse() {
     # Configure Zeek
     configure_zeek
 }
+
+# Function to install Zeek from source
+install_zeek_from_source() {
+    echo "Installing Zeek from source..."
+
+    # Install required dependencies for building Zeek from source
+    if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
+        apt update -y
+        apt install -y cmake make gcc g++ flex bison libpcap-dev libssl-dev python3-dev zlib1g-dev libcaf-opencl-dev libcaf-dev
+    elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
+        yum groupinstall -y "Development Tools"
+        yum install -y cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
+    elif [[ "$ID" == "fedora" ]]; then
+        dnf install -y cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
+    elif [[ "$ID" == "arch" ]]; then
+        pacman -Sy --noconfirm base-devel cmake flex bison libpcap openssl python3 zlib
+    elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
+        zypper install -y cmake make gcc gcc-c++ flex bison libpcap-devel libopenssl-devel python3-devel zlib-devel
+    else
+        echo "Unsupported distribution for source installation."
+        exit 1
+    fi
+
+    # Download Zeek source code
+    ZEEK_VERSION="5.1.2"
+    wget https://download.zeek.org/zeek-${ZEEK_VERSION}.tar.gz
+    tar -xzf zeek-${ZEEK_VERSION}.tar.gz
+    cd zeek-${ZEEK_VERSION}
+
+    # Build and install Zeek
+    ./configure
+    make -j$(nproc)
+    make install
+
+    if [ $? -ne 0 ]; then
+        echo "Failed to compile and install Zeek from source."
+        exit 1
+    fi
+
+    # Go back to the original directory
+    cd ..
+    echo "Zeek installed successfully from source."
+
+    # Configure Zeek after installation
+    configure_zeek
+}
+
 
 # Function to configure Zeek (common for all distributions)
 configure_zeek() {
@@ -303,8 +452,10 @@ detect_distro_and_install() {
         install_utilities
     fi
 
-    if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
-        install_zeek_ubuntu_debian
+    if [[ "$ID" == "ubuntu" ]]; then
+        install_zeek_ubuntu
+    elif [[ "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
+        install_zeek_debian
     elif [[ "$ID" == "fedora" ]]; then
         install_zeek_fedora
     elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
