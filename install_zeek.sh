@@ -41,8 +41,6 @@ install_utilities() {
         yum install -y epel-release curl
     elif [[ "$ID" == "fedora" ]]; then
         dnf install -y curl redhat-lsb-core
-    elif [[ "$ID" == "arch" ]]; then
-        pacman -Sy --noconfirm curl lsb-release
     elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
         zypper install -y curl lsb-release
     else
@@ -152,11 +150,10 @@ EOF
         dnf update -y
 
         # Install Zeek
-        dnf install -y zeek zeekctl
-        if [ $? -ne 0 ]; then
-            echo "Failed to install Zeek from OBS repository."
-            exit 1
-        fi
+        dnf install -y zeek zeekctl || {
+            echo "Package installation failed, attempting to install from source..."
+            install_zeek_from_source
+        }
     fi
 
     # Configure Zeek
@@ -285,62 +282,198 @@ install_zeek_centos8() {
     configure_zeek
 }
 
-# Function to install Zeek on Arch Linux
-install_zeek_arch() {
-    echo "Detected Arch Linux. Proceeding with installation from source..."
-
-    # Install required dependencies for building Zeek
-    sudo pacman -Syu --noconfirm curl wget base-devel git cmake make gcc flex bison libpcap openssl python3 swig zlib geoip libmaxminddb gperftools
-
-    # Create a non-root user for building
-    sudo useradd -m builder
-    sudo su - builder -c "
-        cd /home/builder &&
-        git clone --depth=1 https://github.com/zeek/zeek.git &&
-        cd zeek &&
-        mkdir build &&
-        cd build &&
-        cmake .. -DCMAKE_PREFIX_PATH=/usr -DPCAP_INCLUDE_DIR=/usr/include -DPCAP_LIBRARY=/usr/lib/libpcap.so &&
-        make -j$(nproc) &&
-        sudo make install
-    "
-
-    # Configure Zeek after installation
-    configure_zeek
-}
-
-
-
 
 # Function to install Zeek on openSUSE
 install_zeek_opensuse() {
-    echo "Detected openSUSE. Proceeding with installation..."
+    # Check if Zeek is already installed
+    if command -v zeek >/dev/null 2>&1; then
+        echo "Zeek is already installed."
+        zeek --version
+        return 0
+    fi
 
-    # Install required utilities if not present
-    install_utilities
+    # Update system repositories
+    echo "Updating system repositories..."
+    zypper --gpg-auto-import-keys refresh
 
-    # Update system
-    zypper refresh
+    # Ensure essential utilities are installed
+    echo "Ensuring essential utilities are installed..."
+    zypper install -y wget tar gzip
 
-    # Install Zeek
-    zypper install -y zeek zeekctl
+    # Attempt to install Zeek via zypper
+    echo "Attempting to install Zeek via zypper..."
+    if zypper install -y zeek; then
+        echo "Zeek installed successfully via zypper."
+        zeek --version
+        return 0
+    else
+        echo "Zeek not found in default repositories."
+        echo "Adding the security:zeek repository."
 
-    # Configure Zeek
-    configure_zeek
+        # Detect openSUSE version
+        . /etc/os-release
+        if [[ $NAME == "openSUSE Tumbleweed" ]]; then
+            REPO_URL="https://download.opensuse.org/repositories/security:zeek/openSUSE_Tumbleweed/security:zeek.repo"
+        elif [[ $NAME == "openSUSE Leap" ]]; then
+            VERSION_ID=$(echo $VERSION_ID | cut -d'.' -f1,2)
+            REPO_URL="https://download.opensuse.org/repositories/security:zeek/$VERSION_ID/security:zeek.repo"
+        else
+            echo "Unsupported openSUSE version or distribution."
+            return 1
+        fi
+
+        REPO_ALIAS="security:zeek"
+
+        # Add the security:zeek repository
+        zypper ar -f $REPO_URL $REPO_ALIAS
+        zypper --gpg-auto-import-keys refresh
+
+        # Install Zeek from the new repository
+        if zypper install -y zeek; then
+            echo "Zeek installed successfully from the security:zeek repository."
+            zeek --version
+            return 0
+        else
+            echo "Failed to install Zeek from the security:zeek repository."
+            echo "Proceeding to build Zeek from source."
+        fi
+    fi
+
+    # Install build dependencies
+    echo "Installing build dependencies..."
+    zypper install -y make cmake flex bison libpcap-devel libopenssl-devel python3 python3-devel swig zlib-devel wget tar gzip
+
+    # Verify Python sqlite3 module
+    echo "Verifying Python sqlite3 module..."
+    if ! python3 -c "import sqlite3" >/dev/null 2>&1; then
+        echo "Installing sqlite3 module for Python 3..."
+        zypper install -y python3-sqlite3
+    fi
+
+    # Install GCC 10
+    echo "Adding the devel:gcc repository to install GCC 10..."
+    zypper ar -f https://download.opensuse.org/repositories/devel:/gcc/openSUSE_Leap_$VERSION_ID/ devel:gcc
+    zypper --gpg-auto-import-keys refresh
+    echo "Installing GCC 10..."
+    zypper --non-interactive install -y gcc10 gcc10-c++
+
+    # Update alternatives to use GCC 10
+    echo "Updating gcc and g++ to point to GCC 10..."
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 70
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 70
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100
+
+    # Verify GCC version
+    echo "Verifying GCC version..."
+    gcc --version
+
+    # Create a directory for the source code
+    mkdir -p ~/src
+    cd ~/src || exit 1
+
+    # Set the LTS version of Zeek
+    ZEEK_VERSION="7.0.1"  # Current LTS version
+
+    # Download the Zeek source code if not already downloaded
+    if [ ! -f "zeek-$ZEEK_VERSION.tar.gz" ]; then
+        echo "Downloading Zeek source code version $ZEEK_VERSION..."
+        wget https://download.zeek.org/zeek-$ZEEK_VERSION.tar.gz
+        if [ $? -ne 0 ]; then
+            echo "Error downloading Zeek source code. Please check your internet connection."
+            return 1
+        fi
+    else
+        echo "Zeek source code version $ZEEK_VERSION already downloaded."
+    fi
+
+    # Extract the source code if not already extracted
+    if [ ! -d "zeek-$ZEEK_VERSION" ]; then
+        echo "Extracting Zeek source code..."
+        tar -xzf zeek-$ZEEK_VERSION.tar.gz
+        if [ $? -ne 0 ]; then
+            echo "Error extracting Zeek source code."
+            return 1
+        fi
+    else
+        echo "Zeek source code already extracted."
+    fi
+
+    # Build and install Zeek from source
+    echo "Building Zeek from source..."
+    cd zeek-$ZEEK_VERSION || { echo "Directory zeek-$ZEEK_VERSION does not exist."; return 1; }
+    mkdir -p build
+    cd build
+    cmake ..
+    if [ $? -ne 0 ]; then
+        echo "CMake configuration failed."
+        return 1
+    fi
+    make -j$(nproc)
+    if [ $? -ne 0 ]; then
+        echo "Compilation failed."
+        return 1
+    fi
+
+    echo "Installing Zeek..."
+    make install
+    if [ $? -ne 0 ]; then
+        echo "Installation failed."
+        return 1
+    fi
+
+    # Determine the home directory
+    HOME_DIR=$(getent passwd "$USER" | cut -d: -f6)
+
+    # Add Zeek to the system PATH if not already added
+    BASHRC="$HOME_DIR/.bashrc"
+    if [ ! -f "$BASHRC" ]; then
+        touch "$BASHRC"
+    fi
+    if ! grep -q '/usr/local/zeek/bin' "$BASHRC"; then
+        echo "Adding Zeek to the system PATH..."
+        echo 'export PATH=/usr/local/zeek/bin:$PATH' >> "$BASHRC"
+        source "$BASHRC"
+    fi
+
+    # Verify the Zeek installation
+    echo "Verifying Zeek installation..."
+    if zeek --version >/dev/null 2>&1; then
+        echo "Zeek installed successfully."
+        zeek --version
+    else
+        echo "Zeek installation failed."
+        return 1
+    fi
 }
 
-# Function to install utilities if not present
-install_utilities() {
-    echo "Installing required utilities..."
-    apt update -y
-    apt install -y wget curl lsb-release gnupg build-essential cmake gcc g++ flex bison libpcap-dev libssl-dev python3-dev zlib1g-dev libcaf-dev swig binutils-gold libmmdb-dev libkrb5-dev libfts-dev nodejs
-}
 
 # Function to clean the build directory if necessary
 clean_build_directory() {
     echo "Cleaning build directory..."
     if [ -d "build" ]; then
         make distclean || rm -rf build
+    fi
+}
+
+
+install_build_dependencies() {
+    echo "Installing build dependencies..."
+    echo "Detected OS: $ID $VERSION_ID $VERSION"
+      # Install required dependencies for building Zeek from source
+    if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
+        apt update -y
+        apt install -y curl wget lsb-release gnupg build-essential cmake gcc g++ flex bison libpcap-dev libssl-dev python3-dev zlib1g-dev libcaf-dev swig binutils-gold libkrb5-dev nodejs
+    elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
+        yum groupinstall -y "Development Tools"
+        yum install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
+    elif [[ "$ID" == "fedora" ]]; then
+        dnf install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
+    elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
+        zypper install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel libopenssl-devel python3-devel zlib-devel
+    else
+        echo "Unsupported distribution for source installation."
+        exit 1
     fi
 }
 
@@ -354,63 +487,76 @@ install_zeek_from_source() {
         return
     fi
 
-    # Install required dependencies for building Zeek from source
-    if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
-        apt update -y
-        apt install -y curl wget lsb-release gnupg build-essential cmake gcc g++ flex bison libpcap-dev libssl-dev python3-dev zlib1g-dev libcaf-dev swig binutils-gold libkrb5-dev nodejs
-    elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
-        yum groupinstall -y "Development Tools"
-        yum install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
-    elif [[ "$ID" == "fedora" ]]; then
-        dnf install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
-    elif [[ "$ID" == "arch" ]]; then
-        pacman -Sy --noconfirm curl wget base-devel cmake flex bison libpcap openssl python3 zlib
-    elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
-        zypper install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel libopenssl-devel python3-devel zlib-devel
-    else
-        echo "Unsupported distribution for source installation."
-        exit 1
+    # Set Zeek version
+    ZEEK_VERSION="7.0.1"
+
+    # Create non-root user if not exists
+    if ! id "builder" &>/dev/null; then
+        useradd -m builder
     fi
 
 
-    # Clean build directory if exists
-    clean_build_directory
+    # Install build dependencies
+    install_build_dependencies
 
-    # Download Zeek source code using curl
-    ZEEK_VERSION="7.0.1"  # Your specified Zeek version
-    curl -L -o zeek-${ZEEK_VERSION}.tar.gz https://download.zeek.org/zeek-${ZEEK_VERSION}.tar.gz
-    if [ $? -ne 0 ]; then
-        echo "Failed to download Zeek source code."
-        exit 1
-    fi
+    # Ensure builder's home directory ownership
+    chown -R builder:builder /home/builder
 
-    tar -xzf zeek-${ZEEK_VERSION}.tar.gz
-    cd zeek-${ZEEK_VERSION}
+    # Create build script for the builder user
+    BUILD_SCRIPT="/home/builder/build_zeek.sh"
 
-    # Build and install Zeek
-    ./configure
-    if [ $? -ne 0 ]; then
-        echo "Failed to configure Zeek."
-        exit 1
-    fi
+    cat << 'EOF' > $BUILD_SCRIPT
+#!/bin/bash
+set -e
+cd ~
 
-    make -j$(nproc)
-    if [ $? -ne 0 ]; then
-        echo "Failed to compile Zeek."
-        exit 1
-    fi
+# Clean previous builds
+rm -rf zeek-*
 
+# Download Zeek source code
+echo "Downloading Zeek source code..."
+DOWNLOAD_URL="https://github.com/zeek/zeek/releases/download/v${ZEEK_VERSION}/zeek-${ZEEK_VERSION}.tar.gz"
+curl -L -o zeek-${ZEEK_VERSION}.tar.gz "$DOWNLOAD_URL"
+
+# Verify download
+if [ ! -f zeek-${ZEEK_VERSION}.tar.gz ]; then
+    echo "Failed to download Zeek source code."
+    exit 1
+fi
+
+FILE_SIZE=$(stat -c%s "zeek-${ZEEK_VERSION}.tar.gz")
+if [ $FILE_SIZE -lt 100000 ]; then
+    echo "Downloaded file is too small, indicating a failed download."
+    echo "File contents:"
+    cat zeek-${ZEEK_VERSION}.tar.gz
+    exit 1
+fi
+
+# Extract and build
+tar -xzf zeek-${ZEEK_VERSION}.tar.gz
+cd zeek-${ZEEK_VERSION}
+./configure
+make -j$(nproc)
+EOF
+
+    # Set ownership and permissions
+    chown builder:builder $BUILD_SCRIPT
+    chmod +x $BUILD_SCRIPT
+
+    # Export variables for the builder user
+    su - builder -c "export ZEEK_VERSION=$ZEEK_VERSION && bash $BUILD_SCRIPT"
+
+    # Install Zeek as root
+    cd /home/builder/zeek-${ZEEK_VERSION}
     make install
-    if [ $? -ne 0 ]; then
-        echo "Failed to install Zeek."
-        exit 1
-    fi
 
-    # Go back to the original directory
-    cd ..
+    # Clean up
+    rm -f $BUILD_SCRIPT
+    cd -
+
     echo "Zeek installed successfully from source."
 
-    # Configure Zeek after installation
+    # Configure Zeek
     configure_zeek
 }
 
@@ -499,10 +645,17 @@ configure_zeek() {
     fi
     echo "Found zeekctl at: $ZEEKCTL_PATH"
 
+    # Ensure the script is running as root before deploying
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "Error: zeekctl deploy must be run as root."
+        exit 1
+    fi
+
     # Deploy and start Zeek
     echo "Deploying Zeek..."
     "$ZEEKCTL_PATH" deploy
 
+    # Check if deploy was successful
     if [ $? -ne 0 ]; then
         echo "zeekctl deploy command failed."
         exit 1
@@ -535,8 +688,6 @@ detect_distro_and_install() {
         install_zeek_fedora
     elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
         install_zeek_centos_rhel
-    elif [[ "$ID" == "arch" ]]; then
-        install_zeek_arch
     elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
         install_zeek_opensuse
     else
