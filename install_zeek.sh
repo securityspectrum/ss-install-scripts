@@ -294,66 +294,144 @@ install_zeek_opensuse() {
 
     # Update system repositories
     echo "Updating system repositories..."
-    zypper --gpg-auto-import-keys refresh
+    zypper --non-interactive --gpg-auto-import-keys refresh
 
     # Ensure essential utilities are installed
     echo "Ensuring essential utilities are installed..."
-    zypper install -y wget tar gzip
+    zypper --non-interactive install -y wget tar gzip
 
     # Attempt to install Zeek via zypper
     echo "Attempting to install Zeek via zypper..."
-    if zypper install -y zeek; then
+
+    # Try installing Zeek via the default repository first
+    if zypper --non-interactive install -y zeek; then
         echo "Zeek installed successfully via zypper."
         zeek --version
+        configure_zeek
         return 0
     else
         echo "Zeek not found in default repositories."
-        echo "Adding the security:zeek repository."
+        echo "Adding the Zeek and Python repositories."
 
         # Detect openSUSE version
         . /etc/os-release
+        REPO_ALIAS="security_zeek"
+        PYTHON_REPO_ALIAS="devel_languages_python"
+
+        # Handle openSUSE Tumbleweed
         if [[ $NAME == "openSUSE Tumbleweed" ]]; then
-            REPO_URL="https://download.opensuse.org/repositories/security:zeek/openSUSE_Tumbleweed/security:zeek.repo"
-        elif [[ $NAME == "openSUSE Leap" ]]; then
-            VERSION_ID=$(echo $VERSION_ID | cut -d'.' -f1,2)
-            REPO_URL="https://download.opensuse.org/repositories/security:zeek/$VERSION_ID/security:zeek.repo"
+            REPO_URL="https://download.opensuse.org/repositories/security:zeek/openSUSE_Tumbleweed/"
+            PYTHON_REPO_URL="https://download.opensuse.org/repositories/devel:/languages:/python/openSUSE_Tumbleweed/"
+            echo "Detected openSUSE Tumbleweed. Adding the appropriate repositories."
+
+        # Handle openSUSE Leap 15.6
+        elif [[ $NAME == "openSUSE Leap" && $VERSION_ID == "15.6" ]]; then
+            REPO_URL="https://download.opensuse.org/repositories/security:zeek/15.6/"
+            PYTHON_REPO_URL="https://download.opensuse.org/repositories/devel:/languages:/python/15.6/"
+            echo "Detected openSUSE Leap 15.6. Adding the appropriate repositories."
+
+        # Handle openSUSE Leap 15.5
+        elif [[ $NAME == "openSUSE Leap" && $VERSION_ID == "15.5" ]]; then
+            REPO_URL="https://download.opensuse.org/repositories/security:zeek/15.5/"
+            PYTHON_REPO_URL="https://download.opensuse.org/repositories/devel:/languages:/python/15.5/"
+            echo "Detected openSUSE Leap 15.5. Adding the appropriate repositories."
+
         else
             echo "Unsupported openSUSE version or distribution."
             return 1
         fi
 
-        REPO_ALIAS="security:zeek"
+        # Add Zeek repository
+        zypper --non-interactive addrepo --check --refresh --name "Zeek Security Repository" $REPO_URL $REPO_ALIAS
 
-        # Add the security:zeek repository
-        zypper ar -f $REPO_URL $REPO_ALIAS
-        zypper --gpg-auto-import-keys refresh
+        # Add the Python repository to resolve dependencies
+        zypper --non-interactive addrepo --check --refresh --name "devel:languages:python" $PYTHON_REPO_URL $PYTHON_REPO_ALIAS
 
-        # Install Zeek from the new repository
-        if zypper install -y zeek; then
-            echo "Zeek installed successfully from the security:zeek repository."
-            zeek --version
-            return 0
+        # Refresh repositories and auto-import GPG keys
+        zypper --non-interactive --gpg-auto-import-keys refresh
+
+        # Attempt to install python3-gitpython
+        echo "Attempting to install required Python packages..."
+        if ! zypper --non-interactive install -y python3-gitpython; then
+            echo "python3-gitpython not available, proceeding to install zkg via pip3."
+            SKIP_ZKG=true
         else
-            echo "Failed to install Zeek from the security:zeek repository."
-            echo "Proceeding to build Zeek from source."
+            echo "python3-gitpython installed successfully."
+            SKIP_ZKG=false
+        fi
+
+        # Attempt to install Zeek
+        echo "Attempting to install Zeek..."
+        if $SKIP_ZKG; then
+            echo "Installing zeek-core to avoid zkg dependency..."
+            if zypper --non-interactive install --no-recommends -y zeek-core zeekctl zeek-devel zeek-client zeek-spicy-devel zeek-btest; then
+                echo "Zeek core installed successfully."
+                zeek --version
+
+                # Install pip3 if not already installed
+                if ! command -v pip3 >/dev/null 2>&1; then
+                    echo "pip3 not found. Installing pip3..."
+                    zypper --non-interactive install -y python3-pip python3
+                fi
+
+                # Install GitPython and semantic-version via pip3
+                echo "Installing GitPython and semantic-version via pip3..."
+                pip3 install GitPython semantic-version
+
+                # Install zkg via pip3
+                echo "Installing zkg via pip3..."
+                pip3 install zkg
+
+                # Set environment variable to suppress GitPython warnings
+                export GIT_PYTHON_REFRESH=quiet
+
+                # Verifying zkg installation
+                echo "Verifying zkg installation..."
+                if zkg --version >/dev/null 2>&1; then
+                    echo "zkg installed successfully."
+                    zkg --version
+                else
+                    output=$(zkg --version 2>&1)
+                    echo "Failed to install zkg: $output"
+                    echo "zkg installation failed."
+                    exit 1
+                fi
+
+                # Configure Zeek
+                configure_zeek
+                return 0
+            else
+                echo "Failed to install Zeek core from the repositories."
+                echo "Proceeding to build Zeek from source."
+            fi
+        else
+            if zypper --non-interactive install --no-recommends -y zeek; then
+                echo "Zeek installed successfully."
+                zeek --version
+                configure_zeek
+                return 0
+            else
+                echo "Failed to install Zeek from the repositories."
+                echo "Proceeding to build Zeek from source."
+            fi
         fi
     fi
 
     # Install build dependencies
     echo "Installing build dependencies..."
-    zypper install -y make cmake flex bison libpcap-devel libopenssl-devel python3 python3-devel swig zlib-devel wget tar gzip
+    zypper --non-interactive install -y make cmake flex bison libpcap-devel libopenssl-devel python3 python3-devel swig zlib-devel wget tar gzip
 
     # Verify Python sqlite3 module
     echo "Verifying Python sqlite3 module..."
     if ! python3 -c "import sqlite3" >/dev/null 2>&1; then
         echo "Installing sqlite3 module for Python 3..."
-        zypper install -y python3-sqlite3
+        zypper --non-interactive install -y python3-sqlite3
     fi
 
     # Install GCC 10
     echo "Adding the devel:gcc repository to install GCC 10..."
-    zypper ar -f https://download.opensuse.org/repositories/devel:/gcc/openSUSE_Leap_$VERSION_ID/ devel:gcc
-    zypper --gpg-auto-import-keys refresh
+    zypper --non-interactive addrepo --check --refresh --name "devel:gcc" "https://download.opensuse.org/repositories/devel:/gcc/openSUSE_Leap_$VERSION_ID/" devel_gcc
+    zypper --non-interactive --gpg-auto-import-keys refresh
     echo "Installing GCC 10..."
     zypper --non-interactive install -y gcc10 gcc10-c++
 
@@ -441,11 +519,13 @@ install_zeek_opensuse() {
     if zeek --version >/dev/null 2>&1; then
         echo "Zeek installed successfully."
         zeek --version
+        configure_zeek
     else
         echo "Zeek installation failed."
         return 1
     fi
 }
+
 
 
 # Function to clean the build directory if necessary
@@ -591,6 +671,12 @@ find_zeek_config() {
 configure_zeek() {
     echo "Configuring Zeek..."
 
+    # Ensure the script is running as root
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "Error: This script must be run as root."
+        exit 1
+    fi
+
     # Use the existing function to find zeek-config
     find_zeek_config
 
@@ -612,13 +698,27 @@ configure_zeek() {
     fi
     echo "Using network interface: $INTERFACE"
 
-    # Update node.cfg
+    # Path to node.cfg
     NODE_CFG="$ZEEK_PREFIX/etc/node.cfg"
-    if [ -f "$NODE_CFG" ]; then
-        sed -i "s/^interface=.*/interface=$INTERFACE/" "$NODE_CFG"
+
+    # Ensure the /opt/zeek/etc directory exists
+    if [ ! -d "$ZEEK_PREFIX/etc" ]; then
+        echo "$ZEEK_PREFIX/etc directory not found. Creating it..."
+        mkdir -p "$ZEEK_PREFIX/etc"
+    fi
+
+    # Check if node.cfg exists
+    if [ ! -f "$NODE_CFG" ]; then
+        echo "node.cfg not found at $NODE_CFG. Creating node.cfg..."
+        tee "$NODE_CFG" > /dev/null <<EOL
+[zeek]
+type=standalone
+host=localhost
+interface=$INTERFACE
+EOL
     else
-        echo "node.cfg not found at $NODE_CFG"
-        exit 1
+        echo "node.cfg found at $NODE_CFG. Updating interface..."
+        sed -i "s/^interface=.*/interface=$INTERFACE/" "$NODE_CFG"
     fi
 
     # Enable JSON logging
@@ -645,12 +745,6 @@ configure_zeek() {
     fi
     echo "Found zeekctl at: $ZEEKCTL_PATH"
 
-    # Ensure the script is running as root before deploying
-    if [ "$(id -u)" -ne 0 ]; then
-        echo "Error: zeekctl deploy must be run as root."
-        exit 1
-    fi
-
     # Deploy and start Zeek
     echo "Deploying Zeek..."
     "$ZEEKCTL_PATH" deploy
@@ -665,6 +759,7 @@ configure_zeek() {
     echo "Checking Zeek status..."
     "$ZEEKCTL_PATH" status
 }
+
 
 # Function to detect the Linux distribution and install Zeek
 detect_distro_and_install() {
