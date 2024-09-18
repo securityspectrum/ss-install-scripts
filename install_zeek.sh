@@ -666,6 +666,38 @@ find_zeek_config() {
     fi
 }
 
+# Function to update the interface in node.cfg for macOS
+update_node_cfg_macos() {
+    # Detect macOS and use netstat to get the default network interface
+    if [ "$(uname)" == "Darwin" ]; then
+        # Extract the interface used by the default route
+        INTERFACE=$(route get default 2>/dev/null | awk '/interface:/{print $2}')
+
+        if [ -z "$INTERFACE" ]; then
+            echo "Unable to detect network interface from default route."
+            exit 1
+        fi
+
+        echo "Using network interface: $INTERFACE"
+
+        # Path to node.cfg
+        NODE_CFG="/usr/local/etc/node.cfg"
+
+        # Ensure the file exists
+        if [ ! -f "$NODE_CFG" ]; then
+            echo "Error: node.cfg not found at $NODE_CFG"
+            exit 1
+        fi
+
+        # Update the node.cfg file with the correct interface
+        echo "Updating node.cfg with interface $INTERFACE..."
+        sudo sed -i '' "s/^interface=.*/interface=$INTERFACE/" "$NODE_CFG"
+        if [ $? -ne 0 ]; then
+            echo "Failed to update node.cfg with the correct interface."
+            exit 1
+        fi
+    fi
+}
 
 # Function to configure Zeek (common for all distributions)
 configure_zeek() {
@@ -690,35 +722,41 @@ configure_zeek() {
     fi
     echo "Zeek installation prefix: $ZEEK_PREFIX"
 
-    # Set the network interface
-    INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n 1)
-    if [ -z "$INTERFACE" ]; then
-        echo "Unable to detect network interface."
-        exit 1
-    fi
-    echo "Using network interface: $INTERFACE"
+    # Detect and update the network interface for macOS
+    if [ "$(uname)" == "Darwin" ]; then
+        update_node_cfg_macos
+    else
+        # For Linux systems, use the ip command to detect the interface
+        INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n 1)
 
-    # Path to node.cfg
-    NODE_CFG="$ZEEK_PREFIX/etc/node.cfg"
+        if [ -z "$INTERFACE" ]; then
+            echo "Unable to detect network interface."
+            exit 1
+        fi
+        echo "Using network interface: $INTERFACE"
 
-    # Ensure the /opt/zeek/etc directory exists
-    if [ ! -d "$ZEEK_PREFIX/etc" ]; then
-        echo "$ZEEK_PREFIX/etc directory not found. Creating it..."
-        mkdir -p "$ZEEK_PREFIX/etc"
-    fi
+        # Path to node.cfg
+        NODE_CFG="$ZEEK_PREFIX/etc/node.cfg"
 
-    # Check if node.cfg exists
-    if [ ! -f "$NODE_CFG" ]; then
-        echo "node.cfg not found at $NODE_CFG. Creating node.cfg..."
-        tee "$NODE_CFG" > /dev/null <<EOL
+        # Ensure the /opt/zeek/etc directory exists
+        if [ ! -d "$ZEEK_PREFIX/etc" ]; then
+            echo "$ZEEK_PREFIX/etc directory not found. Creating it..."
+            mkdir -p "$ZEEK_PREFIX/etc"
+        fi
+
+        # Check if node.cfg exists
+        if [ ! -f "$NODE_CFG" ]; then
+            echo "node.cfg not found at $NODE_CFG. Creating node.cfg..."
+            tee "$NODE_CFG" > /dev/null <<EOL
 [zeek]
 type=standalone
 host=localhost
 interface=$INTERFACE
 EOL
-    else
-        echo "node.cfg found at $NODE_CFG. Updating interface..."
-        sed -i "s/^interface=.*/interface=$INTERFACE/" "$NODE_CFG"
+        else
+            echo "node.cfg found at $NODE_CFG. Updating interface..."
+            sed -i "s/^interface=.*/interface=$INTERFACE/" "$NODE_CFG"
+        fi
     fi
 
     # Enable JSON logging
@@ -729,6 +767,16 @@ EOL
         echo "local.zeek not found at $LOCAL_ZEEK"
         exit 1
     fi
+
+    # Create missing log, spool, and other directories
+    echo "Creating required directories..."
+    mkdir -p "$ZEEK_PREFIX/logs"
+    mkdir -p "$ZEEK_PREFIX/spool"
+    mkdir -p "$ZEEK_PREFIX/spool/zeek"
+
+    # Ensure the directories have proper permissions
+    chown -R $(whoami) "$ZEEK_PREFIX/logs"
+    chown -R $(whoami) "$ZEEK_PREFIX/spool"
 
     # Find zeekctl
     if command_exists zeekctl; then
@@ -761,36 +809,75 @@ EOL
 }
 
 
-# Function to detect the Linux distribution and install Zeek
-detect_distro_and_install() {
-    if [ -f /etc/os-release ]; then
-        source /etc/os-release
-    else
-        echo "Cannot determine the operating system."
-        exit 1
+# Function to install required utilities for macOS
+install_utilities_macos() {
+    if ! command_exists brew; then
+        echo "Homebrew not found. Installing Homebrew..."
+        sudo -u "$SUDO_USER" /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        if [ $? -ne 0 ]; then
+            echo "Failed to install Homebrew."
+            exit 1
+        fi
     fi
 
-    # Install required utilities if not present
-    if ! command_exists lsb_release || ! command_exists curl; then
-        install_utilities
-    fi
-
-    if [[ "$ID" == "ubuntu" ]]; then
-        install_zeek_ubuntu
-    elif [[ "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
-        install_zeek_debian
-    elif [[ "$ID" == "fedora" ]]; then
-        install_zeek_fedora
-    elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
-        install_zeek_centos_rhel
-    elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
-        install_zeek_opensuse
-    else
-        echo "Unsupported Linux distribution: $ID"
+    echo "Installing required utilities using Homebrew (without sudo)..."
+    sudo -u "$SUDO_USER" brew install cmake make gcc flex bison libpcap openssl python3 swig
+    if [ $? -ne 0 ]; then
+        echo "Failed to install required utilities."
         exit 1
     fi
 }
 
+# Function to install Zeek on macOS
+install_zeek_macos() {
+    echo "Detected macOS. Proceeding with installation..."
+
+    # Install required utilities if not present (without sudo)
+    install_utilities_macos
+
+    # Check if Zeek is available via Homebrew
+    if sudo -u "$SUDO_USER" brew info zeek >/dev/null 2>&1; then
+        echo "Installing Zeek using Homebrew..."
+        sudo -u "$SUDO_USER" brew install zeek
+        if [ $? -ne 0 ]; then
+            echo "Failed to install Zeek via Homebrew. Attempting to install from source."
+            install_zeek_from_source
+        else
+            echo "Zeek installed successfully."
+            zeek --version
+            configure_zeek
+        fi
+    else
+        echo "Zeek is not available via Homebrew. Proceeding to install from source."
+        install_zeek_from_source
+    fi
+}
+
+# Function to detect the Linux distribution and install Zeek
+detect_distro_and_install() {
+    if [ "$(uname)" == "Darwin" ]; then
+        install_zeek_macos
+    elif [ -f /etc/os-release ]; then
+        source /etc/os-release
+        if [[ "$ID" == "ubuntu" ]]; then
+            install_zeek_ubuntu
+        elif [[ "$ID" == "debian" || "$ID_LIKE" =~ "debian" ]]; then
+            install_zeek_debian
+        elif [[ "$ID" == "fedora" ]]; then
+            install_zeek_fedora
+        elif [[ "$ID" == "centos" || "$ID" == "rhel" || "$ID_LIKE" =~ "rhel" ]]; then
+            install_zeek_centos_rhel
+        elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
+            install_zeek_opensuse
+        else
+            echo "Unsupported Linux distribution: $ID"
+            exit 1
+        fi
+    else
+        echo "Cannot determine the operating system."
+        exit 1
+    fi
+}
 
 # Main function to run the installation
 main() {
