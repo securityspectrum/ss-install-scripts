@@ -548,7 +548,7 @@ install_build_dependencies() {
         yum groupinstall -y "Development Tools"
         yum install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
     elif [[ "$ID" == "fedora" ]]; then
-        dnf install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3-devel zlib-devel
+        dnf install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3 python3-devel swig nodejs nodejs-devel zlib-devel
     elif [[ "$ID" == "opensuse" || "$ID_LIKE" =~ "suse" ]]; then
         zypper install -y curl wget cmake make gcc gcc-c++ flex bison libpcap-devel libopenssl-devel python3-devel zlib-devel
     else
