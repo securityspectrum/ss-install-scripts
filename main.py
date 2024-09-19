@@ -80,7 +80,7 @@ def main():
         logger.info(f"ss-install-script version: {INSTALL_SCRIPT_VERSION}")
 
         # Request sudo access at the start
-        SystemUtility.request_sudo()
+        SystemUtility.elevate_privileges()
 
         # Load or prompt for secrets
         secrets_manager = SecretsManager(Path(RUNTIME_DIR_PATH) / USER_CONFIG_FILE)
@@ -124,9 +124,9 @@ def main():
         ss_agent_installer = SSAgentInstaller()
         ss_agent_installer.install()
 
-        # SS Network Analyzer
-        ss_network_analyzer_installer = SSNetworkAnalyzerInstaller()
-        ss_network_analyzer_installer.install()
+        # Zeek Installer
+        zeek_installer = ZeekInstaller()
+        zeek_installer.install()
 
         logger.info("Installation complete.")
         input("Installation complete. Press Enter to exit.\n\n")

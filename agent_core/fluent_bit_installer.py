@@ -1,6 +1,8 @@
+import os
 import platform
 import requests
 import logging
+import tempfile
 import subprocess
 from pathlib import Path
 from agent_core.constants import (
@@ -101,12 +103,23 @@ class FluentBitInstaller:
 
         logger.info("Installation complete.")
 
-    def download_binary(self, download_url, dest_path):
+    def download_binary(self, download_url, dest_path=None):
+        # Use /var/tmp/ if no dest_path is provided
+        if dest_path is None:
+            temp_dir = tempfile.gettempdir()
+            dest_path = os.path.join(temp_dir, os.path.basename(download_url))
+
+        # Download the file
         response = requests.get(download_url, stream=True)
         response.raise_for_status()
+
+        # Write the file in chunks
         with open(dest_path, 'wb') as file:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
+
+        logger.info(f"Downloaded file saved to: {dest_path}")
+        return dest_path
 
     def run_installation_command(self, dest_path):
         system = platform.system()

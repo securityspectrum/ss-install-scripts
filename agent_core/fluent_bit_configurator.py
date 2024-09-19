@@ -67,6 +67,7 @@ class FluentBitConfigurator:
             logger.error(f"Error fetching Fluent Bit configuration: {e}")
             return
 
+        logger.info(f"Generating Fluent Bit configuration...")
         fluent_bit_template_file = Path(CONFIG_DIR_PATH) / FLUENT_BIT_CONF_TEMPLATE
         try:
             with open(fluent_bit_template_file) as f:

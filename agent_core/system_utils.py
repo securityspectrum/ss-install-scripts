@@ -11,21 +11,27 @@ logger = logging.getLogger('InstallationLogger')
 
 class SystemUtility:
     @staticmethod
-    def request_sudo():
+    def elevate_privileges():
+        """
+        Ensures the script is running with root privileges. If not, it re-runs the script with 'sudo'.
+        """
         if platform.system() != "Windows":
-            logger.info("Requesting sudo access...")
-            try:
-                subprocess.run(["sudo", "-v"], check=True)
-                logger.info("Sudo access granted.")
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Error: {e}")
-                sys.exit(1)
+            # Check if the script is already running as root
+            if os.geteuid() != 0:
+                logger.info("Elevating script privileges with sudo...")
+                try:
+                    # Re-run the current script with sudo
+                    subprocess.run(['sudo', 'python3'] + sys.argv, check=True)
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Failed to elevate privileges: {e}")
+                    sys.exit(1)
+                sys.exit(0)  # Exit the non-root process after relaunching with sudo
         else:
+            # For Windows, check if the script is running as admin
             if not SystemUtility.is_admin():
+                logger.info("Requesting admin privileges on Windows...")
                 ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, ' '.join(sys.argv), None, 1)
-                logger.info("Sudo access granted.")
-                input("Press any key to exit...")
-                sys.exit(1)
+                sys.exit(0)
 
     @staticmethod
     def is_admin():
