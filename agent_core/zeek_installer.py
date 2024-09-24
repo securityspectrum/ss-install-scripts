@@ -99,7 +99,6 @@ class ZeekInstaller:
         logger.info("Installing required utilities...")
         try:
             if self.os_id in ['ubuntu', 'debian'] or 'debian' in self.os_like:
-                self.run_command(['apt', 'update', '-y'])
                 self.run_command(['apt', 'install', '-y', 'apt-transport-https', 'curl', 'gnupg', 'lsb-release'])
             elif self.os_id in ['centos', 'rhel'] or 'rhel' in self.os_like:
                 self.run_command(['yum', 'install', '-y', 'epel-release', 'curl'])
@@ -127,7 +126,7 @@ class ZeekInstaller:
             # Add Zeek GPG key
             gpg_key_url = f"https://download.opensuse.org/repositories/security:zeek/xUbuntu_{distro_version}/Release.key"
             keyring_path = "/usr/share/keyrings/zeek-archive-keyring.gpg"
-            self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
+            # Download and store the GPG key
             gpg_output = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
             self.run_command(['gpg', '--dearmor'], input_data=gpg_output, capture_output=False)
             with open(keyring_path, 'wb') as f:
@@ -135,8 +134,12 @@ class ZeekInstaller:
             # Add Zeek repository
             repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/xUbuntu_{distro_version}/ /"
             self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'])
-            # Update and install Zeek
-            self.run_command(['apt', 'update', '-y'])
+
+            # Update only the Zeek repository
+            self.run_command(['apt', 'update', '-o', f'Dir::Etc::sourcelist="sources.list.d/zeek.list"', '-o',
+                              'Dir::Etc::sourceparts="-"', '-o', 'APT::Get::List-Cleanup="0"'])
+
+            # Install Zeek and Zeekctl without updating other packages
             self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
             logger.info("Zeek installed successfully via apt.")
         except Exception as e:
@@ -157,16 +160,22 @@ class ZeekInstaller:
             # Add Zeek GPG key
             gpg_key_url = f"https://download.opensuse.org/repositories/security:zeek/Debian_{distro_version}/Release.key"
             keyring_path = "/usr/share/keyrings/zeek-archive-keyring.gpg"
-            self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
+
+            # Download and store the GPG key
             gpg_output = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
             self.run_command(['gpg', '--dearmor'], input_data=gpg_output, capture_output=False)
             with open(keyring_path, 'wb') as f:
                 f.write(gpg_output.encode())
+
             # Add Zeek repository
             repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/Debian_{distro_version}/ /"
             self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'])
-            # Update and install Zeek
-            self.run_command(['apt', 'update', '-y'])
+
+            # Update only the Zeek repository
+            self.run_command(['apt', 'update', '-o', f'Dir::Etc::sourcelist="sources.list.d/zeek.list"', '-o',
+                              'Dir::Etc::sourceparts="-"', '-o', 'APT::Get::List-Cleanup="0"'])
+
+            # Install Zeek and Zeekctl without updating other packages
             self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
             logger.info("Zeek installed successfully via apt.")
         except Exception as e:
@@ -193,50 +202,33 @@ class ZeekInstaller:
                 fedora_version = self.run_command(['rpm', '-E', '%fedora'], capture_output=True)
                 gpg_key_url = f"https://download.opensuse.org/repositories/security:zeek/Fedora_{fedora_version}/repodata/repomd.xml.key"
                 self.run_command(['rpm', '--import', gpg_key_url])
+
                 # Add Zeek repository
                 zeek_repo_content = f"""[zeek]
-name=Zeek repository for Fedora {fedora_version}
-baseurl=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/
-enabled=1
-gpgcheck=1
-gpgkey=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/repodata/repomd.xml.key
-"""
+                name=Zeek repository for Fedora {fedora_version}
+                baseurl=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/
+                enabled=1
+                gpgcheck=1
+                gpgkey=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/repodata/repomd.xml.key
+                """
                 repo_file_path = "/etc/yum.repos.d/zeek.repo"
                 with open(repo_file_path, 'w') as repo_file:
                     repo_file.write(zeek_repo_content)
-                # Clean metadata and update
-                self.run_command(['dnf', 'clean', 'all'])
-                self.run_command(['dnf', 'update', '-y'])
-                # Install Zeek
-                self.run_command(['dnf', 'install', '-y', 'zeek', 'zeekctl'])
+
+                # Clean and refresh the Zeek repository only
+                self.run_command(['dnf', 'clean', 'metadata', '--disablerepo="*"', '--enablerepo="zeek"'])
+                self.run_command(['dnf', 'makecache', '--disablerepo="*"', '--enablerepo="zeek"'])
+
+                # Install Zeek and Zeekctl from the Zeek repository only
+                self.run_command(['dnf', 'install', '-y', '--disablerepo="*"', '--enablerepo="zeek"', 'zeek',
+                                  'zeekctl'])
+
                 logger.info("Zeek installed successfully via added repository.")
+
             except Exception as e:
                 logger.error("Package installation failed, attempting to install from source...")
                 self.install_zeek_from_source()
                 return
-        self.configure_zeek()
-
-    def install_zeek_rhel7(self):
-        """
-        Installs Zeek on RHEL 7.
-        """
-        logger.info("Detected RHEL 7. Proceeding with installation...")
-        self.install_utilities()
-        try:
-            # Import Zeek GPG key for RHEL 7
-            gpg_key_url = "https://download.opensuse.org/repositories/security:zeek/RHEL_7/repodata/repomd.xml.key"
-            self.run_command(['rpm', '--import', gpg_key_url])
-            # Add Zeek repository for RHEL 7
-            zeek_repo_url = "https://download.opensuse.org/repositories/security:zeek/RHEL_7/security:zeek.repo"
-            self.run_command(['curl', '-fsSL', '-o', '/etc/yum.repos.d/zeek.repo', zeek_repo_url])
-            # Update system and install Zeek
-            self.run_command(['yum', 'update', '-y'])
-            self.run_command(['yum', 'install', '-y', 'zeek', 'zeekctl'])
-            logger.info("Zeek installed successfully via yum.")
-        except Exception as e:
-            logger.error("Package installation failed, attempting to install from source...")
-            self.install_zeek_from_source()
-            return
         self.configure_zeek()
 
     def install_zeek_rhel8(self):
@@ -268,9 +260,7 @@ gpgkey=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_
         """
         logger.info("Detected CentOS/RHEL. Proceeding with installation...")
         os_version = self.run_command(['rpm', '-E', '%rhel'], capture_output=True)
-        if os_version == '7':
-            self.install_zeek_rhel7()
-        elif os_version == '8':
+        if os_version == '8':
             self.install_zeek_rhel8()
         else:
             logger.error(f"Unsupported CentOS/RHEL version: {os_version}")
@@ -342,193 +332,147 @@ gpgkey=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_
 
     def install_zeek_opensuse(self):
         """
-        Installs Zeek on openSUSE.
+        Installs Zeek on openSUSE. If repository installation fails, it falls back to installing from source.
         """
-        logger.info("Detected openSUSE. Proceeding with installation...")
         if self.is_zeek_installed():
             logger.info("Zeek is already installed.")
             self.run_command(['zeek', '--version'])
             return
-        # Update system repositories
-        logger.info("Updating system repositories...")
-        self.run_command(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'refresh'])
-        # Ensure essential utilities are installed
-        logger.info("Ensuring essential utilities are installed...")
-        self.run_command(['zypper', '--non-interactive', 'install', '-y', 'wget', 'tar', 'gzip'])
-        # Attempt to install Zeek via zypper
-        logger.info("Attempting to install Zeek via zypper...")
+
+        # Detect openSUSE version and get repository URLs
+        repo_urls = self.get_opensuse_repo_urls()
+
+        # Attempt to install Zeek via repository
         try:
-            self.run_command(['zypper', '--non-interactive', 'install', '-y', 'zeek'])
-            logger.info("Zeek installed successfully via zypper.")
+            self.install_zeek_from_repo(repo_urls)
+        except Exception as e:
+            logger.error(f"Repository installation failed: {e}")
+            logger.info("Falling back to building Zeek from source.")
+            self.install_zeek_from_source_opensuse()
+
+        # Final verification
+        if self.is_zeek_installed():
+            logger.info("Zeek installed successfully.")
             self.run_command(['zeek', '--version'])
             self.configure_zeek()
-            return
-        except Exception as e:
-            logger.info("Zeek not found in default repositories.")
+        else:
+            logger.error("Zeek installation failed.")
+            sys.exit(1)
+
+    def get_opensuse_repo_urls(self):
+        """
+        Returns appropriate repository URLs based on the detected openSUSE version.
+        """
+        os_release = self.run_command(['cat', '/etc/os-release'], capture_output=True)
+        name = ""
+        version_id = ""
+
+        for line in os_release.splitlines():
+            if line.startswith('NAME='):
+                name = line.split('=')[1].strip('"')
+            elif line.startswith('VERSION_ID='):
+                version_id = line.split('=')[1].strip('"')
+
+        if name == "openSUSE Tumbleweed":
+            return {"zeek": "https://download.opensuse.org/repositories/security:zeek/openSUSE_Tumbleweed/",
+                "python": "https://download.opensuse.org/repositories/devel:/languages:/python/openSUSE_Tumbleweed/"}
+        elif name == "openSUSE Leap" and version_id in ["15.5", "15.6"]:
+            return {"zeek": f"https://download.opensuse.org/repositories/security:zeek/{version_id}/",
+                "python": f"https://download.opensuse.org/repositories/devel:/languages:/python/{version_id}/"}
+        else:
+            logger.error("Unsupported openSUSE version or distribution.")
+            sys.exit(1)
+
+    def install_zeek_from_repo(self, repo_urls):
+        """
+        Installs Zeek and necessary Python packages from the repository.
+        """
         # Add Zeek and Python repositories
         logger.info("Adding the Zeek and Python repositories.")
+        self.run_command(['zypper', '--non-interactive', 'addrepo', '--check', '--refresh', '--name',
+                          'Zeek Security Repository', repo_urls['zeek'], 'security_zeek'])
+        self.run_command(['zypper', '--non-interactive', 'addrepo', '--check', '--refresh', '--name',
+                          'devel:languages:python', repo_urls['python'], 'devel_languages_python'])
+
+        # Refresh only the newly added repositories
+        self.run_command(['zypper', '--non-interactive', 'refresh', 'security_zeek', 'devel_languages_python'])
+
+        # Install Python package and Zeek
+        logger.info("Installing required packages via zypper.")
         try:
-            # Detect openSUSE version
-            os_release = self.run_command(['cat', '/etc/os-release'], capture_output=True)
-            name = ""
-            version_id = ""
-            for line in os_release.splitlines():
-                if line.startswith('NAME='):
-                    name = line.split('=')[1].strip('"')
-                elif line.startswith('VERSION_ID='):
-                    version_id = line.split('=')[1].strip('"')
-            if name == "openSUSE Tumbleweed":
-                repo_url = "https://download.opensuse.org/repositories/security:zeek/openSUSE_Tumbleweed/"
-                python_repo_url = "https://download.opensuse.org/repositories/devel:/languages:/python/openSUSE_Tumbleweed/"
-                logger.info("Detected openSUSE Tumbleweed. Adding the appropriate repositories.")
-            elif name == "openSUSE Leap" and version_id == "15.6":
-                repo_url = "https://download.opensuse.org/repositories/security:zeek/15.6/"
-                python_repo_url = "https://download.opensuse.org/repositories/devel:/languages:/python/15.6/"
-                logger.info("Detected openSUSE Leap 15.6. Adding the appropriate repositories.")
-            elif name == "openSUSE Leap" and version_id == "15.5":
-                repo_url = "https://download.opensuse.org/repositories/security:zeek/15.5/"
-                python_repo_url = "https://download.opensuse.org/repositories/devel:/languages:/python/15.5/"
-                logger.info("Detected openSUSE Leap 15.5. Adding the appropriate repositories.")
-            else:
-                logger.error("Unsupported openSUSE version or distribution.")
-                sys.exit(1)
-            # Add Zeek repository
-            self.run_command(['zypper', '--non-interactive', 'addrepo', '--check', '--refresh', '--name',
-                              'Zeek Security Repository', repo_url, 'security_zeek'])
-            # Add Python repository
-            self.run_command(['zypper', '--non-interactive', 'addrepo', '--check', '--refresh', '--name',
-                              'devel:languages:python', python_repo_url, 'devel_languages_python'])
-            # Refresh repositories and auto-import GPG keys
-            self.run_command(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'refresh'])
-            # Attempt to install python3-gitpython
-            logger.info("Attempting to install required Python packages...")
-            try:
-                self.run_command(['zypper', '--non-interactive', 'install', '-y', 'python3-gitpython'])
-                skip_zkg = False
-                logger.info("python3-gitpython installed successfully.")
-            except:
-                logger.info("python3-gitpython not available, proceeding to install zkg via pip3.")
-                skip_zkg = True
-            # Attempt to install Zeek
-            logger.info("Attempting to install Zeek...")
-            if skip_zkg:
-                try:
-                    self.run_command(['zypper', '--non-interactive', 'install', '--no-recommends', '-y', 'zeek-core',
-                                      'zeekctl', 'zeek-devel', 'zeek-client', 'zeek-spicy-devel', 'zeek-btest'])
-                    logger.info("Zeek core installed successfully.")
-                    self.run_command(['zeek', '--version'])
-                    # Install pip3 if not already installed
-                    if not self.command_exists('pip3'):
-                        logger.info("pip3 not found. Installing pip3...")
-                        self.run_command(['zypper', '--non-interactive', 'install', '-y', 'python3-pip', 'python3'])
-                    # Install GitPython and semantic-version via pip3
-                    logger.info("Installing GitPython and semantic-version via pip3...")
-                    self.run_command(['pip3', 'install', 'GitPython', 'semantic-version'])
-                    # Install zkg via pip3
-                    logger.info("Installing zkg via pip3...")
-                    self.run_command(['pip3', 'install', 'zkg'])
-                    # Set environment variable to suppress GitPython warnings
-                    os.environ['GIT_PYTHON_REFRESH'] = 'quiet'
-                    # Verify zkg installation
-                    logger.info("Verifying zkg installation...")
-                    self.run_command(['zkg', '--version'], capture_output=True)
-                    logger.info("zkg installed successfully.")
-                    self.configure_zeek()
-                    return
-                except Exception as e:
-                    logger.info("Failed to install Zeek core from the repositories.")
-                    logger.info("Proceeding to build Zeek from source.")
-            else:
-                try:
-                    self.run_command(['zypper', '--non-interactive', 'install', '--no-recommends', '-y', 'zeek'])
-                    logger.info("Zeek installed successfully.")
-                    self.run_command(['zeek', '--version'])
-                    self.configure_zeek()
-                    return
-                except Exception as e:
-                    logger.info("Failed to install Zeek from the repositories.")
-                    logger.info("Proceeding to build Zeek from source.")
-            # Install build dependencies
-            logger.info("Installing build dependencies...")
-            self.run_command(['zypper', '--non-interactive', 'install', '-y', 'make', 'cmake', 'flex', 'bison',
-                              'libpcap-devel', 'libopenssl-devel', 'python3', 'python3-devel', 'swig', 'zlib-devel',
-                              'wget', 'tar', 'gzip'])
-            # Verify Python sqlite3 module
-            logger.info("Verifying Python sqlite3 module...")
-            try:
-                self.run_command(['python3', '-c', 'import sqlite3'], capture_output=True)
-                logger.info("Python sqlite3 module is available.")
-            except:
-                logger.info("Installing sqlite3 module for Python 3...")
-                self.run_command(['zypper', '--non-interactive', 'install', '-y', 'python3-sqlite3'])
-            # Install GCC 10
-            logger.info("Adding the devel:gcc repository to install GCC 10...")
-            gcc_repo_url = f"https://download.opensuse.org/repositories/devel:/gcc/openSUSE_Leap_{self.os_info.version_id}/"
-            self.run_command(['zypper', '--non-interactive', 'addrepo', '--check', '--refresh', '--name', 'devel:gcc',
-                              gcc_repo_url, 'devel_gcc'])
-            self.run_command(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'refresh'])
-            logger.info("Installing GCC 10...")
-            self.run_command(['zypper', '--non-interactive', 'install', '-y', 'gcc10', 'gcc10-c++'])
-            # Update alternatives to use GCC 10
-            logger.info("Updating gcc and g++ to point to GCC 10...")
-            self.run_command(['update-alternatives', '--install', '/usr/bin/gcc', 'gcc', '/usr/bin/gcc-7', '70'])
-            self.run_command(['update-alternatives', '--install', '/usr/bin/gcc', 'gcc', '/usr/bin/gcc-10', '100'])
-            self.run_command(['update-alternatives', '--install', '/usr/bin/g++', 'g++', '/usr/bin/g++-7', '70'])
-            self.run_command(['update-alternatives', '--install', '/usr/bin/g++', 'g++', '/usr/bin/g++-10', '100'])
-            # Verify GCC version
-            logger.info("Verifying GCC version...")
-            self.run_command(['gcc', '--version'], capture_output=True)
-            # Create a directory for the source code
-            src_dir = Path.home() / 'src'
-            src_dir.mkdir(parents=True, exist_ok=True)
-            os.chdir(src_dir)
-            # Download the Zeek source code if not already downloaded
-            zeek_tar = src_dir / f"zeek-{self.zeek_version}.tar.gz"
-            if not zeek_tar.is_file():
-                logger.info(f"Downloading Zeek source code version {self.zeek_version}...")
-                self.run_command(['wget', f"https://download.zeek.org/zeek-{self.zeek_version}.tar.gz"])
-            else:
-                logger.info(f"Zeek source code version {self.zeek_version} already downloaded.")
-            # Extract the source code if not already extracted
-            zeek_dir = src_dir / f"zeek-{self.zeek_version}"
-            if not zeek_dir.is_dir():
-                logger.info("Extracting Zeek source code...")
-                self.run_command(['tar', '-xzf', f"zeek-{self.zeek_version}.tar.gz"])
-            else:
-                logger.info("Zeek source code already extracted.")
-            # Build and install Zeek from source
-            logger.info("Building Zeek from source...")
-            build_dir = zeek_dir / 'build'
-            build_dir.mkdir(parents=True, exist_ok=True)
-            os.chdir(build_dir)
-            self.run_command(['cmake', '..'])
-            self.run_command(['make', '-j', str(os.cpu_count())])
-            logger.info("Installing Zeek...")
-            self.run_command(['make', 'install'])
-            # Add Zeek to the system PATH if not already added
-            home_dir = Path.home()
-            bashrc = home_dir / '.bashrc'
-            zeek_bin = '/usr/local/zeek/bin'
-            if not bashrc.exists():
-                bashrc.touch()
-            with bashrc.open('r') as file:
-                bashrc_content = file.read()
-            if zeek_bin not in bashrc_content:
-                logger.info("Adding Zeek to the system PATH...")
-                with bashrc.open('a') as file:
-                    file.write(f'\nexport PATH={zeek_bin}:$PATH\n')
-                # Source the updated bashrc
-                self.run_command(['bash', '-c', f'source {bashrc}'])
-            # Verify the Zeek installation
-            logger.info("Verifying Zeek installation...")
-            if self.is_zeek_installed():
-                self.run_command(['zeek', '--version'])
-                self.configure_zeek()
-            else:
-                logger.error("Zeek installation failed.")
+            self.run_command(['zypper', '--non-interactive', 'install', '-y', 'python3-gitpython'])
+            logger.info("python3-gitpython installed successfully.")
+            self.run_command(['zypper', '--non-interactive', 'install', '--no-recommends', '-y', 'zeek'])
+            logger.info("Zeek installed successfully via zypper.")
         except Exception as e:
-            logger.error(f"Failed to install build dependencies: {e}")
-            sys.exit(1)
+            logger.error(f"Failed to install Zeek from repository: {e}")
+            raise e
+
+    def install_zeek_from_source_opensuse(self):
+        """
+        Installs Zeek from source if the repository installation fails.
+        """
+        logger.info("Installing Zeek from source.")
+
+        # Install build dependencies
+        logger.info("Installing build dependencies...")
+        self.run_command(['zypper', '--non-interactive', 'install', '-y', 'make', 'cmake', 'flex', 'bison',
+                          'libpcap-devel', 'libopenssl-devel', 'python3', 'python3-devel', 'swig', 'zlib-devel', 'wget',
+                          'tar', 'gzip', 'gcc10', 'gcc10-c++'])
+
+        # Set GCC to version 10
+        logger.info("Setting GCC to version 10...")
+        self.run_command(['update-alternatives', '--install', '/usr/bin/gcc', 'gcc', '/usr/bin/gcc-10', '100'])
+        self.run_command(['update-alternatives', '--install', '/usr/bin/g++', 'g++', '/usr/bin/g++-10', '100'])
+
+        # Download and build Zeek from source
+        zeek_version = self.zeek_version
+        src_dir = Path.home() / 'src'
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        zeek_tar = src_dir / f"zeek-{zeek_version}.tar.gz"
+        zeek_dir = src_dir / f"zeek-{zeek_version}"
+
+        if not zeek_tar.is_file():
+            logger.info(f"Downloading Zeek source code version {zeek_version}...")
+            self.run_command(['wget', f"https://download.zeek.org/zeek-{zeek_version}.tar.gz"], cwd=src_dir)
+
+        if not zeek_dir.is_dir():
+            logger.info("Extracting Zeek source code...")
+            self.run_command(['tar', '-xzf', zeek_tar], cwd=src_dir)
+
+        build_dir = zeek_dir / 'build'
+        build_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info("Building Zeek from source...")
+        self.run_command(['cmake', '..'], cwd=build_dir)
+        self.run_command(['make', '-j', str(os.cpu_count())], cwd=build_dir)
+        self.run_command(['make', 'install'], cwd=build_dir)
+
+        # Add Zeek to the system PATH
+        self.add_zeek_to_path()
+
+    def add_zeek_to_path(self):
+        """
+        Adds Zeek to the system's PATH if it's not already there.
+        """
+        home_dir = Path.home()
+        bashrc = home_dir / '.bashrc'
+        zeek_bin = '/usr/local/zeek/bin'
+
+        if not bashrc.exists():
+            bashrc.touch()
+
+        with bashrc.open('r') as file:
+            bashrc_content = file.read()
+
+        if zeek_bin not in bashrc_content:
+            logger.info("Adding Zeek to the system PATH...")
+            with bashrc.open('a') as file:
+                file.write(f'\nexport PATH={zeek_bin}:$PATH\n')
+
+            # Source the updated bashrc
+            self.run_command(['bash', '-c', f'source {bashrc}'])
 
     def clean_build_directory(self):
         """

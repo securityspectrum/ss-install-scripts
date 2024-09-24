@@ -14,7 +14,7 @@ logger = logging.getLogger('InstallationLogger')
 class CertificateManager:
     def __init__(self, api_url, cert_dir, organization_slug):
         self.api_url = api_url
-        self.cert_dir = Path(cert_dir) / organization_slug
+        self.cert_dir = Path(cert_dir)
         self.organization_slug = organization_slug
 
     def download_and_extract_certificates(self, jwt_token):
