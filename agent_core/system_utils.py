@@ -15,29 +15,31 @@ class SystemUtility:
         """
         Ensures the script is running with root privileges. If not, it re-runs the script with 'sudo'.
         """
-        if platform.system() != "Windows":
-            # Check if the script is already running as root
-            if os.geteuid() != 0:
-                logger.info("Elevating script privileges with sudo...")
-                try:
-                    # Re-run the current script with sudo
-                    subprocess.run(['sudo', 'python3'] + sys.argv, check=True)
-                except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to elevate privileges: {e}")
-                    sys.exit(1)
-                sys.exit(0)  # Exit the non-root process after relaunching with sudo
-        else:
+        if platform.system() == "Windows":
             # For Windows, check if the script is running as admin
             if not SystemUtility.is_admin():
                 logger.info("Requesting admin privileges on Windows...")
                 ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, ' '.join(sys.argv), None, 1)
                 sys.exit(0)
+        else:
+            # Check if the script is already running as root (for Unix-like systems: Linux/macOS)
+            if os.geteuid() != 0:
+                logger.info("Elevating script privileges with sudo...")
+                try:
+                    # Re-run the current script with sudo using the current Python interpreter
+                    subprocess.run(['sudo', sys.executable] + sys.argv, check=True)
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Failed to elevate privileges: {e}")
+                    sys.exit(1)
+                sys.exit(0)  # Exit the non-root process after relaunching with sudo
 
     @staticmethod
     def is_admin():
         try:
-            return os.getuid() == 0
+            # For Unix-like systems, check if the user is root
+            return os.geteuid() == 0
         except AttributeError:
+            # For Windows, check if the script is running as admin
             try:
                 return ctypes.windll.shell32.IsUserAnAdmin()
             except:

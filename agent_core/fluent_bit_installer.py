@@ -108,6 +108,9 @@ class FluentBitInstaller:
         if dest_path is None:
             temp_dir = tempfile.gettempdir()
             dest_path = os.path.join(temp_dir, os.path.basename(download_url))
+        else:
+            # Expand the ~ to the user's home directory
+            dest_path = os.path.expanduser(dest_path)
 
         # Download the file
         response = requests.get(download_url, stream=True)
@@ -123,7 +126,7 @@ class FluentBitInstaller:
 
     def run_installation_command(self, dest_path):
         system = platform.system()
-
+        dest_path = os.path.expanduser(dest_path)
         if system == "Linux":
             if dest_path.suffix == ".rpm":
                 package_name = "fluent-bit"
@@ -161,6 +164,7 @@ class FluentBitInstaller:
                         raise
         elif system == "Darwin":
             try:
+                logger.info(f"Installing {dest_path}...")
                 subprocess.run(["sudo", "installer", "-pkg", str(dest_path), "-target", "/"], check=True)
             except subprocess.CalledProcessError as e:
                 logger.error(f"Package installation on macOS failed: {e}")

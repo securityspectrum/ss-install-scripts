@@ -3,6 +3,7 @@ from agent_core.constants import (SS_AGENT_REPO, DOWNLOAD_DIR_LINUX, DOWNLOAD_DI
 import shutil
 import platform
 import subprocess
+import os
 from pathlib import Path
 import logging
 from agent_core.constants import (SS_AGENT_EXECUTABLE_PATH_LINUX, SS_AGENT_EXECUTABLE_PATH_MACOS,
@@ -79,16 +80,33 @@ class SSAgentInstaller:
 
         logger.info("Installation complete.")
 
-    def download_binary(self, download_url, dest_path):
+    def download_binary(self, download_url, dest_path=None):
+        # Expand the ~ to the user's home directory
+        dest_path = os.path.expanduser(dest_path)
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        # Download the file
         response = requests.get(download_url, stream=True)
         response.raise_for_status()
+        # Write the file in chunks
         with open(dest_path, 'wb') as file:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
 
+        logger.info(f"Downloaded file saved to: {dest_path}")
+        return dest_path
+
     def run_installation_command(self, dest_path):
         system = platform.system()
 
+        # Expand the ~ in dest_path
+        dest_path = os.path.expanduser(dest_path)
+        
+        # Check if the downloaded file actually exists
+        if not Path(dest_path).exists():
+            raise FileNotFoundError(f"Source file not found: {dest_path}")
+
+        # Set the final installation path based on the OS
         if system == "Linux":
             final_path = Path(SS_AGENT_EXECUTABLE_PATH_LINUX)
         elif system == "Darwin":
@@ -98,6 +116,10 @@ class SSAgentInstaller:
             final_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
+
+        # Ensure the target directory exists
+        if not final_path.parent.exists():
+            final_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Move the binary to the final location
         try:
