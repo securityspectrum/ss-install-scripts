@@ -6,11 +6,13 @@ import logging
 from pathlib import Path
 import sys
 import os
+import time
+import select
+import pwd
 import shutil
+import getpass
 
 # Configure logging
-from agent_core import SystemUtility
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -29,8 +31,11 @@ class ZeekInstaller:
         # Flag to indicate if Zeek is installed from source or package/repo
         self.source_install = False
 
-        # Ensure the script is run as root
-        self.check_root()
+        # Determine the operating system
+        self.os_system = platform.system()
+
+        # Check privileges based on OS
+        self.check_privileges()
 
     def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None):
         """
@@ -60,15 +65,26 @@ class ZeekInstaller:
                 logger.error(f"Error Output: {e.stderr}")
             raise
 
-    def check_root(self):
+    def check_privileges(self):
         """
-        Ensures the script is run as root.
+        Ensures the script is run with appropriate privileges based on the OS.
+        - Root privileges are required for Linux installations.
+        - No root privileges should be used for macOS installations.
         """
-        if os.geteuid() != 0:
-            logger.error("This script must be run as root. Please run again with 'sudo' or as the root user.")
-            # Request sudo access at the start
-            SystemUtility.elevate_privileges()
-        logger.info("Script is running as root.")
+        if self.os_system != 'Darwin':
+            # For Linux systems, enforce running as root
+            if os.geteuid() != 0:
+                logger.error("This script must be run as root. Please run again with 'sudo' or as the root user.")
+                # Optionally, you can attempt to elevate privileges here
+                # SystemUtility.elevate_privileges()
+                sys.exit(1)
+            logger.info("Script is running as root.")
+        else:
+            # For macOS, ensure the script is NOT run as root
+            if os.geteuid() == 0:
+                logger.error("Do not run this script as root on macOS. Please run as a regular user.")
+                self.downgrade_privileges()
+            logger.info("Script is running as a regular user on macOS.")
 
     def command_exists(self, command):
         """
@@ -87,7 +103,34 @@ class ZeekInstaller:
             logger.info(f"Zeek is already installed: {zeek_version}")
             sys.exit(0)
         else:
-            logger.info("Zeek not found")
+            logger.info("Zeek not found.")
+
+    def downgrade_privileges(self):
+        """
+        Downgrades privileges from root to the specified non-root user.
+        """
+        sudo_user = os.getenv('SUDO_USER')
+        if not sudo_user:
+            logger.error('Could not determine the original non-root user. Exiting.')
+            sys.exit(1)
+        try:
+            pw_record = pwd.getpwnam(sudo_user)
+            user_uid = pw_record.pw_uid
+            user_gid = pw_record.pw_gid
+
+            os.setgid(user_gid)
+            os.setuid(user_uid)
+            logger.info(f"Dropped privileges to user '{sudo_user}' (UID: {user_uid}, GID: {user_gid}).")
+        except KeyError:
+            logger.error(f"User '{sudo_user}' does not exist.")
+            sys.exit(1)
+        except PermissionError:
+            logger.error("Insufficient permissions to change user.")
+            sys.exit(1)
+        except Exception as e:
+            logger.error(f"Failed to drop privileges: {e}")
+            sys.exit(1)
+
 
     def is_zeek_installed(self):
         """
@@ -106,17 +149,18 @@ class ZeekInstaller:
             if self.os_id in ['ubuntu', 'debian'] or 'debian' in self.os_like:
                 self.run_command(['apt', 'install', '-y', 'apt-transport-https', 'curl', 'gnupg', 'lsb-release'])
             elif self.os_id in ['centos', 'rhel'] or 'rhel' in self.os_like:
-                self.run_command(['yum', 'install', '-y', 'epel-release', 'curl'])
+                self.run_command(['yum', 'install', '-y', 'epel-release', 'curl', 'gnupg'])
             elif self.os_id == 'fedora':
-                self.run_command(['dnf', 'install', '-y', 'curl', 'redhat-lsb-core'])
+                self.run_command(['dnf', 'install', '-y', 'curl', 'redhat-lsb-core', 'gnupg'])
             elif self.os_id in ['opensuse', 'sles'] or 'suse' in self.os_like:
-                self.run_command(['zypper', 'install', '-y', 'curl', 'lsb-release'])
+                self.run_command(['zypper', 'install', '-y', 'curl', 'lsb-release', 'gnupg'])
             else:
                 logger.error("Unsupported distribution for installing utilities.")
                 sys.exit(1)
             logger.info("Required utilities installed successfully.")
         except Exception as e:
             logger.error("Failed to install required utilities.")
+            logger.error(e)
             sys.exit(1)
 
     def install_zeek_ubuntu(self):
@@ -132,18 +176,15 @@ class ZeekInstaller:
             gpg_key_url = f"https://download.opensuse.org/repositories/security:zeek/xUbuntu_{distro_version}/Release.key"
             keyring_path = "/usr/share/keyrings/zeek-archive-keyring.gpg"
             # Download and store the GPG key
-            gpg_output = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
-            self.run_command(['gpg', '--dearmor'], input_data=gpg_output, capture_output=False)
-            with open(keyring_path, 'wb') as f:
-                f.write(gpg_output.encode())
+            self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
+            # Store the key
+            self.run_command(['curl', '-fsSL', gpg_key_url, '|', 'gpg', '--dearmor', '-o', keyring_path], shell=True)
             # Add Zeek repository
             repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/xUbuntu_{distro_version}/ /"
             self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'])
-
             # Update only the Zeek repository
             self.run_command(['apt', 'update', '-o', f'Dir::Etc::sourcelist="sources.list.d/zeek.list"', '-o',
                               'Dir::Etc::sourceparts="-"', '-o', 'APT::Get::List-Cleanup="0"'])
-
             # Install Zeek and Zeekctl without updating other packages
             self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
             logger.info("Zeek installed successfully via apt.")
@@ -167,10 +208,9 @@ class ZeekInstaller:
             keyring_path = "/usr/share/keyrings/zeek-archive-keyring.gpg"
 
             # Download and store the GPG key
-            gpg_output = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
-            self.run_command(['gpg', '--dearmor'], input_data=gpg_output, capture_output=False)
-            with open(keyring_path, 'wb') as f:
-                f.write(gpg_output.encode())
+            self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
+            # Store the key
+            self.run_command(['curl', '-fsSL', gpg_key_url, '|', 'gpg', '--dearmor', '-o', keyring_path], shell=True)
 
             # Add Zeek repository
             repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/Debian_{distro_version}/ /"
@@ -205,17 +245,17 @@ class ZeekInstaller:
             logger.info("Zeek package not found in default repositories. Adding Zeek OBS repository...")
             try:
                 fedora_version = self.run_command(['rpm', '-E', '%fedora'], capture_output=True)
-                gpg_key_url = f"https://download.opensuse.org/repositories/security:zeek/Fedora_{fedora_version}/repodata/repomd.xml.key"
+                gpg_key_url = f"https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/repodata/repomd.xml.key"
                 self.run_command(['rpm', '--import', gpg_key_url])
 
                 # Add Zeek repository
                 zeek_repo_content = f"""[zeek]
-                name=Zeek repository for Fedora {fedora_version}
-                baseurl=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/
-                enabled=1
-                gpgcheck=1
-                gpgkey=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/repodata/repomd.xml.key
-                """
+name=Zeek repository for Fedora {fedora_version}
+baseurl=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/
+enabled=1
+gpgcheck=1
+gpgkey=https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/repodata/repomd.xml.key
+"""
                 repo_file_path = "/etc/yum.repos.d/zeek.repo"
                 with open(repo_file_path, 'w') as repo_file:
                     repo_file.write(zeek_repo_content)
@@ -270,29 +310,6 @@ class ZeekInstaller:
         else:
             logger.error(f"Unsupported CentOS/RHEL version: {os_version}")
             sys.exit(1)
-
-    def install_zeek_centos7(self):
-        """
-        Installs Zeek on CentOS 7.
-        """
-        logger.info("Detected CentOS 7. Proceeding with installation...")
-        self.install_utilities()
-        try:
-            # Import Zeek GPG key for CentOS 7
-            gpg_key_url = "https://download.opensuse.org/repositories/security:zeek/CentOS_7/repodata/repomd.xml.key"
-            self.run_command(['rpm', '--import', gpg_key_url])
-            # Add Zeek repository
-            zeek_repo_url = "https://download.opensuse.org/repositories/security:zeek/CentOS_7/security:zeek.repo"
-            self.run_command(['curl', '-fsSL', '-o', '/etc/yum.repos.d/zeek.repo', zeek_repo_url])
-            # Update system and install Zeek
-            self.run_command(['yum', 'update', '-y'])
-            self.run_command(['yum', 'install', '-y', 'zeek', 'zeekctl'])
-            logger.info("Zeek installed successfully via yum.")
-        except Exception as e:
-            logger.error("Package installation failed, attempting to install from source...")
-            self.install_zeek_from_source()
-            return
-        self.configure_zeek()
 
     def install_zeek_centos8(self):
         """
@@ -380,10 +397,10 @@ class ZeekInstaller:
 
         if name == "openSUSE Tumbleweed":
             return {"zeek": "https://download.opensuse.org/repositories/security:zeek/openSUSE_Tumbleweed/",
-                "python": "https://download.opensuse.org/repositories/devel:/languages:/python/openSUSE_Tumbleweed/"}
+                    "python": "https://download.opensuse.org/repositories/devel:/languages:/python/openSUSE_Tumbleweed/"}
         elif name == "openSUSE Leap" and version_id in ["15.5", "15.6"]:
             return {"zeek": f"https://download.opensuse.org/repositories/security:zeek/{version_id}/",
-                "python": f"https://download.opensuse.org/repositories/devel:/languages:/python/{version_id}/"}
+                    "python": f"https://download.opensuse.org/repositories/devel:/languages:/python/{version_id}/"}
         else:
             logger.error("Unsupported openSUSE version or distribution.")
             sys.exit(1)
@@ -499,15 +516,15 @@ class ZeekInstaller:
         Installs build dependencies required for building Zeek from source.
         """
         logger.info("Installing build dependencies...")
-        logger.info(f"Detected OS: {self.os_id} {self.os_info.version_id} {self.os_info.version}")
+        logger.info(f"Detected OS: {self.os_id} {self.os_info.get('version_id', '')} {self.os_info.get('version', '')}")
         try:
             if self.os_id in ['ubuntu', 'debian'] or 'debian' in self.os_like:
-                self.run_command(['apt', 'update', '-y'])
+                self.run_command(['apt', 'update', '-y'], check=True)
                 self.run_command(['apt', 'install', '-y', 'curl', 'wget', 'lsb-release', 'gnupg', 'build-essential',
                                   'cmake', 'gcc', 'g++', 'flex', 'bison', 'libpcap-dev', 'libssl-dev', 'python3-dev',
                                   'zlib1g-dev', 'libcaf-dev', 'swig', 'binutils-gold', 'libkrb5-dev', 'nodejs'])
             elif self.os_id in ['centos', 'rhel'] or 'rhel' in self.os_like:
-                self.run_command(['yum', 'groupinstall', '-y', '"Development Tools"'])
+                self.run_command(['yum', 'groupinstall', '-y', '"Development Tools"'], check=True)
                 self.run_command(['yum', 'install', '-y', 'curl', 'wget', 'cmake', 'make', 'gcc', 'gcc-c++', 'flex',
                                   'bison', 'libpcap-devel', 'openssl-devel', 'python3-devel', 'zlib-devel'])
             elif self.os_id == 'fedora':
@@ -523,6 +540,7 @@ class ZeekInstaller:
             logger.info("Build dependencies installed successfully.")
         except Exception as e:
             logger.error("Failed to install build dependencies.")
+            logger.error(e)
             sys.exit(1)
 
     def install_zeek_from_source(self):
@@ -536,14 +554,10 @@ class ZeekInstaller:
         # Set Zeek version
         zeek_version = self.zeek_version
         # Create non-root user if not exists
-
-        # Set the flag to indicate source installation
-        self.source_install = True
-
         try:
             self.run_command(['id', self.builder_user], capture_output=True)
             logger.info(f"User '{self.builder_user}' already exists.")
-        except:
+        except subprocess.CalledProcessError:
             logger.info(f"Creating user '{self.builder_user}'...")
             self.run_command(['useradd', '-m', self.builder_user])
         # Install build dependencies
@@ -583,6 +597,7 @@ tar -xzf zeek-{zeek_version}.tar.gz
 cd zeek-{zeek_version}
 ./configure
 make -j$(nproc)
+make install
 """
         with build_script_path.open('w') as f:
             f.write(build_script_content)
@@ -592,16 +607,8 @@ make -j$(nproc)
         # Run the build script as the builder user
         logger.info("Running build script as 'builder' user...")
         self.run_command(['su', '-', self.builder_user, '-c', f"bash {build_script_path}"])
-        # Install Zeek as root
-        zeek_build_dir = Path(f"/home/{self.builder_user}/zeek-{zeek_version}/build")
-        if not zeek_build_dir.is_dir():
-            logger.error(f"Directory {zeek_build_dir} does not exist.")
-            sys.exit(1)
-        os.chdir(zeek_build_dir)
-        self.run_command(['make', 'install'])
         # Clean up
         self.run_command(['rm', '-f', str(build_script_path)])
-        os.chdir('-')  # Return to previous directory
         logger.info("Zeek installed successfully from source.")
         # Configure Zeek
         self.configure_zeek()
@@ -611,7 +618,7 @@ make -j$(nproc)
         """
         Installs Zeek from source on macOS using the existing non-root user.
         """
-        logger.info("Installing Zeek from source...")
+        logger.info("Installing Zeek from source on macOS...")
 
         if self.is_zeek_installed():
             logger.info("Skipping source installation as Zeek is already installed.")
@@ -621,19 +628,19 @@ make -j$(nproc)
         zeek_version = self.zeek_version
 
         # Determine the non-root user
-        user = os.getenv('SUDO_USER') or os.getenv('USER')
+        
+        user = os.getenv('SUDO_USER')
         if not user:
-            logger.error("Unable to determine the non-root user for source installation.")
+            logger.error('Could not determine the original non-root user. Exiting.')
             sys.exit(1)
         logger.info(f"Using non-root user: {user}")
 
         # Install build dependencies via Homebrew (if not already installed)
         logger.info("Installing build dependencies via Homebrew...")
-        build_deps_cmd = 'brew install cmake make gcc flex bison libpcap openssl python3 swig zlib'
         try:
-            self.run_command(f'su - {user} -c "{build_deps_cmd}"', shell=True)
+            self.run_command(['brew', 'install', 'cmake', 'make', 'gcc', 'flex', 'bison', 'libpcap', 'openssl', 'python3', 'swig', 'zlib'], shell=False)
             logger.info("Build dependencies installed successfully via Homebrew.")
-        except Exception as e:
+        except subprocess.CalledProcessError as e:
             logger.error(f"Failed to install build dependencies: {e}")
             sys.exit(1)
 
@@ -646,42 +653,28 @@ make -j$(nproc)
             logger.error(f"Failed to create source directory at {src_dir}: {e}")
             sys.exit(1)
 
-        # Change ownership of the source directory to the non-root user
-        try:
-            self.run_command(['chown', '-R', f'{user}:{user}', str(src_dir)])
-            logger.info(f"Changed ownership of {src_dir} to user '{user}'.")
-        except Exception as e:
-            logger.error(f"Failed to change ownership of {src_dir}: {e}")
-            sys.exit(1)
+        # No need to change ownership on macOS
+        logger.info(f"Skipping ownership change for {src_dir} on macOS.")
 
         # Navigate to the source directory
         os.chdir(src_dir)
 
         # Download the Zeek source code if not already downloaded
         zeek_tar = src_dir / f"zeek-{zeek_version}.tar.gz"
+        zeek_dir = src_dir / f"zeek-{zeek_version}"
+
         if not zeek_tar.is_file():
             logger.info(f"Downloading Zeek source code version {zeek_version}...")
-            download_cmd = f'curl -L -o zeek-{zeek_version}.tar.gz https://download.zeek.org/zeek-{zeek_version}.tar.gz'
-            try:
-                self.run_command(f'su - {user} -c "{download_cmd}"', shell=True)
-                logger.info("Zeek source code downloaded successfully.")
-            except Exception as e:
-                logger.error(f"Failed to download Zeek source code: {e}")
-                sys.exit(1)
+            self.run_command(['curl', '-LO', f"https://download.zeek.org/zeek-{zeek_version}.tar.gz"], cwd=src_dir)
+            logger.info("Zeek source code downloaded successfully.")
         else:
             logger.info(f"Zeek source code version {zeek_version} already downloaded.")
 
         # Extract the source code if not already extracted
-        zeek_dir = src_dir / f"zeek-{zeek_version}"
         if not zeek_dir.is_dir():
             logger.info("Extracting Zeek source code...")
-            extract_cmd = f'su - {user} -c "tar -xzf zeek-{zeek_version}.tar.gz"'
-            try:
-                self.run_command(extract_cmd, shell=True)
-                logger.info("Zeek source code extracted successfully.")
-            except Exception as e:
-                logger.error(f"Failed to extract Zeek source code: {e}")
-                sys.exit(1)
+            self.run_command(['tar', '-xzf', str(zeek_tar)], cwd=src_dir)
+            logger.info("Zeek source code extracted successfully.")
         else:
             logger.info("Zeek source code already extracted.")
 
@@ -696,22 +689,26 @@ make -j$(nproc)
             sys.exit(1)
 
         # Define the build commands
-        build_commands = ['cmake ..', f'make -j$(sysctl -n hw.ncpu)', 'make install']
+        build_commands = [
+            'cmake ..',
+            f'make -j{os.cpu_count()}',
+            'make install'
+        ]
 
         # Execute build commands as the non-root user
         try:
             for cmd in build_commands:
                 logger.info(f"Executing build command: {cmd}")
-                self.run_command(f'su - {user} -c "cd {build_dir} && {cmd}"', shell=True)
+                self.run_command(['su', '-', user, '-c', f"cd {build_dir} && {cmd}"], shell=False)
             logger.info("Zeek built and installed successfully from source.")
-        except Exception as e:
+        except subprocess.CalledProcessError as e:
             logger.error(f"Failed to build and install Zeek from source: {e}")
             sys.exit(1)
 
         # Return to the original directory
         os.chdir('/')
 
-        # Configure Zeek after installation
+        # Configure Zeek
         self.configure_zeek()
 
     def find_zeek_config(self):
@@ -858,8 +855,8 @@ interface={interface}
         Path(logs_dir).mkdir(parents=True, exist_ok=True)
         Path(spool_dir).mkdir(parents=True, exist_ok=True)
         # Ensure directories have proper permissions
-        self.run_command(['chown', '-R', self.user, logs_dir])
-        self.run_command(['chown', '-R', self.user, os.path.join(zeek_prefix, 'spool')])
+        self.run_command(['chown', '-R', os.getlogin(), logs_dir])
+        self.run_command(['chown', '-R', os.getlogin(), os.path.join(zeek_prefix, 'spool')])
         # Find zeekctl
         if self.command_exists('zeekctl'):
             zeekctl_path = shutil.which('zeekctl')
@@ -895,10 +892,7 @@ interface={interface}
         logger.info("Installing required utilities for macOS...")
 
         # Determine the non-root user
-        user = os.getenv('SUDO_USER') or os.getenv('USER')
-        if not user:
-            logger.error("Unable to determine the non-root user for Homebrew installation.")
-            sys.exit(1)
+        user = getpass.getuser()
         logger.info(f"Using non-root user: {user}")
 
         # Check if Homebrew is installed
@@ -906,74 +900,177 @@ interface={interface}
             logger.info("Homebrew not found. Installing Homebrew...")
             try:
                 brew_install_cmd = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-                # Execute the Homebrew install script as the non-root user using sudo
-                self.run_command(f'sudo -u {user} bash -c \'{brew_install_cmd}\'', shell=True)
+                self.run_command(f'bash -c "{brew_install_cmd}"', shell=True)
                 logger.info("Homebrew installed successfully.")
             except Exception as e:
                 logger.error("Failed to install Homebrew.")
                 logger.error(e)
                 sys.exit(1)
 
-        # Install utilities using Homebrew without sudo
-        logger.info("Installing required utilities using Homebrew (without sudo)...")
+    def create_source_directory(self):
+        """
+        Creates a source directory in the user's home directory.
+        """
+        user = getpass.getuser()
+        user_home = Path.home()
+        src_dir = user_home / 'src'
+
         try:
-            brew_install_cmd = 'brew install cmake make gcc flex bison libpcap openssl python3 swig'
-            # Execute the brew install command as the non-root user using sudo
-            self.run_command(f'sudo -u {user} brew install cmake make gcc flex bison libpcap openssl python3 swig',
-                             shell=True)
-            logger.info("Required utilities installed successfully via Homebrew.")
+            # Create the source directory if it doesn't exist
+            if not src_dir.exists():
+                src_dir.mkdir(parents=True)
+                logger.info(f"Source directory created at {src_dir}.")
         except Exception as e:
-            logger.error(f"Failed to install required utilities via Homebrew: {e}")
+            logger.error(f"Failed to create source directory at {src_dir}: {e}")
             sys.exit(1)
+
+        # For macOS, do not change ownership
+        if self.os_system == 'Darwin':
+            logger.info(f"Skipping ownership change for {src_dir} on macOS.")
+        else:
+            # For Linux, change ownership
+            try:
+                self.run_command(['chown', '-R', f'{user}:staff', str(src_dir)])
+                logger.info(f"Ownership changed to {user}:staff for {src_dir}.")
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Failed to change ownership of {src_dir}: {e}. Proceeding without changing ownership.")
+
+        return src_dir
+
+
+    def prompt_user_for_version(self):
+        """
+        Prompt the user to select between the latest Zeek version (7.0.2) and the previous version (7.0.1).
+        """
+        print("Please choose the Zeek version to install:")
+        print("1. Latest version (7.0.2)")
+        print("2. Previous version (7.0.1)")
+        print("Press Enter to select the default (Latest version 7.0.2)")
+
+        # Set a timeout for the input
+        user_input = None
+        start_time = time.time()
+
+        # Give the user 5 seconds to respond, otherwise default to the latest version
+        while time.time() - start_time < 5:  # 5 seconds timeout
+            if sys.stdin in select.select([sys.stdin], [], [], 5)[0]:  # Timeout set to 5 seconds
+                user_input = input()
+                break
+
+        # If user_input is None or empty (Enter was pressed), default to the latest version
+        if user_input is None or user_input.strip() == '':
+            print("\nNo input or invalid input received. Proceeding with the latest version (7.0.2).")
+            return "latest"
+        elif user_input == '2':
+            return "previous"
+        else:
+            print("\nInvalid input received. Proceeding with the latest version (7.0.2).")
+            return "latest"
+
+    def install_dependencies(self):
+        user, _ = self.get_user_home_directory()
+        brew_install_cmd = 'brew install cmake make gcc flex bison libpcap openssl python3 swig zlib'
+        try:
+            self.run_command(f'brew install cmake make gcc flex bison libpcap openssl python3 swig zlib', shell=True)
+            logger.info("Build dependencies installed successfully via Homebrew.")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to install dependencies via Homebrew: {e}")
+            sys.exit(1)
+
+    def is_tap_installed(self, tap_name):
+        """
+        Checks if a Homebrew tap is already installed.
+        """
+        try:
+            taps = self.run_command(['brew', 'tap'], capture_output=True, shell=False)
+            return tap_name in taps.splitlines()
+        except subprocess.CalledProcessError:
+            return False
 
     def install_zeek_macos(self):
         """
-        Installs Zeek on macOS.
+        Installs Zeek on macOS, allowing the user to select between the latest version (7.0.2) or the previous version (7.0.1).
         """
         logger.info("Detected macOS. Proceeding with installation...")
         self.install_utilities_macos()
 
         # Determine the non-root user
-        user = os.getenv('SUDO_USER') or os.getenv('USER')
-        if not user:
-            logger.error("Unable to determine the non-root user for Homebrew usage.")
-            sys.exit(1)
+        user = getpass.getuser()
+        user_home = Path.home()
         logger.info(f"Using non-root user: {user}")
 
-        # Check if Zeek is available via Homebrew
+        # Prompt user to choose between latest or previous version of Zeek
+        version_choice = self.prompt_user_for_version()
+
+        # Handle the selected Zeek version
+        if version_choice == "latest":
+            zeek_version = "zeek"
+            logger.info("Proceeding with the latest version (7.0.2).")
+        elif version_choice == "previous":
+            zeek_version = "zeek@7.0.1"
+            logger.info("Proceeding with the previous version (7.0.1).")
+
+            # Create the custom tap if it doesn't exist
+            tap_name = f"{user}/older-zeek"
+            if not self.is_tap_installed(tap_name):
+                try:
+                    self.run_command(['brew', 'tap-new', tap_name], check=True, shell=False)
+                    logger.info(f"Tap '{tap_name}' created successfully.")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Failed to create tap '{tap_name}': {e}")
+                    sys.exit(1)
+            else:
+                logger.info(f"Tap '{tap_name}' already exists. Skipping tap creation.")
+
+            # Download the Zeek 7.0.1 formula directly using curl
+            formula_path = f"/usr/local/Homebrew/Library/Taps/{user}/homebrew-older-zeek/Formula/zeek.rb"
+            try:
+                logger.info("Downloading the Zeek 7.0.1 formula...")
+                self.run_command(['curl', '-o', formula_path,
+                                'https://raw.githubusercontent.com/Homebrew/homebrew-core/7e624e19de94dc6dccff8808f2b105480b2a9320/Formula/z/zeek.rb'],
+                                check=True, shell=False)
+                logger.info(f"Zeek 7.0.1 formula downloaded successfully to {formula_path}.")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to download the Zeek formula: {e}. Proceeding to install from source.")
+                self.create_source_directory()  # Ensure source directory exists
+                self.install_zeek_from_source_macos()
+                return  # Exit the method after installing from source
+
+        # Attempt to install Zeek via Homebrew
         try:
-            # Run 'brew info zeek' as the non-root user using sudo
-            brew_info_cmd = f'sudo -u {user} brew info zeek'
-            brew_info = self.run_command(brew_info_cmd, capture_output=True, shell=True)
+            brew_info_cmd = ['brew', 'info', zeek_version]
+            brew_info = self.run_command(brew_info_cmd, capture_output=True, shell=False)
 
             if 'Not installed' in brew_info or 'could not be found' in brew_info:
-                logger.info("Installing Zeek using Homebrew...")
-                zeek_install_cmd = 'brew install zeek'
-                # Execute the brew install command as the non-root user using sudo
-                self.run_command(f'sudo -u {user} brew install zeek', shell=True)
-                logger.info("Zeek installed successfully via Homebrew.")
+                logger.info(f"Installing Zeek ({zeek_version}) using Homebrew...")
+                zeek_install_cmd = ['brew', 'install', f"{user}/older-zeek/zeek"]
+                self.run_command(zeek_install_cmd, check=True, shell=False)
+                logger.info(f"Zeek ({zeek_version}) installed successfully via Homebrew.")
                 # Verify the installation
-                self.run_command(['zeek', '--version'])
+                self.run_command(['zeek', '--version'], check=True, shell=False)
             else:
-                logger.info("Zeek is already installed via Homebrew.")
+                logger.info(f"Zeek ({zeek_version}) is already installed via Homebrew.")
         except subprocess.CalledProcessError as e:
             logger.info(f"Zeek is not available via Homebrew: {e}. Proceeding to install from source.")
+            self.create_source_directory()  # Creating source directory before installing from source
             self.install_zeek_from_source_macos()
         except Exception as e:
-            logger.info(f"An unexpected error occurred: {e}. Proceeding to install from source.")
+            logger.info(f"An unexpected error occurred: {e}. Proceeding to install Zeek from source.")
+            self.create_source_directory()  # Creating source directory before installing from source
             self.install_zeek_from_source_macos()
 
         # Proceed with Zeek configuration
         self.configure_zeek()
+
 
     def detect_distro_and_install(self):
         """
         Detects the OS distribution and calls the appropriate installation function.
         """
         logger.info("Detecting operating system and proceeding with installation...")
-        if platform.system() == 'Darwin':
+        if self.os_system == 'Darwin':
             self.install_zeek_macos()
-        elif platform.system() == 'Linux':
+        elif self.os_system == 'Linux':
             if self.os_id == 'ubuntu':
                 self.install_zeek_ubuntu()
             elif self.os_id in ['debian', 'raspbian']:
@@ -995,7 +1092,6 @@ interface={interface}
         """
         Install function to run the installation.
         """
-        self.check_root()
         logger.info("Checking if Zeek is already installed...")
         self.check_zeek_installed()
         self.detect_distro_and_install()
