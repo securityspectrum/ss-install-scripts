@@ -126,7 +126,7 @@ class FluentBitInstaller:
 
     def run_installation_command(self, dest_path):
         system = platform.system()
-        dest_path = os.path.expanduser(dest_path)
+        dest_path = Path(os.path.expanduser(dest_path))
         if system == "Linux":
             if dest_path.suffix == ".rpm":
                 package_name = "fluent-bit"
