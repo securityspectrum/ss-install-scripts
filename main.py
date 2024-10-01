@@ -50,17 +50,18 @@ def get_platform_specific_paths():
         fluent_bit_config_dir = FLUENT_BIT_CONFIG_DIR_WINDOWS
         ss_agent_config_dir = SS_AGENT_CONFIG_DIR_WINDOWS
         ss_agent_ssl_dir = SS_AGENT_SSL_DIR_WINDOWS
-        zeek_log_path = SS_NETWORK_ANALYZER_LOG_PATH_LINUX
+        # Unfortunately, Zeek does not support Windows
+        raise NotImplementedError(f"Unsupported OS: {os_name}")
     elif os_name == "linux":
         fluent_bit_config_dir = FLUENT_BIT_CONFIG_DIR_LINUX
         ss_agent_config_dir = SS_AGENT_CONFIG_DIR_LINUX
         ss_agent_ssl_dir = SS_AGENT_SSL_DIR_LINUX
-        zeek_log_path = SS_NETWORK_ANALYZER_LOG_PATH_LINUX
+        zeek_log_path = ZEEK_LOG_PATH_LINUX
     elif os_name == "darwin":
         fluent_bit_config_dir = FLUENT_BIT_CONFIG_DIR_MACOS
         ss_agent_config_dir = SS_AGENT_CONFIG_DIR_MACOS
         ss_agent_ssl_dir = SS_AGENT_SSL_DIR_MACOS
-        zeek_log_path = SS_NETWORK_ANALYZER_LOG_PATH_MACOS
+        zeek_log_path = ZEEK_LOG_PATH_MACOS
     else:
         raise ValueError(f"Unsupported operating system: {os_name}")
 

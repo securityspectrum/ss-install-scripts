@@ -32,8 +32,8 @@ FLUENT_BIT_CONF_TEMPLATE = "fluent-bit-template.conf"
 FLUENT_BIT_PARSER_TEMPLATE = "fluent-bit-parser-template.conf"
 
 # Parser config file name
-FLUENT_BIT_CONFIG_FILENAME = "ss-fluent-bit.conf"
-FLUENT_BIT_PARSER_CONFIG_FILENAME = "ss-fluent-bit-parsers.conf"
+FLUENT_BIT_CONFIG_FILENAME = "fluent-bit.conf"
+FLUENT_BIT_PARSER_CONFIG_FILENAME = "fluent-bit-parsers.conf"
 
 # Certificate paths and files
 CACERT_FILENAME = "cacert.crt"
@@ -44,13 +44,21 @@ FLUENT_BIT_DIR_LINUX = "/etc/fluent-bit"
 FLUENT_BIT_DIR_MACOS = "/Library/Application Support/FluentBit"
 FLUENT_BIT_DIR_WINDOWS = r"C:\ProgramData\fluent-bit"
 
-FLUENT_BIT_CONFIG_DIR_LINUX = "/etc/fluent-bit/config"
-FLUENT_BIT_CONFIG_DIR_MACOS = "/Library/Application Support/FluentBit/config"
-FLUENT_BIT_CONFIG_DIR_WINDOWS = r"C:\ProgramData\fluent-bit\config"
+FLUENT_BIT_CONFIG_DIR_LINUX = "/etc/fluent-bit"
+FLUENT_BIT_CONFIG_DIR_MACOS = "/Library/Application Support/FluentBit"
+FLUENT_BIT_CONFIG_DIR_WINDOWS = r"C:\ProgramData\fluent-bit"
 
 FLUENT_BIT_SSL_DIR_LINUX = "/etc/fluent-bit/ssl"
 FLUENT_BIT_SSL_DIR_MACOS = "/Library/Application Support/FluentBit/ssl"
 FLUENT_BIT_SSL_DIR_WINDOWS = r"C:\ProgramData\fluent-bit\ssl"
+
+# Zeek config paths
+ZEEK_CONFIG_DIR_LINUX = "/etc/fluent-bit"
+ZEEK_CONFIG_DIR_MACOS = "/Library/Application Support/ss-network-analyzer/config"
+
+# Zeek log paths
+ZEEK_LOG_PATH_LINUX = "/opt/zeek/logs/current/*.log"
+ZEEK_LOG_PATH_MACOS = "/usr/local/opt/zeek/logs/current/*.log"
 
 # Network analyzer config paths
 SS_NETWORK_ANALYZER_CONFIG_DIR_LINUX = "/etc/ss-network-analyzer/config"
