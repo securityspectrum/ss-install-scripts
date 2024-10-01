@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import argparse
 import platform
 import logging
 from logging.handlers import RotatingFileHandler
@@ -19,23 +19,29 @@ from agent_core.certificate_manager import CertificateManager
 from agent_core.zeek_installer import ZeekInstaller
 
 
-def configure_logging(log_dir_path):
+def configure_logging(log_dir_path, log_level):
+    # Ensure log directory exists
     log_dir = Path(log_dir_path)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / 'installation.log'
 
-    logger = logging.getLogger('InstallationLogger')
-    logger.setLevel(logging.DEBUG)
+    # Get the root logger
+    logger = logging.getLogger()
+    logger.setLevel(log_level)  # Set the log level based on the argument
 
+    # Create console handler and file handler
     console_handler = logging.StreamHandler()
     file_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=2)
 
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    # Set log format
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     console_handler.setFormatter(formatter)
     file_handler.setFormatter(formatter)
 
+    # Add handlers to the root logger
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
+
     return logger
 
 
@@ -63,11 +69,7 @@ def get_platform_specific_paths():
     return fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path
 
 
-def main():
-    logger = configure_logging(LOG_DIR_PATH)
-    debug_mode = "--debug" in sys.argv
-    logger.setLevel(logging.DEBUG if debug_mode else logging.INFO)
-
+def main(logger):
     try:
         supported_os = ["linux", "darwin", "windows"]
         current_os = platform.system().lower()
@@ -138,4 +140,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Install Zeek on openSUSE.')
+    parser.add_argument('--log-level', default='DEBUG', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        help='Set the logging level')
+    args = parser.parse_args()
+
+    # Set up logging configuration globally
+    log_level = getattr(logging, args.log_level.upper(), logging.DEBUG)
+
+    # Configure logging with the provided log level
+    logger = configure_logging(LOG_DIR_PATH, log_level)
+
+    # Pass the logger to the main function
+    main(logger)
