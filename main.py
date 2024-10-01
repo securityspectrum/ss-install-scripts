@@ -3,11 +3,9 @@ import argparse
 import platform
 import logging
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 import sys
 
 from agent_core.fluent_bit_installer import FluentBitInstaller
-from agent_core.network_analyzer_installer import SSNetworkAnalyzerInstaller
 from agent_core.npcap_installer import NpcapInstaller
 from agent_core.ss_agent_installer import SSAgentInstaller
 from agent_core.system_utils import SystemUtility
