@@ -15,6 +15,7 @@ from agent_core.fluent_bit_configurator import FluentBitConfigurator
 from agent_core.constants import *
 from agent_core.certificate_manager import CertificateManager
 from agent_core.zeek_installer import ZeekInstaller
+from agent_core.osquery import OsqueryInstaller
 
 
 def configure_logging(log_dir_path, log_level):
@@ -128,6 +129,12 @@ def main(logger):
         # Zeek Installer
         zeek_installer = ZeekInstaller()
         zeek_installer.install()
+
+        # osquery Installation
+        logger.info("Starting osquery setup...")
+        osquery_installer = OsqueryInstaller()
+        osquery_installer.install(download_dir=OSQUERY_DOWNLOAD_DIR, extract_dir=OSQUERY_EXTRACT_DIR)
+        logger.info("osquery setup completed successfully.")
 
         logger.info("Installation complete.")
         input("Installation complete. Press Enter to exit.\n\n")

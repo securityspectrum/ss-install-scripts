@@ -1,4 +1,6 @@
 from pathlib import Path
+import platform
+import os
 
 # Install script version
 INSTALL_SCRIPT_VERSION = "1.0.0"
@@ -96,6 +98,40 @@ SS_NETWORK_ANALYZER_REPO = "securityspectrum/go-network-analyzer"
 DOWNLOAD_DIR_LINUX = Path("/tmp")
 DOWNLOAD_DIR_WINDOWS = Path(f"{Path.home()}\\Downloads")
 DOWNLOAD_DIR_MACOS = Path("~/Downloads")
+
+
+def get_osquery_directories():
+    """
+    Determines the appropriate download and extract directories for osquery
+    based on the operating system.
+
+    Returns:
+        tuple: (download_dir, extract_dir)
+    """
+    system = platform.system().lower()
+    home = Path.home()
+
+    if system == "linux":
+        download_dir = home / "Downloads" / "osquery"
+        extract_dir = home / ".local" / "share" / "osquery"
+    elif system == "darwin":
+        download_dir = home / "Downloads" / "osquery"
+        extract_dir = home / "Library" / "Application Support" / "osquery"
+    elif system == "windows":
+        download_dir = Path(os.getenv('USERPROFILE')) / "Downloads" / "osquery"
+        extract_dir = Path(os.getenv('LOCALAPPDATA')) / "osquery"
+    else:
+        raise ValueError(f"Unsupported operating system: {system}")
+
+    # Create directories if they don't exist
+    download_dir.mkdir(parents=True, exist_ok=True)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+
+    return download_dir, extract_dir
+
+
+# osquery specific directories
+OSQUERY_DOWNLOAD_DIR, OSQUERY_EXTRACT_DIR = get_osquery_directories()
 
 # Fluent Bit package names
 FLUENT_BIT_ASSET_PATTERNS = {
