@@ -1,4 +1,8 @@
+import zipfile
+
 import requests
+
+from agent_core import SystemUtility
 from agent_core.constants import (SS_AGENT_REPO, DOWNLOAD_DIR_LINUX, DOWNLOAD_DIR_WINDOWS, DOWNLOAD_DIR_MACOS, )
 import shutil
 import platform
@@ -76,7 +80,11 @@ class SSAgentInstaller:
         self.download_binary(download_url, dest_path)
 
         logger.info(f"Installing {asset_name}...")
-        self.run_installation_command(dest_path)
+
+        final_executable_path = self.determine_executable_installation_path()
+        self.install_and_verify_binary(dest_path, final_executable_path)
+
+        self.setup_service(final_executable_path)
 
         logger.info("Installation complete.")
 
@@ -96,54 +104,201 @@ class SSAgentInstaller:
         logger.info(f"Downloaded file saved to: {dest_path}")
         return dest_path
 
-    def run_installation_command(self, dest_path):
-        system = platform.system()
+    def determine_executable_installation_path(self):
+        """
+        Determines the installation path for the agent's executable based on the current operating system.
+        Ensures the necessary directories exist for Windows.
+        """
+        os_to_executable_path_map = {"Linux": SS_AGENT_EXECUTABLE_PATH_LINUX, "Darwin": SS_AGENT_EXECUTABLE_PATH_MACOS,
+                                     "Windows": SS_AGENT_EXECUTABLE_PATH_WINDOWS}
 
-        # Expand the ~ in dest_path
-        dest_path = os.path.expanduser(dest_path)
-        
-        # Check if the downloaded file actually exists
-        if not Path(dest_path).exists():
-            raise FileNotFoundError(f"Source file not found: {dest_path}")
+        current_os = platform.system()
 
-        # Set the final installation path based on the OS
-        if system == "Linux":
-            final_path = Path(SS_AGENT_EXECUTABLE_PATH_LINUX)
-        elif system == "Darwin":
-            final_path = Path(SS_AGENT_EXECUTABLE_PATH_MACOS)
-        elif system == "Windows":
-            final_path = Path(SS_AGENT_EXECUTABLE_PATH_WINDOWS)
-            final_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
+        # Validate the current OS and retrieve the executable path
+        if current_os in os_to_executable_path_map:
+            executable_path = Path(os_to_executable_path_map[current_os])
         else:
-            raise NotImplementedError(f"Unsupported OS: {system}")
+            raise NotImplementedError(f"Unsupported OS: {current_os}")
+
+        # Ensure the directory exists for Windows
+        if current_os == "Windows":
+            executable_path.parent.mkdir(parents=True, exist_ok=True)
+
+        return executable_path
+
+    def install_and_verify_binary(self, source_binary_path, final_executable_path):
+        """
+        Installs a binary to the appropriate OS-specific location, makes it executable (if applicable),
+        and verifies the installation by running the binary.
+        """
+        current_os = platform.system().lower()  # Convert to lowercase for case-insensitive comparison
+
+        # Expand the ~ in the source_binary_path if present
+        source_binary_path = os.path.expanduser(source_binary_path)
+
+        # Check if the downloaded file actually exists
+        if not Path(source_binary_path).exists():
+            raise FileNotFoundError(f"Source file not found: {source_binary_path}")
 
         # Ensure the target directory exists
-        if not final_path.parent.exists():
-            final_path.parent.mkdir(parents=True, exist_ok=True)
+        if not final_executable_path.parent.exists():
+            final_executable_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Move the binary to the final location
         try:
-            logger.info(f"Moving {dest_path} to {final_path}...")
-            shutil.move(str(dest_path), str(final_path))
-            logger.info(f"{final_path} has been installed successfully.")
+            logger.info(f"Moving {source_binary_path} to {final_executable_path}...")
+            shutil.move(str(source_binary_path), str(final_executable_path))
+            logger.info(f"{final_executable_path} has been installed successfully.")
         except Exception as e:
-            logger.error(f"Failed to move the file to {final_path}: {e}")
+            logger.error(f"Failed to move the file to {final_executable_path}: {e}")
             raise
 
         # Make the binary executable on Linux and macOS
-        if system in ["Linux", "Darwin"]:
+        if current_os in ["linux", "darwin"]:  # Case-insensitive OS comparison
             try:
-                final_path.chmod(0o755)
-                logger.info(f"{final_path} is now executable.")
+                final_executable_path.chmod(0o755)
+                logger.info(f"{final_executable_path} is now executable.")
             except Exception as e:
-                logger.error(f"Failed to make the file executable: {e}")
+                logger.error(f"Failed to change permissions for {final_executable_path}: {e}")
                 raise
 
-        # Run the binary with a specific command to verify installation
+        # Run the binary to verify installation
         try:
-            logger.info(f"Running {final_path} to verify installation...")
-            result = subprocess.run([str(final_path), "version"], check=True, capture_output=True, text=True)
+            logger.info(f"Running {final_executable_path} to verify installation...")
+            result = subprocess.run([str(final_executable_path), "version"], check=True, capture_output=True, text=True)
             logger.info(f"Installed binary version: {result.stdout.strip()}")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Running {final_path} failed: {e}")
+            logger.error(f"Running {final_executable_path} failed: {e}")
+            raise
+
+    def setup_service(self, executable_path):
+        system = platform.system().lower()
+        if system == 'linux':
+            self.setup_systemd_service(executable_path)
+        elif system == 'darwin':
+            self.setup_launchd_service(executable_path)
+        elif system == 'windows':
+            self.setup_windows_service(executable_path)
+        else:
+            raise NotImplementedError(f"Unsupported OS: {system}")
+
+    def setup_systemd_service(self, executable_path):
+        """
+        Sets up a systemd service for the SS Agent on Linux.
+        The service uses the 'ss-agent --debug start' command to start.
+        """
+        logger.info("Setting up systemd service for SS Agent...")
+        service_content = f"""[Unit]
+    Description=SS Agent Service
+    After=network.target
+
+    [Service]
+    Type=simple
+    ExecStart={executable_path} --debug start
+    Restart=always
+    User=root
+
+    [Install]
+    WantedBy=multi-user.target
+    """
+
+        service_path = '/etc/systemd/system/ss-agent.service'
+        try:
+            # Write service file to a temporary location
+            temp_service_path = '/tmp/ss-agent.service'
+            with open(temp_service_path, 'w') as f:
+                f.write(service_content)
+
+            # Move the service file to the system directory with proper permissions
+            SystemUtility.move_with_sudo(temp_service_path, service_path)
+
+            # Reload systemd, enable and start the service
+            subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
+            subprocess.run(['sudo', 'systemctl', 'enable', 'ss-agent'], check=True)
+            subprocess.run(['sudo', 'systemctl', 'start', 'ss-agent'], check=True)
+            logger.info("SS Agent service installed and started (systemd).")
+
+        except Exception as e:
+            logger.error(f"Failed to set up systemd service: {e}")
+            raise
+
+    def setup_launchd_service(self, executable_path):
+        """
+        Sets up a launchd service for the SS Agent on macOS.
+        The service uses the 'ss-agent --debug start' command to start.
+        """
+        logger.info("Setting up launchd service for SS Agent...")
+        plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple Inc//DTD PLIST 1.0//EN" \
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+        <key>Label</key>
+        <string>com.ss-agent</string>
+        <key>ProgramArguments</key>
+        <array>
+            <string>{executable_path}</string>
+            <string>--debug</string>
+            <string>start</string>
+        </array>
+        <key>RunAtLoad</key>
+        <true/>
+        <key>KeepAlive</key>
+        <true/>
+        <key>StandardOutPath</key>
+        <string>/var/log/ss-agent.log</string>
+        <key>StandardErrorPath</key>
+        <string>/var/log/ss-agent.err</string>
+    </dict>
+    </plist>
+    """
+
+        plist_path = '/Library/LaunchDaemons/com.ss-agent.plist'
+        try:
+            temp_plist_path = '/tmp/com.ss-agent.plist'
+            with open(temp_plist_path, 'w') as f:
+                f.write(plist_content)
+
+            # Move the plist file to the system directory with proper permissions
+            SystemUtility.move_with_sudo(temp_plist_path, plist_path)
+
+            # Load and enable the launchd service
+            subprocess.run(['sudo', 'launchctl', 'load', plist_path], check=True)
+            subprocess.run(['sudo', 'launchctl', 'enable', 'system/com.ss-agent'], check=True)
+            logger.info("SS Agent service installed and started (launchd).")
+
+        except Exception as e:
+            logger.error(f"Failed to set up launchd service: {e}")
+            raise
+
+    def setup_windows_service(self, executable_path):
+        """
+        Sets up a Windows service for the SS Agent.
+        The service uses the 'ss-agent --debug start' command to start.
+        """
+        logger.info("Setting up Windows service for SS Agent...")
+        service_name = "SSAgentService"
+        display_name = "SS Agent Service"
+
+        try:
+            # Install the service using sc.exe with the '--debug start' command
+            install_cmd = f'sc create {service_name} binPath= "{executable_path} --debug start" DisplayName= "{display_name}" start= auto'
+            logger.info(f"Running command: {install_cmd}")
+            subprocess.run(install_cmd, shell=True, check=True)
+            logger.info(f"Service {service_name} created successfully.")
+
+            # Configure the service to restart automatically on failure
+            failure_cmd = f'sc failure {service_name} reset= 60 actions= restart/6000/restart/6000/restart/6000'
+            logger.info(f"Setting up automatic restart: {failure_cmd}")
+            subprocess.run(failure_cmd, shell=True, check=True)
+            logger.info(f"Service {service_name} configured for automatic restarts.")
+
+            # Start the service
+            start_cmd = f'sc start {service_name}'
+            logger.info(f"Starting service: {start_cmd}")
+            subprocess.run(start_cmd, shell=True, check=True)
+            logger.info(f"Service {service_name} started successfully.")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to set up Windows service for SS Agent: {e}")
             raise
