@@ -54,7 +54,7 @@ class OsqueryInstaller:
 
     def group_assets_by_distribution(self, assets):
         """
-        Groups release assets by distribution based on their filenames.
+        Groups release assets by distribution based on their filenames and prints them for validation.
         """
         distributions = {
             'linux': [],
@@ -69,14 +69,23 @@ class OsqueryInstaller:
 
             lower_name = name.lower()
 
+            # Debugging print statement to track the filename
+            logger.debug(f"Processing asset: {name}")
+
             if 'linux' in lower_name and (lower_name.endswith('.rpm') or lower_name.endswith('.deb') or lower_name.endswith('.tar.gz')):
                 distributions['linux'].append({'name': name, 'url': download_url})
             elif 'windows' in lower_name and (lower_name.endswith('.msi') or lower_name.endswith('.exe') or lower_name.endswith('.zip')):
                 distributions['windows'].append({'name': name, 'url': download_url})
-            elif ('macos' in lower_name or 'darwin' in lower_name) and (lower_name.endswith('.pkg') or lower_name.endswith('.zip') or lower_name.endswith('.tar.gz')):
+            elif ('macos' in lower_name or 'darwin' in lower_name or name.endswith('.pkg')):  # Updated this condition
                 distributions['macos'].append({'name': name, 'url': download_url})
             elif 'source code' in lower_name or name.endswith('.tar.gz') or name.endswith('.zip'):
                 distributions['source'].append({'name': name, 'url': download_url})
+
+        # Print grouped distributions for validation
+        for distro, files in distributions.items():
+            logger.debug(f"Distribution: {distro}")
+            for file in files:
+                logger.debug(f"  - {file['name']}")
 
         return distributions
 
@@ -100,7 +109,11 @@ class OsqueryInstaller:
             logger.error(f"Unsupported operating system: {os_system}")
             sys.exit(1)
 
-    def select_asset(self, distribution_assets, distro_info=None, version=None):
+    def select_asset(self, distribution_assets):
+        """
+        Selects the appropriate asset based on the system architecture and OS type.
+        For macOS, it prioritizes .pkg files over other formats.
+        """
         if not distribution_assets:
             logger.error("No assets found for the detected distribution.")
             sys.exit(1)
@@ -108,23 +121,23 @@ class OsqueryInstaller:
         selected_asset = None
         system_arch = platform.machine().lower()
 
-        if distro_info:
-            for asset in distribution_assets:
-                name = asset['name'].lower()
-                # Prioritize matching the system architecture (e.g., x86_64, aarch64, etc.)
-                if system_arch in name:
+        for asset in distribution_assets:
+            name = asset['name'].lower()
+
+            # Prioritize .pkg for macOS
+            if 'macos' in name or 'darwin' in name:
+                if system_arch in name and name.endswith('.pkg'):
                     selected_asset = asset
                     break
+                elif 'x86_64' in name and name.endswith('.pkg'):
+                    selected_asset = asset
+                elif 'arm64' in name and name.endswith('.pkg'):
+                    selected_asset = asset
 
-            if not selected_asset:
-                # If no exact match for system architecture, fall back to x86_64 if available
-                logger.warning(f"No exact match for architecture '{system_arch}' found. "
-                               "Selecting the first available x86_64 asset if possible.")
-                selected_asset = next((asset for asset in distribution_assets if 'x86_64' in asset['name'].lower()),
-                                      distribution_assets[0])
-        else:
-            # For non-Linux platforms (e.g., macOS and Windows), select the first asset
-            selected_asset = distribution_assets[0]
+        # Fallback to other formats if no .pkg is found
+        if not selected_asset:
+            logger.warning("No .pkg file found for macOS. Falling back to the first available asset.")
+            selected_asset = next((asset for asset in distribution_assets if system_arch in asset['name']), distribution_assets[0])
 
         logger.info(f"Selected asset: {selected_asset['name']}")
         return selected_asset
