@@ -73,13 +73,15 @@ def main(logger):
     try:
         supported_os = ["linux", "darwin", "windows"]
         current_os = platform.system().lower()
+        architecture = platform.machine()
 
         if current_os not in supported_os:
-            logger.error(f"Unsupported operating system: {current_os}")
+            logger.error(f"Unsupported operating system: {current_os} ({architecture})")
             sys.exit(1)
 
         logger.info(f"Beginning of ss-install-script execution process.")
         logger.info(f"ss-install-script version: {INSTALL_SCRIPT_VERSION}")
+        logger.info(f"operating system: {current_os} ({architecture})")
 
         # Request sudo access at the start
         SystemUtility.elevate_privileges()

@@ -101,34 +101,29 @@ class OsqueryInstaller:
             sys.exit(1)
 
     def select_asset(self, distribution_assets, distro_info=None, version=None):
-        """
-        Selects the appropriate asset based on the distribution and version,
-        prioritizing x86_64 architecture unless otherwise required.
-        """
         if not distribution_assets:
             logger.error("No assets found for the detected distribution.")
             sys.exit(1)
 
         selected_asset = None
+        system_arch = platform.machine().lower()
 
         if distro_info:
             for asset in distribution_assets:
                 name = asset['name'].lower()
-                # Prioritize x86_64 over aarch64, unless it's an ARM system
-                if 'x86_64' in name:
+                # Prioritize matching the system architecture (e.g., x86_64, aarch64, etc.)
+                if system_arch in name:
                     selected_asset = asset
                     break
-                elif 'aarch64' in name and platform.machine() == 'aarch64':
-                    selected_asset = asset
-                    break
+
             if not selected_asset:
-                logger.warning(
-                    "No exact match found based on distribution info. Selecting the first available x86_64 asset.")
-                # Default to x86_64 if available
+                # If no exact match for system architecture, fall back to x86_64 if available
+                logger.warning(f"No exact match for architecture '{system_arch}' found. "
+                               "Selecting the first available x86_64 asset if possible.")
                 selected_asset = next((asset for asset in distribution_assets if 'x86_64' in asset['name'].lower()),
                                       distribution_assets[0])
         else:
-            # For macOS and Windows, select the first asset
+            # For non-Linux platforms (e.g., macOS and Windows), select the first asset
             selected_asset = distribution_assets[0]
 
         logger.info(f"Selected asset: {selected_asset['name']}")
@@ -170,9 +165,23 @@ class OsqueryInstaller:
         else:
             logger.info(f"No extraction needed for {file_path}")
 
+    def get_installed_version(self, package_name):
+        """
+        Retrieve the installed version of the specified package on Linux.
+        """
+        try:
+            result = subprocess.run(['rpm', '-q', package_name, '--queryformat', '%{VERSION}'],
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    check=True)
+            return result.stdout.decode().strip()
+        except subprocess.CalledProcessError:
+            return None
+
     def install_osquery(self, file_path):
         """
-        Installs osquery based on the downloaded file and OS.
+        Installs osquery based on the downloaded file and OS. For Linux, checks
+        if the package is already installed and updates it if necessary.
         """
         system = platform.system().lower()
         file_path = Path(file_path)
@@ -180,11 +189,28 @@ class OsqueryInstaller:
         try:
             if system == "linux":
                 if file_path.suffix == ".rpm":
-                    logger.info(f"Installing RPM package: {file_path}")
-                    subprocess.run(["sudo", "rpm", "-Uvh", str(file_path)], check=True)
+                    package_name = "osquery"
+                    logger.info(f"Checking if {package_name} is already installed...")
+
+                    # Check if osquery is installed
+                    installed_version = self.get_installed_version(package_name)
+
+                    if installed_version:
+                        # Extract version from the RPM file name
+                        rpm_version = file_path.stem.split('-')[1]
+                        if installed_version == rpm_version:
+                            logger.info(f"{package_name} version {installed_version} is already up-to-date.")
+                            return
+                        else:
+                            logger.info(f"{package_name} is already installed, updating from version {installed_version} to {rpm_version}.")
+                            subprocess.run(["sudo", "rpm", "-Uvh", str(file_path)], check=True)
+                    else:
+                        logger.info(f"{package_name} is not installed, installing the package.")
+                        subprocess.run(["sudo", "rpm", "-ivh", str(file_path)], check=True)
                 elif file_path.suffix == ".deb":
                     logger.info(f"Installing DEB package: {file_path}")
                     subprocess.run(["sudo", "dpkg", "-i", str(file_path)], check=True)
+                    subprocess.run(["sudo", "apt-get", "-f", "install"], check=True)
                 else:
                     logger.warning(f"Unsupported Linux package format: {file_path.suffix}")
             elif system == "darwin":
