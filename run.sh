@@ -145,18 +145,6 @@ if [ ! -f venv/bin/python3 ] && [ ! -f venv/Scripts/python.exe ]; then
     error_exit "Virtual environment creation did not include python3."
 fi
 
-# Optional: Remove existing virtual environment and recreate (if needed)
-# Uncomment the following lines if you intend to reset the virtual environment
- if [ -d "venv" ]; then
-     echo "Virtual environment directory exists. Removing..."
-     rm -rf venv
- fi
- python3 -m venv venv
- if [ $? -ne 0 ]; then
-     echo "Failed to create virtual environment."
-     exit 1
- fi
-
 # Activate virtual environment
 echo "Activating virtual environment..."
 # shellcheck disable=SC1091
