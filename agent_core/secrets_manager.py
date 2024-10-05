@@ -1,4 +1,6 @@
 import json
+import os
+
 import jwt
 from pathlib import Path
 import logging
@@ -11,14 +13,20 @@ class SecretsManager:
         self.organization_slug = ""
 
     def prompt_for_secrets(self):
-        org_key = input("Enter Organization Key: ")
-        api_access_key = input("Enter API Access Key: ")
-        api_secret_key = input("Enter API Secret Key: ")
-        jwt_token = input("Enter JWT Token: ")
-        master_key = input("Enter Master Key (used to protect and encrypt sensitive data): ")
+        # Load secrets from environment variables if available
+        org_key = os.getenv("ORG_KEY") or input("Enter Organization Key: ")
+        api_access_key = os.getenv("API_ACCESS_KEY") or input("Enter API Access Key: ")
+        api_secret_key = os.getenv("API_SECRET_KEY") or input("Enter API Secret Key: ")
+        jwt_token = os.getenv("JWT_TOKEN") or input("Enter JWT Token: ")
+        master_key = os.getenv("MASTER_KEY") or input("Enter Master Key (used to protect and encrypt sensitive data): ")
 
-        secrets = {"organization_key": org_key, "api_access_key": api_access_key, "api_secret_key": api_secret_key,
-                   "jwt_token": jwt_token, "master_key": master_key}
+        secrets = {
+            "organization_key": org_key,
+            "api_access_key": api_access_key,
+            "api_secret_key": api_secret_key,
+            "jwt_token": jwt_token,
+            "master_key": master_key
+        }
 
         try:
             with self.user_config_file.open("w") as f:
