@@ -70,7 +70,7 @@ class OsqueryInstaller:
             lower_name = name.lower()
 
             # Debugging print statement to track the filename
-            logger.debug(f"Processing asset: {name}")
+            logger.info(f"Processing asset: {name}")
 
             if 'linux' in lower_name and (lower_name.endswith('.rpm') or lower_name.endswith('.deb') or lower_name.endswith('.tar.gz')):
                 distributions['linux'].append({'name': name, 'url': download_url})
@@ -85,7 +85,7 @@ class OsqueryInstaller:
         for distro, files in distributions.items():
             logger.debug(f"Distribution: {distro}")
             for file in files:
-                logger.debug(f"  - {file['name']}")
+                logger.info(f"  - {file['name']}")
 
         return distributions
 
@@ -198,6 +198,7 @@ class OsqueryInstaller:
         """
         system = platform.system().lower()
         file_path = Path(file_path)
+        logger.info(f"osquery package : {file_path}")
 
         try:
             if system == "linux":
@@ -227,6 +228,7 @@ class OsqueryInstaller:
                 else:
                     logger.warning(f"Unsupported Linux package format: {file_path.suffix}")
             elif system == "darwin":
+                logger.info(f"file_path.suffix : {file_path.suffix}")
                 if file_path.suffix == ".pkg":
                     logger.info(f"Installing PKG package: {file_path}")
                     subprocess.run(["sudo", "installer", "-pkg", str(file_path), "-target", "/"], check=True)
