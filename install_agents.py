@@ -141,14 +141,12 @@ def install(args):
         # osquery Installation
         logger.info("Starting osquery setup...")
         osquery_installer = OsqueryInstaller()
-        osquery_installer.install(download_dir=OSQUERY_DOWNLOAD_DIR, extract_dir=OSQUERY_EXTRACT_DIR)
+        osquery_installer.install(extract_dir=OSQUERY_EXTRACT_DIR)
         logger.info("osquery setup completed successfully.")
 
         logger.info("Installation complete.")
-        input("Installation complete. Press Enter to exit.\n\n")
     except Exception as e:
         logger.error("An error occurred during the installation process.", exc_info=True)
-        input("An error occurred. Check the log file for details. Press Enter to exit.\n\n")
         sys.exit(1)
 
 

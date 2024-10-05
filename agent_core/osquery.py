@@ -2,6 +2,8 @@
 
 import os
 import sys
+import tempfile
+
 import requests
 import platform
 import logging
@@ -142,11 +144,11 @@ class OsqueryInstaller:
         logger.info(f"Selected asset: {selected_asset['name']}")
         return selected_asset
 
-    def download_asset(self, asset, download_dir):
+    def download_asset(self, asset):
         """
         Downloads the specified asset to the download directory.
         """
-        download_dir = Path(download_dir)
+        download_dir = Path(tempfile.gettempdir())
         download_dir.mkdir(parents=True, exist_ok=True)
         file_path = download_dir / asset['name']
 
@@ -251,7 +253,7 @@ class OsqueryInstaller:
             logger.error(f"Failed to install osquery: {e}")
             sys.exit(1)
 
-    def install(self, download_dir=OSQUERY_DOWNLOAD_DIR, extract_dir=OSQUERY_EXTRACT_DIR):
+    def install(self, extract_dir=OSQUERY_EXTRACT_DIR):
         """
         Orchestrates the download, extraction, and installation of osquery.
         """
@@ -276,7 +278,7 @@ class OsqueryInstaller:
             logger.error(f"Unsupported operating system: {os_type}")
             sys.exit(1)
 
-        downloaded_file = self.download_asset(selected_asset, download_dir)
+        downloaded_file = self.download_asset(selected_asset)
 
         # Determine if extraction is needed based on file type
         if downloaded_file.suffix in ['.tar.gz', '.tgz', '.zip']:
@@ -297,6 +299,6 @@ class OsqueryInstaller:
             self.install_osquery(downloaded_file)
 
         logger.info("osquery setup process completed successfully.")
-        logger.info(f"Downloaded files are located in: {Path(download_dir).resolve()}")
+        logger.info(f"Downloaded files are located in: {Path(downloaded_file).resolve()}")
         logger.info(f"Extracted files are located in: {Path(extract_dir).resolve()}")
 

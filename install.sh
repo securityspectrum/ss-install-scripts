@@ -219,6 +219,16 @@ fi
 # Run the Python script
 if [ -f "install_agents.py" ]; then
     echo "Running install_agents.py..."
+    # Validate environment variables
+    required_vars=("ORG_KEY" "API_ACCESS_KEY" "API_SECRET_KEY" "JWT_TOKEN" "MASTER_KEY")
+    for var in "${required_vars[@]}"; do
+        if [ -z "${!var}" ]; then
+            echo "Error: Environment variable $var is not set."
+            exit 1
+        else
+            echo "$var is set."
+        fi
+    done
     python install_agents.py --log-level INFO
     if [ $? -ne 0 ]; then
         echo "Failed to run install_agents.py."

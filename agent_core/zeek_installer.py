@@ -1186,36 +1186,6 @@ make install
 
         return src_dir
 
-
-    def prompt_user_for_version(self):
-        """
-        Prompt the user to select between the latest Zeek version (7.0.2) and the previous version (7.0.1).
-        """
-        print("Please choose the Zeek version to install:")
-        print("1. Latest version (7.0.2)")
-        print("2. Previous version (7.0.1)")
-        print("Press Enter to select the default (Latest version 7.0.2)")
-
-        # Set a timeout for the input
-        user_input = None
-        start_time = time.time()
-
-        # Give the user 5 seconds to respond, otherwise default to the latest version
-        while time.time() - start_time < 5:  # 5 seconds timeout
-            if sys.stdin in select.select([sys.stdin], [], [], 5)[0]:  # Timeout set to 5 seconds
-                user_input = input()
-                break
-
-        # If user_input is None or empty (Enter was pressed), default to the latest version
-        if user_input is None or user_input.strip() == '':
-            print("\nNo input or invalid input received. Proceeding with the latest version (7.0.2).")
-            return "latest"
-        elif user_input == '2':
-            return "previous"
-        else:
-            print("\nInvalid input received. Proceeding with the latest version (7.0.2).")
-            return "latest"
-
     def install_dependencies(self):
         brew_install_cmd = f'brew install cmake make gcc flex bison libpcap openssl python3 swig zlib'
         try:
@@ -1237,7 +1207,7 @@ make install
 
     def install_zeek_macos(self):
         """
-        Installs Zeek on macOS, allowing the user to select between the latest version (7.0.2) or the previous version (7.0.1).
+        Installs Zeek on macOS, automatically selecting the appropriate version based on the macOS version.
         """
         self.logger.info("Detected macOS. Proceeding with installation...")
         self.install_utilities_macos()
@@ -1247,19 +1217,46 @@ make install
         user_home = Path.home()
         self.logger.info(f"Using non-root user: {user}")
 
-        # Prompt user to choose between latest or previous version of Zeek
-        version_choice = self.prompt_user_for_version()
+        # Automatically choose Zeek version based on macOS version
+        macos_version = platform.mac_ver()[0]
+        major_version = int(macos_version.split('.')[0])
 
-        zeek_name = None
+        if major_version == 11:  # macOS Big Sur
+            zeek_version = "zeek@5.2.2"
+            zeek_name = f"{user}/older-zeek/zeek"
+            self.logger.info("Detected macOS Big Sur. Proceeding with Zeek version 5.2.2.")
 
-        # Handle the selected Zeek version
-        if version_choice == "latest":
-            zeek_version = "zeek"
-            zeek_name = "zeek"
-            self.logger.info("Proceeding with the latest version (7.0.2).")
-        elif version_choice == "previous":
+            # Create the custom tap if it doesn't exist
+            tap_name = f"{user}/older-zeek"
+            if not self.is_tap_installed(tap_name):
+                try:
+                    self.run_command(['brew', 'tap-new', tap_name], check=True, shell=False)
+                    self.logger.info(f"Tap '{tap_name}' created successfully.")
+                except subprocess.CalledProcessError as e:
+                    self.logger.error(f"Failed to create tap '{tap_name}': {e}")
+                    sys.exit(1)
+            else:
+                self.logger.info(f"Tap '{tap_name}' already exists. Skipping tap creation.")
+
+            # Download the Zeek 5.2.2 formula directly using curl
+            formula_path = f"/usr/local/Homebrew/Library/Taps/{user}/homebrew-older-zeek/Formula/zeek.rb"
+            try:
+                self.logger.info("Downloading the Zeek 5.2.2 formula...")
+                self.run_command(['curl', '-o', formula_path,
+                                  'https://raw.githubusercontent.com/Homebrew/homebrew-core/666405fbc6af1f06a7ee70d0912a85129258847f/Formula/z/zeek.rb'],
+                                 check=True,
+                                 shell=False)
+                self.logger.info(f"Zeek 5.2.2 formula downloaded successfully to {formula_path}.")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Failed to download the Zeek formula: {e}. Proceeding to install from source.")
+                self.create_source_directory()  # Ensure source directory exists
+                self.install_zeek_from_source_macos()
+                return
+
+        elif major_version == 12:  # macOS Monterey
             zeek_version = "zeek@7.0.1"
-            self.logger.info("Proceeding with the previous version (7.0.1).")
+            zeek_name = f"{user}/older-zeek/zeek"
+            self.logger.info("Detected macOS Monterey. Proceeding with Zeek version 7.0.1.")
 
             # Create the custom tap if it doesn't exist
             tap_name = f"{user}/older-zeek"
@@ -1278,14 +1275,27 @@ make install
             try:
                 self.logger.info("Downloading the Zeek 7.0.1 formula...")
                 self.run_command(['curl', '-o', formula_path,
-                                'https://raw.githubusercontent.com/Homebrew/homebrew-core/7e624e19de94dc6dccff8808f2b105480b2a9320/Formula/z/zeek.rb'],
-                                check=True, shell=False)
+                                  'https://raw.githubusercontent.com/Homebrew/homebrew-core/7e624e19de94dc6dccff8808f2b105480b2a9320/Formula/z/zeek.rb'],
+                                 check=True,
+                                 shell=False)
                 self.logger.info(f"Zeek 7.0.1 formula downloaded successfully to {formula_path}.")
-                zeek_name = f"{user}/older-zeek/zeek"
             except subprocess.CalledProcessError as e:
                 self.logger.error(f"Failed to download the Zeek formula: {e}. Proceeding to install from source.")
                 self.create_source_directory()  # Ensure source directory exists
                 self.install_zeek_from_source_macos()
+                return
+
+        elif major_version >= 13:  # macOS Ventura or newer
+            zeek_version = "zeek"
+            zeek_name = "zeek"
+            self.logger.info(
+                "Detected macOS version newer than Monterey. Proceeding with the latest version of Zeek (latest).")
+
+        else:  # macOS versions older than Big Sur
+            self.logger.info("Detected macOS version older than Big Sur. Proceeding to install Zeek from source.")
+            self.create_source_directory()  # Ensure source directory exists
+            self.install_zeek_from_source_macos()
+            return
 
         # Attempt to install Zeek via Homebrew
         try:

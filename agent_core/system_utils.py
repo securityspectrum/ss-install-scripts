@@ -27,7 +27,7 @@ class SystemUtility:
                 logger.info("Elevating script privileges with sudo...")
                 try:
                     # Re-run the current script with sudo using the current Python interpreter
-                    subprocess.run(['sudo', sys.executable] + sys.argv, check=True)
+                    subprocess.run(['sudo', '-E', sys.executable] + sys.argv, check=True)
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Failed to elevate privileges: {e}")
                     sys.exit(1)

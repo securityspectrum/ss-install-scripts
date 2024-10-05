@@ -2,19 +2,21 @@ import os
 import platform
 import requests
 import logging
-import tempfile
 import subprocess
 from pathlib import Path
 from agent_core.constants import (
     FLUENT_BIT_REPO,
     FLUENT_BIT_ASSET_PATTERNS,
-    DOWNLOAD_DIR_LINUX,
-    DOWNLOAD_DIR_WINDOWS,
-    DOWNLOAD_DIR_MACOS,
 )
+
+import os
+import tempfile
+import hashlib
 import distro
 
 # Setup logger
+from utils.files import get_temp_file_path
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -85,18 +87,14 @@ class FluentBitInstaller:
 
         asset_name, download_url = selected_asset[0]  # Get the first matching asset
 
-        # Determine the appropriate download directory based on the OS
-        if platform.system() == "Linux":
-            dest_path = DOWNLOAD_DIR_LINUX / asset_name
-        elif platform.system() == "Darwin":
-            dest_path = DOWNLOAD_DIR_MACOS / asset_name
-        elif platform.system() == "Windows":
-            dest_path = DOWNLOAD_DIR_WINDOWS / asset_name
-        else:
-            raise NotImplementedError(f"Unsupported OS: {platform.system()}")
+        dest_path = get_temp_file_path(asset_name)
 
-        logger.info(f"Downloading {asset_name} from {download_url}...")
-        self.download_binary(download_url, dest_path)
+        # Check if file already exists
+        if dest_path.exists():
+            logger.info(f"File {asset_name} already exists at {dest_path}. Skipping download.")
+        else:
+            logger.info(f"Downloading {asset_name} from {download_url} to temporary directory...")
+            self.download_binary(download_url, dest_path)
 
         logger.info(f"Installing {asset_name}...")
         self.run_installation_command(dest_path)
@@ -104,10 +102,10 @@ class FluentBitInstaller:
         logger.info("Installation complete.")
 
     def download_binary(self, download_url, dest_path=None):
-        # Use /var/tmp/ if no dest_path is provided
+        # Use a temporary directory if no dest_path is provided
         if dest_path is None:
-            temp_dir = tempfile.gettempdir()
-            dest_path = os.path.join(temp_dir, os.path.basename(download_url))
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                dest_path = temp_file.name
         else:
             # Expand the ~ to the user's home directory
             dest_path = os.path.expanduser(dest_path)
