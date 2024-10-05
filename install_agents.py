@@ -69,7 +69,13 @@ def get_platform_specific_paths():
     return fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path
 
 
-def main(logger):
+def install(args):
+    # Set up logging configuration globally
+    log_level = getattr(logging, args.log_level.upper(), logging.DEBUG)
+
+    # Configure logging with the provided log level
+    logger = configure_logging(LOG_DIR_PATH, log_level)
+
     try:
         supported_os = ["linux", "darwin", "windows"]
         current_os = platform.system().lower()
@@ -140,7 +146,6 @@ def main(logger):
 
         logger.info("Installation complete.")
         input("Installation complete. Press Enter to exit.\n\n")
-
     except Exception as e:
         logger.error("An error occurred during the installation process.", exc_info=True)
         input("An error occurred. Check the log file for details. Press Enter to exit.\n\n")
@@ -154,11 +159,5 @@ if __name__ == "__main__":
                         help='Set the logging level')
     args = parser.parse_args()
 
-    # Set up logging configuration globally
-    log_level = getattr(logging, args.log_level.upper(), logging.DEBUG)
-
-    # Configure logging with the provided log level
-    logger = configure_logging(LOG_DIR_PATH, log_level)
-
     # Pass the logger to the main function
-    main(logger)
+    install(args)

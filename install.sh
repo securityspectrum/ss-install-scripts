@@ -65,9 +65,9 @@ if [ ! -f requirements.txt ]; then
     error_exit "requirements.txt not found"
 fi
 
-# Check if main.py exists
-if [ ! -f main.py ]; then
-    error_exit "main.py not found"
+# Check if install_scripts.py exists
+if [ ! -f install_scripts.py ]; then
+    error_exit "install_scripts.py not found"
 fi
 
 # Function to install Python3 and necessary packages on Linux
@@ -217,14 +217,14 @@ else
 fi
 
 # Run the Python script
-if [ -f "main.py" ]; then
-    echo "Running main.py..."
-    python main.py --log-level INFO
+if [ -f "install_agents.py" ]; then
+    echo "Running install_agents.py..."
+    python install_agents.py --log-level INFO
     if [ $? -ne 0 ]; then
-        echo "Failed to run main.py."
+        echo "Failed to run install_agents.py."
         exit 1
     fi
 else
-    echo "main.py not found."
+    echo "install_agents.py not found."
     exit 1
 fi
