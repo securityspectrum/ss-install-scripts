@@ -7,6 +7,56 @@ error_exit() {
     exit 1
 }
 
+# Install git, curl, and sudo if they are missing
+install_prerequisites() {
+    if command -v apt-get &> /dev/null; then
+        apt-get update
+        apt-get install -y git curl sudo
+    elif command -v dnf &> /dev/null; then
+        dnf install -y git curl sudo
+    elif command -v yum &> /dev/null; then
+        yum install -y git curl sudo
+    elif command -v zypper &> /dev/null; then
+        zypper lu &> /dev/null
+        if [ $? -eq 4 ]; then
+            echo "Repository metadata is out of date. Refreshing..."
+            zypper refresh
+        fi
+        zypper install -y git curl sudo
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        if ! command -v brew &> /dev/null; then
+            echo "Homebrew is not installed. Installing Homebrew..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            eval "$(/opt/homebrew/bin/brew shellenv)" || eval "$(/usr/local/bin/brew shellenv)"
+        fi
+        brew install git curl
+    else
+        error_exit "Unsupported Linux distribution or package manager. Please install git, curl, and sudo manually."
+    fi
+}
+
+# Ensure that the basic tools are available
+if ! command -v git &> /dev/null || ! command -v curl &> /dev/null || ! command -v sudo &> /dev/null; then
+    echo "git, curl, or sudo are not installed. Installing missing dependencies..."
+    install_prerequisites
+else
+    echo "All basic dependencies are already installed."
+fi
+
+# Clone the GitHub repository
+REPO_URL="https://github.com/securityspectrum/ss-install-scripts.git"
+REPO_DIR="ss-install-scripts"
+
+if [ -d "$REPO_DIR" ]; then
+    echo "Repository already cloned. Pulling the latest changes..."
+    cd "$REPO_DIR"
+    git pull
+else
+    echo "Cloning the repository..."
+    git clone "$REPO_URL"
+    cd "$REPO_DIR"
+fi
+
 # Navigate to the scripts directory
 echo "Current working directory: $(pwd)"
 
@@ -30,14 +80,11 @@ install_python_on_linux() {
     elif command -v yum &> /dev/null; then
         yum install -y python3 python3-venv python3-pip perl-TermReadLine-Gnu iproute2
     elif command -v zypper &> /dev/null; then
-        # Check if the repo metadata is up-to-date by listing updates
         zypper lu &> /dev/null
-        if [ $? -eq 4 ]; then  # Exit code 4 means the metadata is out of date
+        if [ $? -eq 4 ]; then
             echo "Repository metadata is out of date. Refreshing..."
             zypper refresh
         fi
-
-        # Now try installing the required packages
         zypper install -y python3 python3-pip perl-TermReadLine-Gnu iproute2 || \
         zypper install -y python3 python-pip perl-TermReadLine iproute2
     else
@@ -47,18 +94,12 @@ install_python_on_linux() {
 
 # Function to install Python3 and necessary packages on macOS
 install_python_on_macos() {
-    # Check if Homebrew is installed
     if ! command -v brew &> /dev/null; then
         echo "Homebrew is not installed. Installing Homebrew..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-        # Add Homebrew to PATH for the current session
         eval "$(/opt/homebrew/bin/brew shellenv)" || eval "$(/usr/local/bin/brew shellenv)"
-    else
-        echo "Homebrew is already installed."
     fi
 
-    # Update Homebrew and install Python if not already installed
     if ! brew list python@3 &> /dev/null && ! brew list python3 &> /dev/null; then
         echo "Python3 is not installed. Installing Python3 via Homebrew..."
         brew update
@@ -67,7 +108,6 @@ install_python_on_macos() {
         echo "Python3 is already installed via Homebrew."
     fi
 
-    # Ensure that Homebrew's Python3 is linked correctly
     brew link --overwrite python3 || true
 }
 
