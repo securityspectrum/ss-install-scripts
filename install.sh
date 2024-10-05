@@ -65,9 +65,9 @@ if [ ! -f requirements.txt ]; then
     error_exit "requirements.txt not found"
 fi
 
-# Check if install_scripts.py exists
-if [ ! -f install_scripts.py ]; then
-    error_exit "install_scripts.py not found"
+# Check if install_agents.py exists
+if [ ! -f install_agents.py ]; then
+    error_exit "install_agents.py not found"
 fi
 
 # Function to install Python3 and necessary packages on Linux
