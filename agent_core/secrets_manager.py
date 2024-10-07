@@ -10,7 +10,7 @@ logger = logging.getLogger('InstallationLogger')
 
 class SecretsManager:
     def __init__(self):
-        pass
+        self.organization_slug = None
 
     def load_secrets_from_var_envs(self):
         # Load secrets from environment variables if available, otherwise raise an error
@@ -22,6 +22,8 @@ class SecretsManager:
 
         if not all([org_key, api_access_key, api_secret_key, jwt_token, master_key]):
             raise EnvironmentError("One or more required environment variables are missing for secrets.")
+
+        self.organization_slug = self.decode_jwt(jwt_token)
 
         secrets = {
             "organization_key": org_key,
@@ -45,3 +47,5 @@ class SecretsManager:
             logger.error("JWT does not contain 'organization' key")
             raise
 
+    def get_organization_slug(self):
+        return self.organization_slug
