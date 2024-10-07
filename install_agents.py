@@ -93,9 +93,9 @@ def install(args):
         SystemUtility.elevate_privileges()
 
         # Load or prompt for secrets
-        secrets_manager = SecretsManager(Path(RUNTIME_DIR_PATH) / USER_CONFIG_FILE)
-        secrets = secrets_manager.load_secrets()
-        organization_slug = secrets_manager.get_organization_slug()
+        secrets_manager = SecretsManager()
+        secrets = secrets_manager.load_secrets_from_var_envs()
+        organization_slug = secrets["organization_slug"]
         api_url = f"{API_URL_DOMAIN}{API_VERSION_PATH}/r/{organization_slug}"
 
         # Get platform-specific paths

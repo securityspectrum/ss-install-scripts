@@ -25,6 +25,9 @@ class FluentBitInstaller:
 
     def __init__(self):
         self.repo = FLUENT_BIT_REPO
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("INFO Starting fluent-bit installation...")
+        self.logger.debug("DEBUG Starting fluent-bit installation...")
 
     def get_latest_release_url(self):
         url = f"https://api.github.com/repos/{self.repo}/releases"
@@ -47,11 +50,11 @@ class FluentBitInstaller:
 
     def select_asset(self, categorized_assets):
         system = platform.system().lower()
-        logger.info(f"Detected system: {system}")
+        self.logger.info(f"Detected system: {system}")
         if system == "linux":
             distro_name = distro.id().lower()
             version = distro.major_version()
-            logger.info(f"Detected distro: {distro_name} {version}")
+            self.logger.info(f"Detected distro: {distro_name} {version}")
             if "centos" in distro_name:
                 if version == "8":
                     return categorized_assets.get("centos8")
@@ -91,15 +94,15 @@ class FluentBitInstaller:
 
         # Check if file already exists
         if dest_path.exists():
-            logger.info(f"File {asset_name} already exists at {dest_path}. Skipping download.")
+            self.logger.info(f"File {asset_name} already exists at {dest_path}. Skipping download.")
         else:
-            logger.info(f"Downloading {asset_name} from {download_url} to temporary directory...")
+            self.logger.info(f"Downloading {asset_name} from {download_url} to temporary directory...")
             self.download_binary(download_url, dest_path)
 
-        logger.info(f"Installing {asset_name}...")
+        self.logger.info(f"Installing {asset_name}...")
         self.run_installation_command(dest_path)
 
-        logger.info("Installation complete.")
+        self.logger.info("Installation complete.")
 
     def download_binary(self, download_url, dest_path=None):
         # Use a temporary directory if no dest_path is provided
@@ -119,7 +122,7 @@ class FluentBitInstaller:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
 
-        logger.info(f"Downloaded file saved to: {dest_path}")
+        self.logger.info(f"Downloaded file saved to: {dest_path}")
         return dest_path
 
     def run_installation_command(self, dest_path):
@@ -131,41 +134,41 @@ class FluentBitInstaller:
                 rpm_version = self.extract_rpm_version(dest_path)
 
                 if self.is_package_installed(package_name, rpm_version):
-                    logger.info(f"{package_name} version {rpm_version} is already installed. Skipping installation.")
+                    self.logger.info(f"{package_name} version {rpm_version} is already installed. Skipping installation.")
                     return
                 elif self.is_newer_version_installed(package_name, rpm_version):
-                    logger.info(f"A newer version of {package_name} is installed. Skipping downgrade to version {rpm_version}.")
+                    self.logger.info(f"A newer version of {package_name} is installed. Skipping downgrade to version {rpm_version}.")
                     return
                 else:
-                    logger.info(f"A different version of {package_name} is installed. Updating to version {rpm_version}.")
+                    self.logger.info(f"A different version of {package_name} is installed. Updating to version {rpm_version}.")
                     try:
                         subprocess.run(["sudo", "rpm", "-Uvh", str(dest_path)], check=True)
                     except subprocess.CalledProcessError as e:
-                        logger.error(f"RPM installation failed: {e}")
+                        self.logger.error(f"RPM installation failed: {e}")
                         raise
             elif dest_path.suffix == ".deb":
                 package_name = "fluent-bit"
                 deb_version = self.extract_deb_version(dest_path)
 
                 if self.is_package_installed(package_name, deb_version):
-                    logger.info(f"{package_name} version {deb_version} is already installed. Skipping installation.")
+                    self.logger.info(f"{package_name} version {deb_version} is already installed. Skipping installation.")
                     return
                 elif self.is_newer_version_installed(package_name, deb_version):
-                    logger.info(f"A newer version of {package_name} is installed. Skipping downgrade to version {deb_version}.")
+                    self.logger.info(f"A newer version of {package_name} is installed. Skipping downgrade to version {deb_version}.")
                     return
                 else:
-                    logger.info(f"A different version of {package_name} is installed. Updating to version {deb_version}.")
+                    self.logger.info(f"A different version of {package_name} is installed. Updating to version {deb_version}.")
                     try:
                         subprocess.run(["sudo", "dpkg", "-i", str(dest_path)], check=True)
                     except subprocess.CalledProcessError as e:
-                        logger.error(f"DEB installation failed: {e}")
+                        self.logger.error(f"DEB installation failed: {e}")
                         raise
         elif system == "Darwin":
             try:
-                logger.info(f"Installing {dest_path}...")
+                self.logger.info(f"Installing {dest_path}...")
                 subprocess.run(["sudo", "installer", "-pkg", str(dest_path), "-target", "/"], check=True)
             except subprocess.CalledProcessError as e:
-                logger.error(f"Package installation on macOS failed: {e}")
+                self.logger.error(f"Package installation on macOS failed: {e}")
                 raise
         elif system == "Windows":
             try:
@@ -174,7 +177,7 @@ class FluentBitInstaller:
                 elif dest_path.suffix == ".msi":
                     subprocess.run(["msiexec", "/i", str(dest_path), "/quiet", "/norestart"], check=True)
             except subprocess.CalledProcessError as e:
-                logger.error(f"Installation on Windows failed: {e}")
+                self.logger.error(f"Installation on Windows failed: {e}")
                 raise
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
@@ -200,7 +203,7 @@ class FluentBitInstaller:
             )
             return result.returncode == 0
         except Exception as e:
-            logger.error(f"Failed to check installed package version: {e}")
+            self.logger.error(f"Failed to check installed package version: {e}")
             return False
 
     def is_different_version_installed(self, package_name, version):
@@ -214,12 +217,12 @@ class FluentBitInstaller:
             )
             if result.returncode == 0:
                 installed_version = result.stdout.strip().split('-')[-2]
-                logger.info(f"Installed version of {package_name}: {installed_version}")
+                self.logger.info(f"Installed version of {package_name}: {installed_version}")
                 return installed_version != version
             else:
                 return False
         except Exception as e:
-            logger.error(f"Failed to check installed package version: {e}")
+            self.logger.error(f"Failed to check installed package version: {e}")
             return False
 
     def is_newer_version_installed(self, package_name, version):
@@ -233,10 +236,10 @@ class FluentBitInstaller:
             )
             if result.returncode == 0:
                 installed_version = result.stdout.strip().split('-')[-2]
-                logger.info(f"Installed version of {package_name}: {installed_version}")
+                self.logger.info(f"Installed version of {package_name}: {installed_version}")
                 return installed_version > version
             else:
                 return False
         except Exception as e:
-            logger.error(f"Failed to check installed package version: {e}")
+            self.logger.error(f"Failed to check installed package version: {e}")
             return False

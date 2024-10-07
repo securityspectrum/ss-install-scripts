@@ -40,17 +40,19 @@ REPO_NAME = "osquery"
 class OsqueryInstaller:
 
     def __init__(self):
-        pass
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("INFO Starting osquery installation...")
+        self.logger.debug("DEBUG Starting osquery installation...")
 
     def get_latest_release(self):
         """
         Fetches the latest release from the specified GitHub repository.
         """
         url = f"{GITHUB_API_URL}/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-        logger.info(f"Fetching latest release from {url}")
+        self.logger.info(f"Fetching latest release from {url}")
         response = requests.get(url)
         if response.status_code != 200:
-            logger.error(f"Failed to fetch latest release: {response.status_code} {response.text}")
+            self.logger.error(f"Failed to fetch latest release: {response.status_code} {response.text}")
             sys.exit(1)
         return response.json()
 
@@ -72,7 +74,7 @@ class OsqueryInstaller:
             lower_name = name.lower()
 
             # Debugging print statement to track the filename
-            logger.info(f"Processing asset: {name}")
+            self.logger.info(f"Processing asset: {name}")
 
             if 'linux' in lower_name and (lower_name.endswith('.rpm') or lower_name.endswith('.deb') or lower_name.endswith('.tar.gz')):
                 distributions['linux'].append({'name': name, 'url': download_url})
@@ -85,9 +87,9 @@ class OsqueryInstaller:
 
         # Print grouped distributions for validation
         for distro, files in distributions.items():
-            logger.debug(f"Distribution: {distro}")
+            self.logger.debug(f"Distribution: {distro}")
             for file in files:
-                logger.info(f"  - {file['name']}")
+                self.logger.info(f"  - {file['name']}")
 
         return distributions
 
@@ -99,30 +101,42 @@ class OsqueryInstaller:
         if os_system.startswith('linux'):
             distro_info = distro.id().lower()
             version = distro.major_version()
-            logger.info(f"Detected Linux distribution: {distro_info} {version}")
+            self.logger.info(f"Detected Linux distribution: {distro_info} {version}")
             return 'linux', distro_info, version
         elif os_system.startswith('darwin'):
-            logger.info("Detected macOS.")
+            self.logger.info("Detected macOS.")
             return 'macos', None, None
         elif os_system.startswith('windows'):
-            logger.info("Detected Windows.")
+            self.logger.info("Detected Windows.")
             return 'windows', None, None
         else:
-            logger.error(f"Unsupported operating system: {os_system}")
+            self.logger.error(f"Unsupported operating system: {os_system}")
             sys.exit(1)
 
-    def select_asset(self, distribution_assets):
+    def select_asset(self, distribution_assets, distro_info=None, version=None):
         """
         Selects the appropriate asset based on the system architecture and OS type.
         For macOS, it prioritizes .pkg files over other formats.
         """
+
+        if distro_info and version:
+            self.logger.debug(f"Selecting asset for distribution: {distro_info} {version}")
+
         if not distribution_assets:
-            logger.error("No assets found for the detected distribution.")
+            self.logger.error("No assets found for the detected distribution.")
             sys.exit(1)
 
         selected_asset = None
         system_arch = platform.machine().lower()
 
+        if distro_info:
+            for asset in distribution_assets:
+                name = asset['name'].lower()
+                # Prioritize matching the system architecture (e.g., x86_64, aarch64, etc.)
+                if system_arch in name:
+                    selected_asset = asset
+                    self.logger.debug(f"Matched asset: {name}")
+                    break
         for asset in distribution_assets:
             name = asset['name'].lower()
 
@@ -136,12 +150,21 @@ class OsqueryInstaller:
                 elif 'arm64' in name and name.endswith('.pkg'):
                     selected_asset = asset
 
+            if not selected_asset:
+                # If no exact match for system architecture, fall back to x86_64 if available
+                self.logger.warning(f"No exact match for architecture '{system_arch}' found. "
+                               "Selecting the first available x86_64 asset if possible.")
+                selected_asset = next((asset for asset in distribution_assets if 'x86_64' in asset['name'].lower()),
+                                      distribution_assets[0])
+        else:
+            # For non-Linux platforms (e.g., macOS and Windows), select the first asset
+            selected_asset = distribution_assets[0]
         # Fallback to other formats if no .pkg is found
         if not selected_asset:
-            logger.warning("No .pkg file found for macOS. Falling back to the first available asset.")
+            self.logger.warning("No .pkg file found for macOS. Falling back to the first available asset.")
             selected_asset = next((asset for asset in distribution_assets if system_arch in asset['name']), distribution_assets[0])
 
-        logger.info(f"Selected asset: {selected_asset['name']}")
+        self.logger.info(f"Selected asset: {selected_asset['name']}")
         return selected_asset
 
     def download_asset(self, asset):
@@ -152,12 +175,12 @@ class OsqueryInstaller:
         download_dir.mkdir(parents=True, exist_ok=True)
         file_path = download_dir / asset['name']
 
-        logger.info(f"Downloading {asset['name']} from {asset['url']} to {file_path}")
+        self.logger.info(f"Downloading {asset['name']} from {asset['url']} to {file_path}")
         with requests.get(asset['url'], stream=True) as r:
             r.raise_for_status()
             with open(file_path, 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
-        logger.info(f"Downloaded {asset['name']} successfully.")
+        self.logger.info(f"Downloaded {asset['name']} successfully.")
         return file_path
 
     def extract_archive(self, file_path, extract_to):
@@ -170,15 +193,15 @@ class OsqueryInstaller:
         extract_to.mkdir(parents=True, exist_ok=True)
 
         if file_path.suffixes[-2:] == ['.tar', '.gz'] or file_path.suffix == '.tgz':
-            logger.info(f"Extracting {file_path} to {extract_to}")
+            self.logger.info(f"Extracting {file_path} to {extract_to}")
             with tarfile.open(file_path, 'r:gz') as tar:
                 tar.extractall(path=extract_to)
         elif file_path.suffix == '.zip':
-            logger.info(f"Extracting {file_path} to {extract_to}")
+            self.logger.info(f"Extracting {file_path} to {extract_to}")
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(path=extract_to)
         else:
-            logger.info(f"No extraction needed for {file_path}")
+            self.logger.info(f"No extraction needed for {file_path}")
 
     def get_installed_version(self, package_name):
         """
@@ -200,13 +223,13 @@ class OsqueryInstaller:
         """
         system = platform.system().lower()
         file_path = Path(file_path)
-        logger.info(f"osquery package : {file_path}")
+        self.logger.info(f"osquery package : {file_path}")
 
         try:
             if system == "linux":
                 if file_path.suffix == ".rpm":
                     package_name = "osquery"
-                    logger.info(f"Checking if {package_name} is already installed...")
+                    self.logger.info(f"Checking if {package_name} is already installed...")
 
                     # Check if osquery is installed
                     installed_version = self.get_installed_version(package_name)
@@ -215,42 +238,42 @@ class OsqueryInstaller:
                         # Extract version from the RPM file name
                         rpm_version = file_path.stem.split('-')[1]
                         if installed_version == rpm_version:
-                            logger.info(f"{package_name} version {installed_version} is already up-to-date.")
+                            self.logger.info(f"{package_name} version {installed_version} is already up-to-date.")
                             return
                         else:
-                            logger.info(f"{package_name} is already installed, updating from version {installed_version} to {rpm_version}.")
+                            self.logger.info(f"{package_name} is already installed, updating from version {installed_version} to {rpm_version}.")
                             subprocess.run(["sudo", "rpm", "-Uvh", str(file_path)], check=True)
                     else:
-                        logger.info(f"{package_name} is not installed, installing the package.")
+                        self.logger.info(f"{package_name} is not installed, installing the package.")
                         subprocess.run(["sudo", "rpm", "-ivh", str(file_path)], check=True)
                 elif file_path.suffix == ".deb":
-                    logger.info(f"Installing DEB package: {file_path}")
+                    self.logger.info(f"Installing DEB package: {file_path}")
                     subprocess.run(["sudo", "dpkg", "-i", str(file_path)], check=True)
                     subprocess.run(["sudo", "apt-get", "-f", "install"], check=True)
                 else:
-                    logger.warning(f"Unsupported Linux package format: {file_path.suffix}")
+                    self.logger.warning(f"Unsupported Linux package format: {file_path.suffix}")
             elif system == "darwin":
-                logger.info(f"file_path.suffix : {file_path.suffix}")
+                self.logger.info(f"file_path.suffix : {file_path.suffix}")
                 if file_path.suffix == ".pkg":
-                    logger.info(f"Installing PKG package: {file_path}")
+                    self.logger.info(f"Installing PKG package: {file_path}")
                     subprocess.run(["sudo", "installer", "-pkg", str(file_path), "-target", "/"], check=True)
                 else:
-                    logger.warning(f"Unsupported macOS package format: {file_path.suffix}")
+                    self.logger.warning(f"Unsupported macOS package format: {file_path.suffix}")
             elif system == "windows":
                 if file_path.suffix == ".msi":
-                    logger.info(f"Installing MSI package: {file_path}")
+                    self.logger.info(f"Installing MSI package: {file_path}")
                     subprocess.run([str(file_path), "/quiet", "/norestart"], check=True)
                 elif file_path.suffix == ".exe":
-                    logger.info(f"Running executable installer: {file_path}")
+                    self.logger.info(f"Running executable installer: {file_path}")
                     subprocess.run([str(file_path), "/S"], check=True)
                 else:
-                    logger.warning(f"Unsupported Windows package format: {file_path.suffix}")
+                    self.logger.warning(f"Unsupported Windows package format: {file_path.suffix}")
             else:
-                logger.error(f"Unsupported OS for installation: {system}")
+                self.logger.error(f"Unsupported OS for installation: {system}")
                 sys.exit(1)
-            logger.info("osquery installation completed successfully.")
+            self.logger.info("osquery installation completed successfully.")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to install osquery: {e}")
+            self.logger.error(f"Failed to install osquery: {e}")
             sys.exit(1)
 
     def install(self, extract_dir=OSQUERY_EXTRACT_DIR):
@@ -261,7 +284,7 @@ class OsqueryInstaller:
         assets = latest_release.get('assets', [])
 
         if not assets:
-            logger.error("No assets found in the latest release.")
+            self.logger.error("No assets found in the latest release.")
             sys.exit(1)
 
         grouped_assets = self.group_assets_by_distribution(assets)
@@ -275,7 +298,7 @@ class OsqueryInstaller:
         elif os_type == 'windows':
             selected_asset = self.select_asset(grouped_assets['windows'])
         else:
-            logger.error(f"Unsupported operating system: {os_type}")
+            self.logger.error(f"Unsupported operating system: {os_type}")
             sys.exit(1)
 
         downloaded_file = self.download_asset(selected_asset)
@@ -293,12 +316,12 @@ class OsqueryInstaller:
             if installer_file:
                 self.install_osquery(installer_file)
             else:
-                logger.warning("No installer file found after extraction.")
+                self.logger.warning("No installer file found after extraction.")
         else:
             # If it's an installer package, install directly
             self.install_osquery(downloaded_file)
 
-        logger.info("osquery setup process completed successfully.")
-        logger.info(f"Downloaded files are located in: {Path(downloaded_file).resolve()}")
-        logger.info(f"Extracted files are located in: {Path(extract_dir).resolve()}")
+        self.logger.info("osquery setup process completed successfully.")
+        self.logger.info(f"Downloaded files are located in: {Path(downloaded_file).resolve()}")
+        self.logger.info(f"Extracted files are located in: {Path(extract_dir).resolve()}")
 

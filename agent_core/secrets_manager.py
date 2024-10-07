@@ -7,12 +7,12 @@ import logging
 
 logger = logging.getLogger('InstallationLogger')
 
-class SecretsManager:
-    def __init__(self, user_config_file):
-        self.user_config_file = user_config_file
-        self.organization_slug = ""
 
-    def prompt_for_secrets(self):
+class SecretsManager:
+    def __init__(self):
+        pass
+
+    def load_secrets_from_var_envs(self):
         # Load secrets from environment variables if available, otherwise raise an error
         org_key = os.getenv("ORG_KEY")
         api_access_key = os.getenv("API_ACCESS_KEY")
@@ -31,33 +31,6 @@ class SecretsManager:
             "master_key": master_key
         }
 
-        try:
-            with self.user_config_file.open("w") as f:
-                json.dump(secrets, f)
-            logger.debug(f"User secrets saved to {self.user_config_file}")
-        except Exception as e:
-            logger.error(f"Failed to save secrets to {self.user_config_file}: {e}")
-            raise
-
-        return secrets
-
-    def load_secrets(self):
-        if self.user_config_file.exists():
-            logger.debug(f"Loading secrets from {self.user_config_file}")
-            try:
-                with self.user_config_file.open() as f:
-                    secrets = json.load(f)
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON decoding error: {e}")
-                secrets = self.prompt_for_secrets()
-            except Exception as e:
-                logger.error(f"Failed to load secrets from {self.user_config_file}: {e}")
-                raise
-        else:
-            logger.debug(f"{self.user_config_file} not found, prompting for secrets")
-            secrets = self.prompt_for_secrets()
-
-        self.organization_slug = self.decode_jwt(secrets["jwt_token"])
         return secrets
 
     @staticmethod
@@ -72,5 +45,3 @@ class SecretsManager:
             logger.error("JWT does not contain 'organization' key")
             raise
 
-    def get_organization_slug(self):
-        return self.organization_slug
