@@ -39,9 +39,6 @@ class ZeekInstaller:
         # Determine the operating system
         self.os_system = platform.system()
 
-        # Check privileges based on OS
-        self.check_privileges()
-
     def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None, require_root=False):
         """
         Executes a system command, optionally with root privileges.
@@ -1352,6 +1349,10 @@ make install
         """
         Install function to run the installation.
         """
+
+        # Check privileges based on OS
+        self.check_privileges()
+
         self.logger.info("Checking if Zeek is already installed...")
         if self.check_zeek_installed():
             self.configure_zeek()

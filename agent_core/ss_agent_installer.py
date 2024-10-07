@@ -3,7 +3,8 @@ import zipfile
 import requests
 
 from agent_core import SystemUtility
-from agent_core.constants import (SS_AGENT_REPO, DOWNLOAD_DIR_LINUX, DOWNLOAD_DIR_WINDOWS, DOWNLOAD_DIR_MACOS, )
+from agent_core.constants import (SS_AGENT_REPO, DOWNLOAD_DIR_LINUX, DOWNLOAD_DIR_WINDOWS, DOWNLOAD_DIR_MACOS,
+                                  SS_AGENT_SERVICE_MACOS, SS_AGENT_SERVICE_NAME_WINDOWS, SS_AGENT_SERVICE_NAME, )
 import shutil
 import platform
 import subprocess
@@ -24,6 +25,9 @@ class SSAgentInstaller:
 
     def __init__(self):
         self.repo = SS_AGENT_REPO
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("INFO Starting fluent-bit installation..")
+        self.logger.debug("DEBUG Starting fluent-bit installation..")
 
     def get_latest_release_url(self):
         url = f"https://api.github.com/repos/{self.repo}/releases"
@@ -46,7 +50,7 @@ class SSAgentInstaller:
 
     def select_asset(self, categorized_assets):
         system = platform.system().lower()
-        logger.info(f"Detected system: {system}")
+        self.logger.info(f"Detected system: {system}")
         if system == "linux":
             return categorized_assets.get("linux")
         elif system == "darwin":
@@ -76,17 +80,17 @@ class SSAgentInstaller:
         else:
             raise NotImplementedError(f"Unsupported OS: {platform.system()}")
 
-        logger.info(f"Downloading {asset_name} from {download_url}...")
+        self.logger.info(f"Downloading {asset_name} from {download_url}..")
         self.download_binary(download_url, dest_path)
 
-        logger.info(f"Installing {asset_name}...")
+        self.logger.info(f"Installing {asset_name}..")
 
         final_executable_path = self.determine_executable_installation_path()
         self.install_and_verify_binary(dest_path, final_executable_path)
 
         self.setup_service(final_executable_path)
 
-        logger.info("Installation complete.")
+        self.logger.info("Installation complete.")
 
     def download_binary(self, download_url, dest_path=None):
         # Expand the ~ to the user's home directory
@@ -101,7 +105,7 @@ class SSAgentInstaller:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
 
-        logger.info(f"Downloaded file saved to: {dest_path}")
+        self.logger.info(f"Downloaded file saved to: {dest_path}")
         return dest_path
 
     def determine_executable_installation_path(self):
@@ -146,29 +150,29 @@ class SSAgentInstaller:
 
         # Move the binary to the final location
         try:
-            logger.info(f"Moving {source_binary_path} to {final_executable_path}...")
+            self.logger.info(f"Moving {source_binary_path} to {final_executable_path}..")
             shutil.move(str(source_binary_path), str(final_executable_path))
-            logger.info(f"{final_executable_path} has been installed successfully.")
+            self.logger.info(f"{final_executable_path} has been installed successfully.")
         except Exception as e:
-            logger.error(f"Failed to move the file to {final_executable_path}: {e}")
+            self.logger.error(f"Failed to move the file to {final_executable_path}: {e}")
             raise
 
         # Make the binary executable on Linux and macOS
         if current_os in ["linux", "darwin"]:  # Case-insensitive OS comparison
             try:
                 final_executable_path.chmod(0o755)
-                logger.info(f"{final_executable_path} is now executable.")
+                self.logger.info(f"{final_executable_path} is now executable.")
             except Exception as e:
-                logger.error(f"Failed to change permissions for {final_executable_path}: {e}")
+                self.logger.error(f"Failed to change permissions for {final_executable_path}: {e}")
                 raise
 
         # Run the binary to verify installation
         try:
-            logger.info(f"Running {final_executable_path} to verify installation...")
+            self.logger.info(f"Running {final_executable_path} to verify installation..")
             result = subprocess.run([str(final_executable_path), "version"], check=True, capture_output=True, text=True)
-            logger.info(f"Installed binary version: {result.stdout.strip()}")
+            self.logger.info(f"Installed binary version: {result.stdout.strip()}")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Running {final_executable_path} failed: {e}")
+            self.logger.error(f"Running {final_executable_path} failed: {e}")
             raise
 
     def setup_service(self, executable_path):
@@ -187,7 +191,7 @@ class SSAgentInstaller:
         Sets up a systemd service for the SS Agent on Linux.
         The service uses the 'ss-agent --debug start' command to start.
         """
-        logger.info("Setting up systemd service for SS Agent...")
+        self.logger.info("Setting up systemd service for SS Agent..")
         service_content = f"""[Unit]
     Description=SS Agent Service
     After=network.target
@@ -216,10 +220,10 @@ class SSAgentInstaller:
             subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
             subprocess.run(['sudo', 'systemctl', 'enable', 'ss-agent'], check=True)
             subprocess.run(['sudo', 'systemctl', 'start', 'ss-agent'], check=True)
-            logger.info("SS Agent service installed and started (systemd).")
+            self.logger.info("SS Agent service installed and started (systemd).")
 
         except Exception as e:
-            logger.error(f"Failed to set up systemd service: {e}")
+            self.logger.error(f"Failed to set up systemd service: {e}")
             raise
 
     def setup_launchd_service(self, executable_path):
@@ -227,7 +231,7 @@ class SSAgentInstaller:
         Sets up a launchd service for the SS Agent on macOS.
         The service uses the 'ss-agent --debug start' command to start.
         """
-        logger.info("Setting up launchd service for SS Agent...")
+        self.logger.info("Setting up launchd service for SS Agent..")
         plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
     <!DOCTYPE plist PUBLIC "-//Apple Inc//DTD PLIST 1.0//EN" \
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -253,22 +257,22 @@ class SSAgentInstaller:
     </plist>
     """
 
-        plist_path = '/Library/LaunchDaemons/com.ss-agent.plist'
+
         try:
             temp_plist_path = '/tmp/com.ss-agent.plist'
             with open(temp_plist_path, 'w') as f:
                 f.write(plist_content)
 
             # Move the plist file to the system directory with proper permissions
-            SystemUtility.move_with_sudo(temp_plist_path, plist_path)
+            SystemUtility.move_with_sudo(temp_plist_path, SS_AGENT_SERVICE_MACOS)
 
             # Load and enable the launchd service
-            subprocess.run(['sudo', 'launchctl', 'load', plist_path], check=True)
+            subprocess.run(['sudo', 'launchctl', 'load', SS_AGENT_SERVICE_MACOS], check=True)
             subprocess.run(['sudo', 'launchctl', 'enable', 'system/com.ss-agent'], check=True)
-            logger.info("SS Agent service installed and started (launchd).")
+            self.logger.info("SS Agent service installed and started (launchd).")
 
         except Exception as e:
-            logger.error(f"Failed to set up launchd service: {e}")
+            self.logger.error(f"Failed to set up launchd service: {e}")
             raise
 
     def setup_windows_service(self, executable_path):
@@ -276,29 +280,139 @@ class SSAgentInstaller:
         Sets up a Windows service for the SS Agent.
         The service uses the 'ss-agent --debug start' command to start.
         """
-        logger.info("Setting up Windows service for SS Agent...")
-        service_name = "SSAgentService"
+        self.logger.info("Setting up Windows service for SS Agent..")
         display_name = "SS Agent Service"
 
         try:
             # Install the service using sc.exe with the '--debug start' command
-            install_cmd = f'sc create {service_name} binPath= "{executable_path} --debug start" DisplayName= "{display_name}" start= auto'
-            logger.info(f"Running command: {install_cmd}")
+            install_cmd = f'sc create {SS_AGENT_SERVICE_NAME_WINDOWS} binPath= "{executable_path} --debug start" DisplayName= "{display_name}" start= auto'
+            self.logger.info(f"Running command: {install_cmd}")
             subprocess.run(install_cmd, shell=True, check=True)
-            logger.info(f"Service {service_name} created successfully.")
+            self.logger.info(f"Service {SS_AGENT_SERVICE_NAME_WINDOWS} created successfully.")
 
             # Configure the service to restart automatically on failure
-            failure_cmd = f'sc failure {service_name} reset= 60 actions= restart/6000/restart/6000/restart/6000'
-            logger.info(f"Setting up automatic restart: {failure_cmd}")
+            failure_cmd = f'sc failure {SS_AGENT_SERVICE_NAME_WINDOWS} reset= 60 actions= restart/6000/restart/6000/restart/6000'
+            self.logger.info(f"Setting up automatic restart: {failure_cmd}")
             subprocess.run(failure_cmd, shell=True, check=True)
-            logger.info(f"Service {service_name} configured for automatic restarts.")
+            self.logger.info(f"Service {SS_AGENT_SERVICE_NAME_WINDOWS} configured for automatic restarts.")
 
             # Start the service
-            start_cmd = f'sc start {service_name}'
-            logger.info(f"Starting service: {start_cmd}")
+            start_cmd = f'sc start {SS_AGENT_SERVICE_NAME_WINDOWS}'
+            self.logger.info(f"Starting service: {start_cmd}")
             subprocess.run(start_cmd, shell=True, check=True)
-            logger.info(f"Service {service_name} started successfully.")
+            self.logger.info(f"Service {SS_AGENT_SERVICE_NAME_WINDOWS} started successfully.")
 
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to set up Windows service for SS Agent: {e}")
+            self.logger.error(f"Failed to set up Windows service for SS Agent: {e}")
             raise
+
+    def stop_windows_service(self, service_name):
+        """
+        Stops a Windows service.
+        """
+        stop_cmd = f'sc stop {service_name}'
+        self.logger.info(f"Stopping service: {stop_cmd}")
+        try:
+            subprocess.run(stop_cmd, shell=True, check=True)
+            self.logger.info(f"Service {service_name} stopped successfully.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to stop the service {service_name}: {e}")
+            raise
+
+    def stop_linux_service(self, service_name):
+        """
+        Stops a Windows service.
+        """
+        stop_cmd = ['systemctl', 'stop', service_name]
+        self.logger.info(f"Stopping service: {stop_cmd}")
+        try:
+            SystemUtility.run_command(stop_cmd, check=True)
+            self.logger.info(f"Service {service_name} stopped successfully.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to stop the service {service_name}: {e}")
+            raise
+
+    def stop_macos_service(self, service_name):
+        """
+        Stops a Windows service.
+        """
+        stop_cmd = ['sudo', 'launchctl', 'unload', SS_AGENT_SERVICE_MACOS]
+        self.logger.info(f"Stopping service: {service_name}")
+        try:
+            subprocess.run(stop_cmd, shell=True, check=True)
+            self.logger.info(f"Service {service_name} stopped successfully.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to stop the service {service_name}: {e}")
+            raise
+
+    def is_service_running(self, service_name):
+        """
+        Check if the service is installed and running on the system.
+        """
+        system = platform.system().lower()
+        try:
+            if system == 'linux' or system == 'darwin':
+                # Use systemctl on Linux and launchctl on macOS to check service status
+                if system == 'linux':
+                    status_cmd = ['systemctl', 'is-active', service_name]
+                else:
+                    status_cmd = ['launchctl', 'list', service_name]
+
+                result = subprocess.run(status_cmd, text=True, capture_output=True, check=False)
+                if result.returncode == 0 and 'active' in result.stdout:
+                    return True
+                elif system == 'darwin' and service_name in result.stdout:
+                    return True
+                return False
+
+            elif system == 'windows':
+                # Use sc query on Windows to check service status
+                result = subprocess.run(['sc', 'query', service_name], text=True, capture_output=True, check=False)
+                return 'RUNNING' in result.stdout
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Error checking service status: {e}")
+            return False
+
+        return False
+
+
+    def stop_all_services_ss_agent(self):
+        """
+        Stop all services using the ss-agent command if the service is running.
+        """
+        if self.is_service_running(SS_AGENT_SERVICE_NAME):
+            self.logger.info(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop all services..")
+            try:
+                system = platform.system().lower()
+                if system == 'linux' or system == 'darwin':
+                    stop_cmd = ['sudo', 'ss-agent', 'service', 'stop', 'all']
+                elif system == 'windows':
+                    stop_cmd = ['ss-agent.exe', 'service', 'stop', 'all']
+
+                subprocess.run(stop_cmd, check=True)
+                self.logger.info("All services stopped successfully.")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Failed to stop services: {e}")
+        else:
+            self.logger.info(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
+
+    def stop_ss_agent(self):
+        """
+        Stop the SS Agent service.
+        """
+        if self.is_service_running(SS_AGENT_SERVICE_NAME):
+            self.logger.info(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop the service..")
+            try:
+                system = platform.system().lower()
+                if system == 'linux':
+                    self.stop_linux_service(SS_AGENT_SERVICE_NAME)
+                elif system == 'darwin':
+                    self.stop_macos_service(SS_AGENT_SERVICE_NAME)
+                elif system == 'windows':
+                    self.stop_windows_service(SS_AGENT_SERVICE_NAME_WINDOWS)
+                self.logger.info("Service stopped successfully.")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Failed to stop service: {e}")
+        else:
+            self.logger.info(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")

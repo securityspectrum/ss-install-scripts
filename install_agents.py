@@ -92,6 +92,14 @@ def install(args):
         # Request sudo access at the start
         SystemUtility.elevate_privileges()
 
+        # Before starting installation, check if services are already installed & running
+
+        # SS Agent Installation
+        ss_agent_installer = SSAgentInstaller()
+        ss_agent_installer.stop_all_services_ss_agent()
+        ss_agent_installer.stop_ss_agent()
+
+
         # Load or prompt for secrets
         secrets_manager = SecretsManager()
         secrets = secrets_manager.load_secrets_from_var_envs()
@@ -106,11 +114,6 @@ def install(args):
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
         cert_manager.download_and_extract_certificates(secrets["jwt_token"])
         logger.info("Certificate downloaded and extracted completed.")
-
-        # Zeek Installation
-        # zeek_installer = ZeekInstaller()
-        # zeek_installer.install_zeek()
-        # logger.info("Zeek installation complete.")
 
         # Npcap Installation (only for Windows)
         if current_os == "windows":
@@ -131,8 +134,6 @@ def install(args):
         ss_agent_configurator = SSAgentConfigurator(API_URL_DOMAIN, ss_agent_config_dir, ss_agent_ssl_dir)
         ss_agent_configurator.configure_ss_agent(secrets, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
 
-        # SS Agent Installation
-        ss_agent_installer = SSAgentInstaller()
         ss_agent_installer.install()
 
         # Zeek Installer
