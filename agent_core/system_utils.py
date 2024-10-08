@@ -15,7 +15,9 @@ class SystemUtility:
         """
         Ensures the script is running with root privileges. If not, it re-runs the script with 'sudo'.
         """
-        if platform.system() == "Windows":
+        system = platform.system().lower()
+
+        if system == "windows":
             # For Windows, check if the script is running as admin
             if not SystemUtility.is_admin():
                 logger.info("Requesting admin privileges on Windows...")
@@ -101,3 +103,51 @@ class SystemUtility:
         logger.debug(f"Version: {version}")
 
         return distro, version
+
+    @staticmethod
+    def has_winreg():
+        """
+        Checks if the winreg module is available.
+        """
+        try:
+            import winreg
+            return True
+        except ImportError:
+            return False
+
+    @staticmethod
+    def get_windows_uninstall_command(product_name):
+        """
+        Searches the Windows Registry for the uninstall command of the given product.
+        """
+        try:
+            import winreg
+        except ImportError:
+            logger.error("winreg module is not available. Cannot access the Windows Registry.")
+            return None
+
+        uninstall_subkeys = [r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"]
+
+        for root in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
+            for subkey in uninstall_subkeys:
+                try:
+                    registry_key = winreg.OpenKey(root, subkey)
+                except FileNotFoundError:
+                    continue
+
+                for i in range(0, winreg.QueryInfoKey(registry_key)[0]):
+                    try:
+                        subkey_name = winreg.EnumKey(registry_key, i)
+                        subkey_path = f"{subkey}\\{subkey_name}"
+                        with winreg.OpenKey(root, subkey_path) as key:
+                            display_name = winreg.QueryValueEx(key, "DisplayName")[0]
+                            if product_name.lower() in display_name.lower():
+                                uninstall_string = winreg.QueryValueEx(key, "UninstallString")[0]
+                                return uninstall_string
+                    except FileNotFoundError:
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error accessing registry key: {e}")
+                        continue
+        return None

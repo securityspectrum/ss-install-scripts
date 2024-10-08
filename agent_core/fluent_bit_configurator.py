@@ -1,18 +1,18 @@
-import os
-from pathlib import Path
-import platform
-import tempfile
-import shutil
-import zipfile
-import requests
 import logging
+import os
+import platform
+import shutil
+import tempfile
+import zipfile
+from pathlib import Path
 from string import Template
 
-from agent_core.constants import SS_NETWORK_ANALYZER_LOG_PATH_LINUX, SS_NETWORK_ANALYZER_LOG_PATH_MACOS, \
-    FLUENT_BIT_CONFIG_DIR_LINUX, FLUENT_BIT_SSL_DIR_LINUX, FLUENT_BIT_CONFIG_FILENAME, FLUENT_BIT_CONFIG_DIR_MACOS, \
-    FLUENT_BIT_SSL_DIR_MACOS, SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS, FLUENT_BIT_CONFIG_DIR_WINDOWS, \
-    FLUENT_BIT_SSL_DIR_WINDOWS, CONFIG_DIR_PATH, FLUENT_BIT_CONF_TEMPLATE, FLUENT_BIT_PARSER_CONFIG_FILENAME, \
-    FLUENT_BIT_PARSER_TEMPLATE, CACERT_FILENAME, ZEEK_LOG_PATH_LINUX, ZEEK_LOG_PATH_MACOS
+import requests
+
+from agent_core.constants import FLUENT_BIT_CONFIG_DIR_LINUX, FLUENT_BIT_SSL_DIR_LINUX, FLUENT_BIT_CONFIG_FILENAME, \
+    FLUENT_BIT_CONFIG_DIR_MACOS, FLUENT_BIT_SSL_DIR_MACOS, CONFIG_DIR_PATH, FLUENT_BIT_CONF_TEMPLATE, \
+    FLUENT_BIT_PARSER_CONFIG_FILENAME, FLUENT_BIT_PARSER_TEMPLATE, CACERT_FILENAME, ZEEK_LOG_PATH_LINUX, \
+    ZEEK_LOG_PATH_MACOS
 from agent_core.platform_context import PlatformContext
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,10 @@ class FluentBitConfigurator:
         self.config_dir = Path(config_dir)
         self.ssl_dir = Path(ssl_dir)
         self.organization_slug = organization_slug
+
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("INFO Starting fluent-bit configurator...")
+        self.logger.debug("DEBUG Starting fluent-bit configurator...")
 
         # Determine paths based on the OS during initialization
         system = platform.system().lower()
@@ -58,23 +62,23 @@ class FluentBitConfigurator:
         return response.json()
 
     def configure_fluent_bit(self, api_url, secrets, organization_slug):
-        logger.debug(f"Configuring Fluent Bit...")
+        self.logger.debug(f"Configuring Fluent Bit...")
         hostname = platform.node()
         try:
             config_data = self.fetch_fluent_bit_config(api_url, secrets["jwt_token"])
-            logger.debug(f"Config data fetched: {config_data}")
+            self.logger.debug(f"Config data fetched: {config_data}")
         except Exception as e:
-            logger.error(f"Error fetching Fluent Bit configuration: {e}")
+            self.logger.error(f"Error fetching Fluent Bit configuration: {e}")
             return
 
-        logger.info(f"Generating Fluent Bit configuration...")
+        self.logger.info(f"Generating Fluent Bit configuration...")
         fluent_bit_template_file = Path(CONFIG_DIR_PATH) / FLUENT_BIT_CONF_TEMPLATE
         try:
             with open(fluent_bit_template_file) as f:
                 template = Template(f.read())
-            logger.debug(f"Fluent Bit template file loaded: {fluent_bit_template_file}")
+            self.logger.debug(f"Fluent Bit template file loaded: {fluent_bit_template_file}")
         except Exception as e:
-            logger.error(f"Error loading Fluent Bit template file: {e}")
+            self.logger.error(f"Error loading Fluent Bit template file: {e}")
             return
 
         try:
@@ -96,29 +100,29 @@ class FluentBitConfigurator:
                 zeek_log_path=self.zeek_log_path,
                 ssl_ca_location=self.ssl_ca_location
             )
-            logger.debug(f"Generated Fluent Bit config: {config}")
+            self.logger.debug(f"Generated Fluent Bit config: {config}")
         except KeyError as e:
-            logger.error(f"Key error in template substitution: {e}")
+            self.logger.error(f"Key error in template substitution: {e}")
             return
         except Exception as e:
-            logger.error(f"Error in template substitution: {e}")
+            self.logger.error(f"Error in template substitution: {e}")
             return
 
         temp_config_fd, temp_config_path = tempfile.mkstemp(suffix=".conf")
         try:
             with os.fdopen(temp_config_fd, 'w') as f:
                 f.write(config)
-            logger.debug(f"Created Fluent Bit config file: {temp_config_path}")
+            self.logger.debug(f"Created Fluent Bit config file: {temp_config_path}")
         except Exception as e:
-            logger.error(f"Error creating Fluent Bit config file: {e}")
+            self.logger.error(f"Error creating Fluent Bit config file: {e}")
             return
 
         try:
             self.platform_context.create_directory(self.fluent_bit_config_path.parent)
             self.platform_context.move_file(Path(temp_config_path), self.fluent_bit_config_path)
-            logger.debug(f"Moved Fluent Bit config file to {self.fluent_bit_config_path}")
+            self.logger.debug(f"Moved Fluent Bit config file to {self.fluent_bit_config_path}")
         except Exception as e:
-            logger.error(f"Error moving Fluent Bit config file to {self.fluent_bit_config_path}: {e}")
+            self.logger.error(f"Error moving Fluent Bit config file to {self.fluent_bit_config_path}: {e}")
 
         self.download_and_extract_fluent_bit_certificates(api_url, secrets, organization_slug, config_data, self.fluent_bit_ssl_path)
         self.create_fluent_bit_parser_config(self.fluent_bit_config_path.with_name(FLUENT_BIT_PARSER_CONFIG_FILENAME))
@@ -128,68 +132,68 @@ class FluentBitConfigurator:
         temp_certs_path = Path(tempfile.mkdtemp())
         try:
             self.platform_context.create_directory(certs_path)
-            logger.debug(f"Created Fluent Bit certs directory: {certs_path}")
+            self.logger.debug(f"Created Fluent Bit certs directory: {certs_path}")
         except Exception as e:
-            logger.error(f"Error creating Fluent Bit certs directory: {certs_path}: {e}")
+            self.logger.error(f"Error creating Fluent Bit certs directory: {certs_path}: {e}")
 
         certificate_uuid = config_data["certificates"][0]["certificate_uuid"]
         cert_url = f"{api_url}/kafka/pki-certs/{certificate_uuid}/"
-        logger.debug(f"Downloading Fluent Bit certificates ZIP file from URL: {cert_url}")
+        self.logger.debug(f"Downloading Fluent Bit certificates ZIP file from URL: {cert_url}")
         response = requests.get(cert_url, headers={"Authorization": f"Bearer {secrets['jwt_token']}"}, stream=True, verify=False)
-        logger.debug(f"Response Status Code: {response.status_code}")
-        logger.debug(f"Response Content Length: {len(response.content)} bytes")
+        self.logger.debug(f"Response Status Code: {response.status_code}")
+        self.logger.debug(f"Response Content Length: {len(response.content)} bytes")
 
         response.raise_for_status()
-        logger.debug(f"Successfully downloaded Fluent Bit certificates ZIP file from URL: {cert_url}")
+        self.logger.debug(f"Successfully downloaded Fluent Bit certificates ZIP file from URL: {cert_url}")
 
         zip_path = temp_certs_path / f"fluent-bit-certificates-{organization_slug}.zip"
         try:
             with zip_path.open("wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
-            logger.debug(f"Downloaded Fluent Bit certificates ZIP file to {zip_path}")
+            self.logger.debug(f"Downloaded Fluent Bit certificates ZIP file to {zip_path}")
         except Exception as e:
-            logger.error(f"Error downloading Fluent Bit certificates ZIP file: {e}")
+            self.logger.error(f"Error downloading Fluent Bit certificates ZIP file: {e}")
             return
 
-        logger.debug(f"Extracting Fluent Bit certificates ZIP file: {zip_path}")
+        self.logger.debug(f"Extracting Fluent Bit certificates ZIP file: {zip_path}")
         try:
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 zip_ref.extractall(temp_certs_path)
-            logger.debug(f"Extracted Fluent Bit certificates to {temp_certs_path}")
+            self.logger.debug(f"Extracted Fluent Bit certificates to {temp_certs_path}")
         except zipfile.BadZipFile:
-            logger.debug("Bad zip file encountered, attempting to handle multipart.")
+            self.logger.debug("Bad zip file encountered, attempting to handle multipart.")
             shutil.unpack_archive(str(zip_path), str(temp_certs_path))
-            logger.debug(f"Extracted Fluent Bit certificates to {temp_certs_path}")
+            self.logger.debug(f"Extracted Fluent Bit certificates to {temp_certs_path}")
         except Exception as e:
-            logger.error(f"Error extracting Fluent Bit certificates ZIP file: {e}")
+            self.logger.error(f"Error extracting Fluent Bit certificates ZIP file: {e}")
             return
 
         cacert_path = temp_certs_path / CACERT_FILENAME
         if not cacert_path.exists():
-            logger.error(f"Error: {CACERT_FILENAME} not found in the ZIP file.")
+            self.logger.error(f"Error: {CACERT_FILENAME} not found in the ZIP file.")
             return
 
         for item in temp_certs_path.iterdir():
             try:
                 dest_path = certs_path / item.name
                 if dest_path.exists():
-                    logger.debug(f"Overwriting existing file: {dest_path}")
+                    self.logger.debug(f"Overwriting existing file: {dest_path}")
                 self.platform_context.move_file(item, dest_path)
-                logger.debug(f"Moved {item} to {dest_path}")
+                self.logger.debug(f"Moved {item} to {dest_path}")
             except Exception as e:
-                logger.error(f"Error moving {item} to {dest_path}: {e}")
+                self.logger.error(f"Error moving {item} to {dest_path}: {e}")
 
         try:
             shutil.rmtree(temp_certs_path)
-            logger.debug("Cleaned up temporary Fluent Bit certificate files")
+            self.logger.debug("Cleaned up temporary Fluent Bit certificate files")
         except Exception as e:
-            logger.error(f"Error cleaning up temporary Fluent Bit certificate files: {e}")
+            self.logger.error(f"Error cleaning up temporary Fluent Bit certificate files: {e}")
 
-        logger.debug("Fluent Bit configuration generated.")
+        self.logger.debug("Fluent Bit configuration generated.")
 
     def create_fluent_bit_parser_config(self, parser_config_path):
-        logger.debug("Creating Fluent Bit parser configuration...")
+        self.logger.debug("Creating Fluent Bit parser configuration...")
         parser_template_file = Path(CONFIG_DIR_PATH) / FLUENT_BIT_PARSER_TEMPLATE
 
         with open(parser_template_file) as f:
@@ -201,14 +205,48 @@ class FluentBitConfigurator:
         try:
             with os.fdopen(temp_parser_config_fd, 'w') as f:
                 f.write(parser_config)
-            logger.debug(f"Created Fluent Bit parser config file: {temp_parser_config_path}")
+            self.logger.debug(f"Created Fluent Bit parser config file: {temp_parser_config_path}")
         except Exception as e:
-            logger.error(f"Error creating Fluent Bit parser config file: {e}")
+            self.logger.error(f"Error creating Fluent Bit parser config file: {e}")
             return
 
         try:
             self.platform_context.create_directory(parser_config_path.parent)
             self.platform_context.move_file(Path(temp_parser_config_path), parser_config_path)
-            logger.debug(f"Moved Fluent Bit parser config file to {parser_config_path}")
+            self.logger.debug(f"Moved Fluent Bit parser config file to {parser_config_path}")
         except Exception as e:
-            logger.error(f"Error moving Fluent Bit parser config file to {parser_config_path}: {e}")
+            self.logger.error(f"Error moving Fluent Bit parser config file to {parser_config_path}: {e}")
+
+    def remove_configurations(self):
+        self.logger.info("Uninstalling Fluent Bit configurations and certificates...")
+
+        paths_to_remove = [self.fluent_bit_config_path,  # Fluent Bit main configuration file
+            self.fluent_bit_ssl_path,  # SSL directory containing certificates
+            self.zeek_log_path,  # Zeek log path if applicable
+        ]
+
+        for path in paths_to_remove:
+            if path.is_dir():
+                try:
+                    shutil.rmtree(path)
+                    self.logger.debug(f"Removed directory: {path}")
+                except Exception as e:
+                    self.logger.error(f"Failed to remove directory {path}: {e}")
+            elif path.is_file():
+                try:
+                    path.unlink()
+                    self.logger.debug(f"Removed file: {path}")
+                except Exception as e:
+                    self.logger.error(f"Failed to remove file {path}: {e}")
+
+        # Additionally, check if the parent directories are empty and remove them if they are
+        unique_dirs = set([path.parent for path in paths_to_remove])
+        for dir_path in unique_dirs:
+            if dir_path.is_dir() and not any(dir_path.iterdir()):  # Check if the directory is empty
+                try:
+                    dir_path.rmdir()
+                    self.logger.debug(f"Removed empty directory: {dir_path}")
+                except Exception as e:
+                    self.logger.error(f"Failed to remove empty directory {dir_path}: {e}")
+
+        self.logger.info("Uninstallation of Fluent Bit configurations completed.")

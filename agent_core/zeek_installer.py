@@ -37,7 +37,7 @@ class ZeekInstaller:
         self.source_install = False
 
         # Determine the operating system
-        self.os_system = platform.system()
+        self.os_system = platform.system().lower()
 
     def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None, require_root=False):
         """
@@ -75,7 +75,7 @@ class ZeekInstaller:
         - Root privileges are required for Linux installations.
         - No root privileges should be used for macOS installations.
         """
-        if self.os_system != 'Darwin':
+        if self.os_system != 'darwin':
             # For Linux systems, enforce running as root
             if os.geteuid() != 0:
                 self.logger.error("This script must be run as root. Please run again with 'sudo' or as the root user.")
@@ -1171,7 +1171,7 @@ make install
             sys.exit(1)
 
         # For macOS, do not change ownership
-        if self.os_system == 'Darwin':
+        if self.os_system == 'darwin':
             self.logger.info(f"Skipping ownership change for {src_dir} on macOS.")
         else:
             # For Linux, change ownership
@@ -1325,9 +1325,9 @@ make install
         Detects the OS distribution and calls the appropriate installation function.
         """
         self.logger.info("Detecting operating system and proceeding with installation...")
-        if self.os_system == 'Darwin':
+        if self.os_system == 'darwin':
             self.install_zeek_macos()
-        elif self.os_system == 'Linux':
+        elif self.os_system == 'linux':
             if self.os_id == 'ubuntu':
                 self.install_zeek_ubuntu()
             elif self.os_id in ['debian', 'raspbian']:
@@ -1357,6 +1357,85 @@ make install
         if self.check_zeek_installed():
             self.configure_zeek()
         self.detect_distro_and_install()
+
+    def uninstall(self):
+        """
+        Orchestrates the uninstallation of Zeek based on the detected OS and distribution.
+        """
+        self.logger.info("Starting Zeek uninstallation process...")
+
+        if self.os_system == "darwin":
+            self.uninstall_zeek_macos()
+        elif self.os_system == "linux":
+            self.uninstall_zeek_linux()
+        else:
+            self.logger.error(f"Unsupported OS for Zeek uninstallation: {self.os_system}")
+            sys.exit(1)
+
+    def uninstall_zeek_macos(self):
+        """
+        Uninstall Zeek on macOS using Homebrew.
+        """
+        self.logger.info("Attempting to uninstall Zeek on macOS using Homebrew...")
+        try:
+            subprocess.run(["brew", "uninstall", "zeek"], check=True)
+            self.logger.info("Zeek has been successfully uninstalled on macOS.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to uninstall Zeek on macOS: {e}")
+            raise
+
+    def uninstall_zeek_linux(self):
+        """
+        Uninstall Zeek on Linux based on the distribution's package manager.
+        """
+        if self.os_id == 'ubuntu' or self.os_id in ['debian', 'raspbian']:
+            self.uninstall_with_apt("zeek")
+        elif self.os_id == 'fedora':
+            self.uninstall_with_dnf_yum("zeek", "dnf")
+        elif self.os_id in ['centos', 'rhel']:
+            self.uninstall_with_dnf_yum("zeek", "yum")
+        elif 'suse' in self.os_like:  # General check for SUSE-based distributions
+            self.uninstall_with_zypper("zeek")
+        else:
+            self.logger.error(f"Unsupported Linux distribution: {self.os_id}")
+            sys.exit(1)
+
+    def uninstall_with_apt(self, package_name):
+        """
+        Uninstall Zeek using apt on Debian-based systems.
+        """
+        self.logger.info(f"Using apt to uninstall {package_name}...")
+        try:
+            subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
+            subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
+            self.logger.info(f"{package_name} has been successfully uninstalled using apt.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"apt failed to uninstall {package_name}: {e}")
+            raise
+
+    def uninstall_with_dnf_yum(self, package_name, package_manager):
+        """
+        Uninstall Zeek using dnf or yum on Fedora-based systems.
+        """
+        self.logger.info(f"Using {package_manager} to uninstall {package_name}...")
+        try:
+            subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
+            self.logger.info(f"{package_name} has been successfully uninstalled using {package_manager}.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
+            raise
+
+    def uninstall_with_zypper(self, package_name):
+        """
+        Uninstall Zeek using zypper on SUSE-based distributions.
+        """
+        self.logger.info(f"Using zypper to uninstall {package_name}...")
+        try:
+            subprocess.run(["sudo", "zypper", "rm", "-y", package_name], check=True)
+            self.logger.info(f"{package_name} has been successfully uninstalled using zypper.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"zypper failed to uninstall {package_name}: {e}")
+            raise
 
 
 if __name__ == "__main__":

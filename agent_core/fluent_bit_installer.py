@@ -1,5 +1,7 @@
 import os
 import platform
+import shutil
+
 import requests
 import logging
 import subprocess
@@ -13,6 +15,11 @@ import os
 import tempfile
 import hashlib
 import distro
+
+try:
+    import winreg  # For Windows registry access
+except ImportError:
+    winreg = None  # Not available on non-Windows systems
 
 # Setup logger
 from utils.files import get_temp_file_path
@@ -126,9 +133,9 @@ class FluentBitInstaller:
         return dest_path
 
     def run_installation_command(self, dest_path):
-        system = platform.system()
+        system = platform.system().lower()
         dest_path = Path(os.path.expanduser(dest_path))
-        if system == "Linux":
+        if system == "linux":
             if dest_path.suffix == ".rpm":
                 package_name = "fluent-bit"
                 rpm_version = self.extract_rpm_version(dest_path)
@@ -163,14 +170,14 @@ class FluentBitInstaller:
                     except subprocess.CalledProcessError as e:
                         self.logger.error(f"DEB installation failed: {e}")
                         raise
-        elif system == "Darwin":
+        elif system == "darwin":
             try:
                 self.logger.info(f"Installing {dest_path}...")
                 subprocess.run(["sudo", "installer", "-pkg", str(dest_path), "-target", "/"], check=True)
             except subprocess.CalledProcessError as e:
                 self.logger.error(f"Package installation on macOS failed: {e}")
                 raise
-        elif system == "Windows":
+        elif system == "windows":
             try:
                 if dest_path.suffix == ".exe":
                     subprocess.run([str(dest_path), "/S", "/V"], check=True)
@@ -243,3 +250,251 @@ class FluentBitInstaller:
         except Exception as e:
             self.logger.error(f"Failed to check installed package version: {e}")
             return False
+
+    def uninstall(self):
+        self.logger.info("Uninstalling Fluent Bit...")
+        system = platform.system().lower()
+
+        if system == "linux":
+            self.uninstall_linux()
+        elif system == "darwin":
+            self.uninstall_macos()
+        elif system == "windows":
+            self.uninstall_windows()
+        else:
+            raise NotImplementedError(f"Unsupported OS: {system}")
+
+    def uninstall_linux(self):
+        package_name = "fluent-bit"
+        distro_id = distro.id().lower()
+        self.logger.info(f"Detected Linux distribution: {distro_id}")
+
+        try:
+            if distro_id in ["ubuntu", "debian"]:
+                self.uninstall_with_apt(package_name)
+            elif distro_id in ["fedora", "centos", "rhel", "rocky", "almalinux"]:
+                self.uninstall_with_dnf_yum(package_name, distro_id)
+            else:
+                self.logger.warning(f"Unsupported or unrecognized Linux distribution: {distro_id}. Attempting to use rpm or dpkg directly.")
+                self.uninstall_with_rpm_or_dpkg(package_name)
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to uninstall Fluent Bit: {e}")
+            raise
+
+    def uninstall_with_apt(self, package_name):
+        self.logger.info(f"Using apt to uninstall {package_name}...")
+        try:
+            subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
+            subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
+            self.logger.info(f"Fluent Bit has been successfully uninstalled using apt.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"apt failed to uninstall {package_name}: {e}")
+            raise
+
+    def uninstall_with_dnf_yum(self, package_name, distro_id):
+        package_manager = "dnf" if distro_id in ["fedora", "rocky", "almalinux"] else "yum"
+        self.logger.info(f"Using {package_manager} to uninstall {package_name}...")
+        try:
+            subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
+            self.logger.info(f"Fluent Bit has been successfully uninstalled using {package_manager}.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
+            raise
+
+    def uninstall_with_rpm_or_dpkg(self, package_name):
+        if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
+            self.logger.info(f"Using dpkg to purge {package_name}...")
+            subprocess.run(["sudo", "dpkg", "--purge", package_name], check=True)
+        elif Path('/usr/bin/rpm').exists() or Path('/bin/rpm').exists():
+            self.logger.info(f"Using rpm to erase {package_name}...")
+            subprocess.run(["sudo", "rpm", "-e", package_name], check=True)
+        else:
+            self.logger.error("Neither dpkg nor rpm package managers are available on this system.")
+            raise EnvironmentError("No suitable package manager found for uninstallation.")
+
+        self.logger.info(f"Fluent Bit has been successfully uninstalled using rpm/dpkg.")
+
+    def uninstall_macos(self):
+        self.logger.info("Attempting to uninstall Fluent Bit on macOS...")
+        try:
+            # Step 1: Remove the package receipt using pkgutil
+            package_id = self.get_macos_package_id()
+            if package_id:
+                self.logger.info(f"Found Fluent Bit package ID: {package_id}. Removing package receipt...")
+                subprocess.run(["sudo", "pkgutil", "--forget", package_id], check=True)
+                self.logger.info("Package receipt removed.")
+            else:
+                self.logger.warning("Fluent Bit package ID not found. Skipping pkgutil --forget step.")
+
+            # Step 2: Remove installed files and directories
+            installed_paths = [
+                "/opt/fluent-bit/bin/fluent-bit",
+                "/opt/fluent-bit",
+                "/usr/local/bin/fluent-bit",
+                "/usr/local/etc/fluent-bit",
+                "/usr/local/var/log/fluent-bit",
+                "/usr/local/opt/fluent-bit",
+                "/Library/LaunchDaemons/fluent-bit.plist",
+            ]
+
+            for path_str in installed_paths:
+                path = Path(path_str)
+                if path.exists():
+                    if path.is_file() or path.is_symlink():
+                        try:
+                            path.unlink()
+                            self.logger.info(f"Removed file: {path}")
+                        except Exception as e:
+                            self.logger.error(f"Failed to remove file {path}: {e}")
+                    elif path.is_dir():
+                        try:
+                            shutil.rmtree(path)
+                            self.logger.info(f"Removed directory: {path}")
+                        except Exception as e:
+                            self.logger.error(f"Failed to remove directory {path}: {e}")
+                else:
+                    self.logger.debug(f"Path does not exist, skipping: {path}")
+
+            # Step 3: Unload and remove LaunchDaemon if exists
+            launch_daemon = "/Library/LaunchDaemons/fluent-bit.plist"
+            if Path(launch_daemon).exists():
+                try:
+                    subprocess.run(["sudo", "launchctl", "unload", launch_daemon], check=True)
+                    self.logger.info(f"Unloaded LaunchDaemon: {launch_daemon}")
+                except subprocess.CalledProcessError as e:
+                    self.logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e}")
+
+            self.logger.info("Fluent Bit has been successfully uninstalled from macOS.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to uninstall Fluent Bit on macOS: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"An unexpected error occurred during Fluent Bit uninstallation on macOS: {e}")
+            raise
+
+    def get_macos_package_id(self):
+        """
+        Retrieves the Fluent Bit package identifier using pkgutil.
+        Assumes the package ID contains 'fluent-bit'.
+        """
+        try:
+            result = subprocess.run(["pkgutil", "--pkgs"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            packages = result.stdout.splitlines()
+            for pkg in packages:
+                if "fluent-bit" in pkg.lower():
+                    return pkg
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to list packages with pkgutil: {e}")
+        return None
+
+    def uninstall_windows(self):
+        self.logger.info("Attempting to uninstall Fluent Bit on Windows...")
+        if not winreg:
+            self.logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
+            return
+
+        try:
+            uninstall_command = self.get_windows_uninstall_command("Fluent Bit")
+            if uninstall_command:
+                self.logger.info(f"Found uninstall command: {uninstall_command}. Executing...")
+                # Determine if it's an MSI or EXE installer
+                if "msiexec" in uninstall_command.lower():
+                    # Extract the product code
+                    parts = uninstall_command.split()
+                    product_code = None
+                    for part in parts:
+                        if part.startswith("{") and part.endswith("}"):
+                            product_code = part
+                            break
+                    if product_code:
+                        uninstall_cmd = ["msiexec", "/x", product_code, "/quiet", "/norestart"]
+                        self.logger.info(f"Running MSI uninstall command: {' '.join(uninstall_cmd)}")
+                        subprocess.run(uninstall_cmd, check=True)
+                    else:
+                        self.logger.error("Product code not found in uninstall command.")
+                        return
+                else:
+                    # Assume it's an EXE with silent uninstall flags
+                    uninstall_cmd = uninstall_command.split()
+                    # Append silent flags if not already present
+                    if not any(flag in uninstall_cmd for flag in ["/S", "/silent", "/quiet"]):
+                        uninstall_cmd.append("/S")
+                    self.logger.info(f"Running EXE uninstall command: {' '.join(uninstall_cmd)}")
+                    subprocess.run(uninstall_cmd, check=True)
+                self.logger.info("Fluent Bit has been successfully uninstalled from Windows.")
+            else:
+                self.logger.warning("Uninstall command for Fluent Bit not found in the registry.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to uninstall Fluent Bit on Windows: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"An unexpected error occurred during Fluent Bit uninstallation on Windows: {e}")
+            raise
+
+    def get_windows_uninstall_command(self, product_name):
+        """
+        Searches the Windows Registry for the uninstall command of the given product.
+        """
+        uninstall_subkeys = [
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+        ]
+
+        for root in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
+            for subkey in uninstall_subkeys:
+                try:
+                    registry_key = winreg.OpenKey(root, subkey)
+                except FileNotFoundError:
+                    continue
+
+                for i in range(0, winreg.QueryInfoKey(registry_key)[0]):
+                    try:
+                        subkey_name = winreg.EnumKey(registry_key, i)
+                        subkey_path = f"{subkey}\\{subkey_name}"
+                        with winreg.OpenKey(root, subkey_path) as key:
+                            display_name = winreg.QueryValueEx(key, "DisplayName")[0]
+                            if product_name.lower() in display_name.lower():
+                                uninstall_string = winreg.QueryValueEx(key, "UninstallString")[0]
+                                return uninstall_string
+                    except FileNotFoundError:
+                        continue
+                    except Exception as e:
+                        self.logger.error(f"Error accessing registry key: {e}")
+                        continue
+        return None
+
+    def get_installed_version(self, package_name):
+        """Returns the installed version of a package or None if not installed."""
+        system = platform.system().lower()
+        try:
+            if system == "linux":
+                if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
+                    result = subprocess.run(
+                        ["dpkg", "-s", package_name],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    if result.returncode == 0 and "Status: install ok installed" in result.stdout:
+                        for line in result.stdout.split('\n'):
+                            if line.startswith("Version:"):
+                                return line.split(':')[1].strip()
+                elif Path('/usr/bin/rpm').exists() or Path('/bin/rpm').exists():
+                    result = subprocess.run(
+                        ["rpm", "-q", package_name],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    if result.returncode == 0:
+                        # Output like 'fluent-bit-1.7.4-2.el8.x86_64'
+                        return '-'.join(result.stdout.strip().split('-')[1:3])
+            elif system == "darwin":
+                # Implement version retrieval for macOS if needed
+                pass
+            elif system == "windows":
+                # Implement version retrieval for Windows if needed
+                pass
+        except Exception as e:
+            self.logger.error(f"Failed to check installed package version: {e}")
+        return None

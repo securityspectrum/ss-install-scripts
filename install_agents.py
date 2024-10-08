@@ -3,6 +3,7 @@ import argparse
 import platform
 import logging
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 import sys
 
 from agent_core.fluent_bit_installer import FluentBitInstaller
@@ -19,25 +20,20 @@ from agent_core.osquery import OsqueryInstaller
 
 
 def configure_logging(log_dir_path, log_level):
-    # Ensure log directory exists
     log_dir = Path(log_dir_path)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / 'installation.log'
 
-    # Get the root logger
     logger = logging.getLogger()
-    logger.setLevel(log_level)  # Set the log level based on the argument
+    logger.setLevel(log_level)
 
-    # Create console handler and file handler
     console_handler = logging.StreamHandler()
     file_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=2)
 
-    # Set log format
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     console_handler.setFormatter(formatter)
     file_handler.setFormatter(formatter)
 
-    # Add handlers to the root logger
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
 
@@ -48,32 +44,17 @@ def get_platform_specific_paths():
     os_name = platform.system().lower()
 
     if os_name == "windows":
-        fluent_bit_config_dir = FLUENT_BIT_CONFIG_DIR_WINDOWS
-        ss_agent_config_dir = SS_AGENT_CONFIG_DIR_WINDOWS
-        ss_agent_ssl_dir = SS_AGENT_SSL_DIR_WINDOWS
-        # Unfortunately, Zeek does not support Windows
         raise NotImplementedError(f"Unsupported OS: {os_name}")
     elif os_name == "linux":
-        fluent_bit_config_dir = FLUENT_BIT_CONFIG_DIR_LINUX
-        ss_agent_config_dir = SS_AGENT_CONFIG_DIR_LINUX
-        ss_agent_ssl_dir = SS_AGENT_SSL_DIR_LINUX
-        zeek_log_path = ZEEK_LOG_PATH_LINUX
+        return FLUENT_BIT_CONFIG_DIR_LINUX, SS_AGENT_CONFIG_DIR_LINUX, SS_AGENT_SSL_DIR_LINUX, ZEEK_LOG_PATH_LINUX
     elif os_name == "darwin":
-        fluent_bit_config_dir = FLUENT_BIT_CONFIG_DIR_MACOS
-        ss_agent_config_dir = SS_AGENT_CONFIG_DIR_MACOS
-        ss_agent_ssl_dir = SS_AGENT_SSL_DIR_MACOS
-        zeek_log_path = ZEEK_LOG_PATH_MACOS
+        return FLUENT_BIT_CONFIG_DIR_MACOS, SS_AGENT_CONFIG_DIR_MACOS, SS_AGENT_SSL_DIR_MACOS, ZEEK_LOG_PATH_MACOS
     else:
         raise ValueError(f"Unsupported operating system: {os_name}")
 
-    return fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path
-
 
 def install(args):
-    # Set up logging configuration globally
     log_level = getattr(logging, args.log_level.upper(), logging.DEBUG)
-
-    # Configure logging with the provided log level
     logger = configure_logging(LOG_DIR_PATH, log_level)
 
     try:
@@ -87,63 +68,49 @@ def install(args):
 
         logger.info(f"Beginning of ss-install-script execution process.")
         logger.info(f"ss-install-script version: {INSTALL_SCRIPT_VERSION}")
-        logger.info(f"operating system: {current_os} ({architecture})")
+        logger.info(f"Operating system: {current_os} ({architecture})")
 
-        # Request sudo access at the start
         SystemUtility.elevate_privileges()
 
-        # Before starting installation, check if services are already installed & running
-
-        # SS Agent Installation
         ss_agent_installer = SSAgentInstaller()
         ss_agent_installer.stop_all_services_ss_agent()
         ss_agent_installer.stop_ss_agent()
 
-
-        # Load or prompt for secrets
         secrets_manager = SecretsManager()
         secrets = secrets_manager.load_secrets_from_var_envs()
         organization_slug = secrets_manager.get_organization_slug()
 
         api_url = f"{API_URL_DOMAIN}{API_VERSION_PATH}/r/{organization_slug}"
 
-        # Get platform-specific paths
-        fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, ss_network_analyzer_log_path = get_platform_specific_paths()
+        fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path = get_platform_specific_paths()
 
-        # Certificate Manager
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
         cert_manager.download_and_extract_certificates(secrets["jwt_token"])
-        logger.info("Certificate downloaded and extracted completed.")
+        logger.info("Certificate downloaded and extracted successfully.")
 
-        # Npcap Installation (only for Windows)
         if current_os == "windows":
             npcap_url = NPCAP_URL_WINDOWS
-            installer = NpcapInstaller(download_url=npcap_url)
+            npcap_installer = NpcapInstaller(download_url=npcap_url)
+            npcap_installer.install_npcap()
 
-            installer.install_npcap()
-
-        # Fluent Bit Configurator
         fluent_bit_configurator = FluentBitConfigurator(API_URL_DOMAIN, fluent_bit_config_dir, ss_agent_ssl_dir, organization_slug)
         fluent_bit_configurator.configure_fluent_bit(api_url, secrets, organization_slug)
 
-        # Fluent Bit Installation
         fluent_bit_installer = FluentBitInstaller()
         fluent_bit_installer.install()
 
-        # SS Agent Configurator
         ss_agent_configurator = SSAgentConfigurator(API_URL_DOMAIN, ss_agent_config_dir, ss_agent_ssl_dir)
         ss_agent_configurator.configure_ss_agent(secrets, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
 
         ss_agent_installer.install()
 
-        # Zeek Installer
         zeek_installer = ZeekInstaller()
         zeek_installer.install()
 
-        # osquery Installation
         logger.info("Starting osquery setup...")
         osquery_installer = OsqueryInstaller()
         osquery_installer.install(extract_dir=OSQUERY_EXTRACT_DIR)
+        osquery_installer.configure()
         logger.info("osquery setup completed successfully.")
 
         logger.info("Installation complete.")
@@ -152,12 +119,47 @@ def install(args):
         sys.exit(1)
 
 
+def uninstall(args):
+    log_level = getattr(logging, args.log_level.upper(), logging.DEBUG)
+    logger = configure_logging(LOG_DIR_PATH, log_level)
+
+    confirm_uninstallation()
+    logger.info("Starting SS Agent uninstallation process...")
+
+    ss_agent_installer = SSAgentInstaller()
+    ss_agent_installer.stop_all_services_ss_agent()
+    ss_agent_installer.stop_ss_agent()
+
+    fluent_bit_installer = FluentBitInstaller()
+    fluent_bit_installer.uninstall()
+
+    osquery_installer = OsqueryInstaller()
+    osquery_installer.uninstall()
+
+    zeek_installer = ZeekInstaller()
+    zeek_installer.uninstall()
+
+    ss_agent_installer.uninstall()
+
+
+def confirm_uninstallation():
+    confirmation = input("Are you sure you want to uninstall SS Agent? [y/N]: ").strip().lower()
+    if confirmation != 'y':
+        logging.info("Uninstallation aborted by the user.")
+        sys.exit(0)
+
+
 if __name__ == "__main__":
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='Install Zeek on openSUSE.')
+    parser = argparse.ArgumentParser(description='Install or uninstall SS Agent')
+    parser.add_argument('--uninstall', action='store_true', help='Uninstall SS Agent')
+    parser.add_argument('--install', action='store_true', help='Install SS Agent')
     parser.add_argument('--log-level', default='DEBUG', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set the logging level')
     args = parser.parse_args()
 
-    # Pass the logger to the main function
-    install(args)
+    if args.install:
+        install(args)
+    elif args.uninstall:
+        uninstall(args)
+    else:
+        parser.print_help()

@@ -92,8 +92,12 @@ SS_AGENT_SERVICE_NAME = "ss-agent"
 # ss-agent config file template
 SS_AGENT_TEMPLATE = "ss-agent-template.json"
 
-# User configuration file
-USER_CONFIG_FILE = "user_config.json"
+OSQUERY_CONFIG_EXAMPLE_PATH_LINUX = '/opt/osquery/share/osquery/osquery.example.conf'
+OSQUERY_CONFIG_EXAMPLE_PATH_MACOS = '/var/osquery/osquery.example.conf'
+OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS = r"C:\Program Files\osquery\osquery.example.conf"
+OSQUERY_CONFIG_PATH_LINUX = "/etc/osquery/osquery.conf"
+OSQUERY_CONFIG_PATH_MACOS = "/var/osquery/osquery.conf"
+OSQUERY_CONFIG_PATH_WINDOWS = r"C:\Program Files\osquery\osquery.conf"
 
 # Repositories
 FLUENT_BIT_REPO = "securityspectrum/fluent-bit"
