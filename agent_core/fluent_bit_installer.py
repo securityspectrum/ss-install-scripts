@@ -325,7 +325,7 @@ class FluentBitInstaller:
             self.logger.debug("Enabling Fluent Bit service to start automatically on boot...")
 
             # Enable Fluent Bit service to start automatically
-            result = subprocess.run(['sudo', 'launchctl', 'enable', '/Library/LaunchDaemons/fluent-bit.plist'],
+            result = subprocess.run(['sudo', 'launchctl', 'enable', 'system/fluent-bit.plist'],
                                     check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.logger.debug(f"Enable command output: {result.stdout.strip()}")
             self.logger.debug("Fluent Bit service enabled successfully.")
