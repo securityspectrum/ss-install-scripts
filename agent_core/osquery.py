@@ -326,7 +326,7 @@ class OsqueryInstaller:
         self.logger.info(f"Extracted files are located in: {Path(extract_dir).resolve()}")
 
 
-    def configure(self):
+    def configure_and_start(self):
         """
         Configures osquery based on the operating system.
         """
@@ -366,6 +366,8 @@ class OsqueryInstaller:
     def configure_linux(self):
         # Linux-specific installation commands
         subprocess.run(['sudo', 'cp', OSQUERY_CONFIG_EXAMPLE_PATH_LINUX, OSQUERY_CONFIG_PATH_LINUX],
+                       check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(['sudo', 'systemctl', 'enable', 'osqueryd'],
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(['sudo', 'systemctl', 'start', 'osqueryd'],
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

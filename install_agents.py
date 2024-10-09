@@ -110,7 +110,7 @@ def install(args):
         logger.info("Starting osquery setup...")
         osquery_installer = OsqueryInstaller()
         osquery_installer.install(extract_dir=OSQUERY_EXTRACT_DIR)
-        osquery_installer.configure()
+        osquery_installer.configure_and_start()
         logger.info("osquery setup completed successfully.")
 
         logger.info("Installation complete.")

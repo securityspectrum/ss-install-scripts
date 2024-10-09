@@ -251,6 +251,90 @@ class FluentBitInstaller:
             self.logger.error(f"Failed to check installed package version: {e}")
             return False
 
+    def configure_linux(self):
+        try:
+            # Log enabling Fluent Bit to start on boot
+            self.logger.info("Enabling Fluent Bit service to start automatically on boot...")
+
+            # Enable Fluent Bit on boot
+            result = subprocess.run(['sudo', 'systemctl', 'enable', 'fluent-bit'],
+                                    check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.logger.info(f"Enable command output: {result.stdout.strip()}")
+            self.logger.info(f"Fluent Bit service enabled successfully.")
+
+            # Log starting Fluent Bit service
+            self.logger.info("Starting Fluent Bit service...")
+
+            # Start Fluent Bit service
+            result = subprocess.run(['sudo', 'systemctl', 'start', 'fluent-bit'],
+                                    check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.logger.info(f"Start command output: {result.stdout.strip()}")
+            self.logger.info("Fluent Bit service started successfully.")
+
+        except subprocess.CalledProcessError as e:
+            # Log the error details
+            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            self.logger.error(f"Error output: {e.stderr.strip() if e.stderr else 'No error output'}")
+            raise
+
+        except Exception as ex:
+            # Log any unexpected error
+            self.logger.error(f"An unexpected error occurred: {ex}")
+            raise
+
+    def configure_macos(self):
+        try:
+            # Log loading the Fluent Bit service
+            self.logger.info("Loading Fluent Bit service plist...")
+
+            # Load the Fluent Bit service plist
+            result = subprocess.run(['sudo', 'launchctl', 'load', '/Library/LaunchDaemons/fluent-bit.plist'],
+                                    check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.logger.info(f"Load command output: {result.stdout.strip()}")
+            self.logger.info("Fluent Bit service loaded successfully.")
+
+            # Log enabling Fluent Bit service for automatic start
+            self.logger.info("Enabling Fluent Bit service to start automatically on boot...")
+
+            # Enable Fluent Bit service to start automatically
+            result = subprocess.run(['sudo', 'launchctl', 'enable', '/Library/LaunchDaemons/fluent-bit.plist'],
+                                    check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.logger.info(f"Enable command output: {result.stdout.strip()}")
+            self.logger.info("Fluent Bit service enabled successfully.")
+
+        except subprocess.CalledProcessError as e:
+            # Log the error details
+            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            self.logger.error(f"Error output: {e.stderr.strip() if e.stderr else 'No error output'}")
+            raise
+
+        except Exception as ex:
+            # Log any unexpected error
+            self.logger.error(f"An unexpected error occurred: {ex}")
+            raise
+
+    def configure_windows(self):
+        try:
+            # Windows-specific installation commands
+            self.logger.info("Starting the Fluent Bit service...")
+
+            subprocess.run(['sc.exe', 'start', 'fluent-bit'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.logger.info("Fluent Bit service started successfully.")
+
+            self.logger.info("Configuring Fluent Bit service to start automatically on boot...")
+            subprocess.run(['sc.exe', 'config', 'fluent-bit', 'start=', 'auto'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.logger.info("Fluent Bit service set to start automatically on boot.")
+        except subprocess.CalledProcessError as e:
+            # Log the error with the command, return code, and output
+            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            self.logger.error(f"Error output: {e.stderr.decode() if e.stderr else 'No error output'}")
+            raise
+
+        except Exception as ex:
+            # Log any unexpected errors
+            self.logger.error(f"An unexpected error occurred: {ex}")
+            raise
+
     def uninstall(self):
         self.logger.info("Uninstalling Fluent Bit...")
         system = platform.system().lower()
