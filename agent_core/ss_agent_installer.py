@@ -98,7 +98,7 @@ class SSAgentInstaller:
         final_executable_path = self.determine_executable_installation_path()
         self.install_and_verify_binary(dest_path, final_executable_path)
 
-        self.setup_systemd_service(final_executable_path)
+        #self.setup_systemd_service(final_executable_path)
 
         self.logger.debug("Installation complete.")
 
