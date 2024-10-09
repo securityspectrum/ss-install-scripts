@@ -185,7 +185,7 @@ class SSAgentInstaller:
             self.logger.error(f"Running {final_executable_path} failed: {e}")
             raise
 
-    def setup_service(self, executable_path):
+    def enable_and_start(self, executable_path):
         system = platform.system().lower()
         if system == 'linux':
             self.setup_systemd_service(executable_path)

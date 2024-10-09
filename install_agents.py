@@ -98,11 +98,13 @@ def install(args):
 
         fluent_bit_installer = FluentBitInstaller()
         fluent_bit_installer.install()
+        fluent_bit_installer.enable_and_start()
 
         ss_agent_configurator = SSAgentConfigurator(API_URL_DOMAIN, ss_agent_config_dir, ss_agent_ssl_dir)
         ss_agent_configurator.configure_ss_agent(secrets, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
 
         ss_agent_installer.install()
+        ss_agent_installer.enable_and_start()
 
         zeek_installer = ZeekInstaller()
         zeek_installer.install()

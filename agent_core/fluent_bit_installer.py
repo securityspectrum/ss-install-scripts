@@ -251,6 +251,34 @@ class FluentBitInstaller:
             self.logger.error(f"Failed to check installed package version: {e}")
             return False
 
+    def enable_and_start(self):
+        """
+        Configures osquery based on the operating system.
+        """
+        os_system = platform.system().lower()
+        self.logger.info(f"Detected operating system: {os_system}")
+
+        try:
+            if os_system == 'linux':
+                self.configure_linux()
+            elif os_system == 'darwin':
+                self.configure_macos()
+            elif os_system == 'windows':
+                self.configure_windows()
+            else:
+                self.logger.error(f"Unsupported operating system: {os_system}")
+                raise NotImplementedError("This installation script does not support the detected OS.")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            self.logger.error(f"Error output: {e.stderr}")
+            raise
+        except Exception as ex:
+            self.logger.error(f"An unexpected error occurred: {ex}")
+            raise
+
+        self.logger.info("osquery configuration and service start completed.")
+
     def configure_linux(self):
         try:
             # Log enabling Fluent Bit to start on boot
