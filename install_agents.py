@@ -67,8 +67,8 @@ def install(args):
             sys.exit(1)
 
         logger.info(f"Beginning of ss-install-script execution process.")
-        logger.info(f"ss-install-script version: {INSTALL_SCRIPT_VERSION}")
-        logger.info(f"Operating system: {current_os} ({architecture})")
+        logger.debug(f"ss-install-script version: {INSTALL_SCRIPT_VERSION}")
+        logger.debug(f"Operating system: {current_os} ({architecture})")
 
         SystemUtility.elevate_privileges()
 
@@ -86,7 +86,7 @@ def install(args):
 
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
         cert_manager.download_and_extract_certificates(secrets["jwt_token"])
-        logger.info("Certificate downloaded and extracted successfully.")
+        logger.debug("Certificate downloaded and extracted successfully.")
 
         if current_os == "windows":
             npcap_url = NPCAP_URL_WINDOWS
@@ -104,7 +104,6 @@ def install(args):
         ss_agent_configurator.configure_ss_agent(secrets, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
 
         ss_agent_installer.install()
-        ss_agent_installer.enable_and_start()
 
         zeek_installer = ZeekInstaller()
         zeek_installer.install()
@@ -114,6 +113,10 @@ def install(args):
         osquery_installer.install(extract_dir=OSQUERY_EXTRACT_DIR)
         osquery_installer.configure_and_start()
         logger.info("osquery setup completed successfully.")
+
+        final_executable_path = ss_agent_installer.determine_executable_installation_path()
+        ss_agent_installer.enable_and_start(final_executable_path)
+        ss_agent_installer.start_all_services_ss_agent()
 
         logger.info("Installation complete.")
     except Exception as e:
@@ -126,7 +129,7 @@ def uninstall(args):
     logger = configure_logging(LOG_DIR_PATH, log_level)
 
     confirm_uninstallation()
-    logger.info("Starting SS Agent uninstallation process...")
+    logger.info("Starting ss-agent uninstallation process...")
 
     ss_agent_installer = SSAgentInstaller()
     ss_agent_installer.stop_all_services_ss_agent()

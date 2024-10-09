@@ -229,7 +229,7 @@ if [ -f "install_agents.py" ]; then
             echo "$var is set."
         fi
     done
-    python install_agents.py --log-level INFO
+    python install_agents.py --log-level INFO --install
     if [ $? -ne 0 ]; then
         echo "Failed to run install_agents.py."
         exit 1
