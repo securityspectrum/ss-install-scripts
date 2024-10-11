@@ -3,3 +3,4 @@ pyjwt
 distro
 certifi
 charset-normalizer
+pywin32
