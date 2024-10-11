@@ -102,6 +102,9 @@ OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS = "C:/Program Files/osquery/osquery.example.
 OSQUERY_CONFIG_PATH_LINUX = "/etc/osquery/osquery.conf"
 OSQUERY_CONFIG_PATH_MACOS = "/var/osquery/osquery.conf"
 OSQUERY_CONFIG_PATH_WINDOWS = "C:/Program Files/osquery/osquery.conf"
+OSQUERY_LOGGER_PATH_WINDOWS = "C:/ProgramData/osquery/logs"
+OSQUERY_PIDFILE_PATH_WINDOWS = "C:/Program Files/osquery/osquery.pid"
+OSQUERY_DATABASE_PATH_WINDOWS = "C:/Program Files/osquery/osquery.db"
 
 # Repositories
 FLUENT_BIT_REPO = "securityspectrum/fluent-bit"

@@ -3,6 +3,8 @@
 import os
 import sys
 import tempfile
+import time
+
 import distro
 import requests
 import platform
@@ -15,8 +17,9 @@ import zipfile
 import subprocess
 
 from agent_core.constants import OSQUERY_DOWNLOAD_DIR, OSQUERY_EXTRACT_DIR, OSQUERY_CONFIG_PATH_MACOS, \
-    OSQUERY_CONFIG_PATH_LINUX, OSQUERY_CONFIG_PATH_WINDOWS, OSQUERY_CONFIG_EXAMPLE_PATH_LINUX, \
-    OSQUERY_CONFIG_EXAMPLE_PATH_MACOS, OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS
+    OSQUERY_CONFIG_PATH_LINUX, OSQUERY_LOGGER_PATH_WINDOWS, OSQUERY_PIDFILE_PATH_WINDOWS, OSQUERY_DATABASE_PATH_WINDOWS, \
+    OSQUERY_CONFIG_EXAMPLE_PATH_LINUX, OSQUERY_CONFIG_EXAMPLE_PATH_MACOS, OSQUERY_CONFIG_PATH_WINDOWS, \
+    OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS
 
 try:
     import winreg  # For Windows registry access
@@ -420,46 +423,131 @@ class OsqueryInstaller:
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.logger.debug("osquery installed and started on macOS.")
 
+    def get_service_state(self, service_name):
+        """
+        Retrieves the current state of the given service.
+        Returns the state as a string, e.g., 'RUNNING', 'STOPPED', etc.
+        """
+        try:
+            result = subprocess.run(['sc.exe', 'query', service_name],
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True,
+                                    check=True)
+            for line in result.stdout.splitlines():
+                if 'STATE' in line:
+                    # Example line: "STATE              : 4  RUNNING"
+                    parts = line.strip().split()
+                    if len(parts) >= 4:
+                        state_text = parts[3]
+                        return state_text.upper()
+            return 'UNKNOWN'
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to query service {service_name}: {e}")
+            return 'UNKNOWN'
+
     def configure_windows(self):
         """
         Configures osquery for Windows after MSI installation.
         Sets up configuration files, starts the service, and optionally enables Windows Event Log support.
         """
         try:
+            config_path = Path(OSQUERY_CONFIG_PATH_WINDOWS)
+            example_config_path = Path(OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS)
+
             # Check if the destination config file already exists
-            if Path(OSQUERY_CONFIG_PATH_WINDOWS).exists():
-                self.logger.debug(f"Config file already exists at {OSQUERY_CONFIG_PATH_WINDOWS}. No need to copy.")
+            if config_path.exists():
+                self.logger.debug(f"Config file already exists at {config_path}. No need to copy.")
             else:
                 # Check if the source example config file exists
-                if Path(OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS).exists():
-                    shutil.copyfile(OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS, OSQUERY_CONFIG_PATH_WINDOWS)
-                    self.logger.debug(f"Copied osquery example config to {OSQUERY_CONFIG_PATH_WINDOWS}")
+                if example_config_path.exists():
+                    shutil.copyfile(example_config_path, config_path)
+                    self.logger.debug(f"Copied osquery example config to {config_path}")
                 else:
-                    self.logger.error(f"Example config file not found: {OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS}")
-                    raise FileNotFoundError(f"Example config file not found: {OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS}")
+                    self.logger.warning(f"Example config file not found: {example_config_path}. Creating a default osquery.conf")
+                    # Create a minimal osquery.conf
+                    osquery_config = f"""
+                    {{
+                      "options": {{
+                        "config_plugin": "filesystem",
+                        "logger_plugin": "filesystem",
+                        "logger_path": "{OSQUERY_LOGGER_PATH_WINDOWS}",
+                        "pidfile": "{OSQUERY_PIDFILE_PATH_WINDOWS}",
+                        "database_path": "{OSQUERY_DATABASE_PATH_WINDOWS}"
+                      }},
+                      "schedule": {{}}
+                    }}
+                    """
+                    self.logger.debug(f"Default osquery config:\n{osquery_config}")
+                    try:
+                        with open(config_path, 'w') as f:
+                            f.write(osquery_config)
+                        self.logger.debug(f"Created default osquery config at {config_path}")
+                    except Exception as e:
+                        self.logger.error(f"Failed to create default osquery config: {e}")
+                        raise
 
-            # Check if osqueryd service is already running
-            result = subprocess.run(['sc.exe', 'query', 'osqueryd'],
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    text=True)
-            if result.stdout and 'running' in result.stdout.lower():
+            # Check the current state of the osqueryd service
+            service_state = self.get_service_state('osqueryd')
+            self.logger.debug(f"osqueryd service state: {service_state}")
+
+            if service_state == 'RUNNING':
                 self.logger.debug("osqueryd service is already running.")
-            else:
-                # Start the osqueryd service if not running
+            elif service_state in ['START_PENDING', 'STOP_PENDING']:
+                self.logger.debug(f"osqueryd service is in state {service_state}. Waiting before attempting to start.")
+                wait_time = 5  # seconds
+                max_retries = 5
+                for attempt in range(max_retries):
+                    self.logger.debug(f"Waiting {wait_time} seconds before retrying to start the service... (Attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    service_state = self.get_service_state('osqueryd')
+                    self.logger.debug(f"Attempt {attempt + 1}/{max_retries}: osqueryd service state: {service_state}")
+                    if service_state == 'RUNNING':
+                        self.logger.debug("osqueryd service started successfully after waiting.")
+                        break
+                    elif service_state == 'START_PENDING':
+                        continue
+                    else:
+                        self.logger.debug(f"Service state after waiting: {service_state}")
+                        break
+                else:
+                    self.logger.error("Service did not start after multiple attempts.")
+                    raise RuntimeError("Failed to start osqueryd service after waiting.")
+            elif service_state in ['STOPPED', 'UNKNOWN']:
+                # Attempt to start the service
                 self.logger.debug("Starting osqueryd service...")
-                subprocess.run(['sc.exe', 'start', 'osqueryd'],
+                result = subprocess.run(['sc.exe', 'start', 'osqueryd'],
+                                        check=False,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE,
+                                        text=True)
+                if result.returncode == 0:
+                    self.logger.debug("osqueryd service started successfully on Windows.")
+                else:
+                    self.logger.error(f"Command '['sc.exe', 'start', 'osqueryd']' failed with exit status {result.returncode}")
+                    self.logger.error(f"Error output: {result.stderr}")
+                    # Check the service state after failure
+                    service_state = self.get_service_state('osqueryd')
+                    self.logger.debug(f"osqueryd service state after failed start: {service_state}")
+                    if service_state == 'RUNNING':
+                        self.logger.debug("osqueryd service is running despite the error.")
+                    else:
+                        raise subprocess.CalledProcessError(result.returncode,
+                                                            ['sc.exe', 'start', 'osqueryd'],
+                                                            output=result.stdout,
+                                                            stderr=result.stderr)
+
+            # Optional: Enable Windows Event Log support (if needed)
+            wevtutil_path = r'C:\Program Files\osquery\osquery.man'
+            if Path(wevtutil_path).exists():
+                self.logger.debug(f"Enabling Windows Event Log support using {wevtutil_path}...")
+                subprocess.run(['wevtutil', 'im', wevtutil_path],
                                check=True,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
-                self.logger.debug("osqueryd service started successfully on Windows.")
-
-            # Optional: Enable Windows Event Log support (if needed)
-            subprocess.run(['wevtutil', 'im', r'C:\Program Files\osquery\osquery.man'],
-                           check=True,
-                           stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE)
-            self.logger.debug("Windows Event Log support enabled for osquery.")
+                self.logger.debug("Windows Event Log support enabled for osquery.")
+            else:
+                self.logger.warning(f"Windows Event Log support file not found: {wevtutil_path}")
 
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
