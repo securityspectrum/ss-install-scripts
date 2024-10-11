@@ -438,9 +438,21 @@ class OsqueryInstaller:
                     self.logger.error(f"Example config file not found: {OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS}")
                     raise FileNotFoundError(f"Example config file not found: {OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS}")
 
-            # Start the osqueryd service
-            subprocess.run(['sc.exe', 'start', 'osqueryd'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.logger.debug("osqueryd service started successfully on Windows.")
+            # Check if osqueryd service is already running
+            result = subprocess.run(['sc.exe', 'query', 'osqueryd'],
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True)
+            if result.stdout and 'running' in result.stdout.lower():
+                self.logger.debug("osqueryd service is already running.")
+            else:
+                # Start the osqueryd service if not running
+                self.logger.debug("Starting osqueryd service...")
+                subprocess.run(['sc.exe', 'start', 'osqueryd'],
+                               check=True,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+                self.logger.debug("osqueryd service started successfully on Windows.")
 
             # Optional: Enable Windows Event Log support (if needed)
             subprocess.run(['wevtutil', 'im', r'C:\Program Files\osquery\osquery.man'],
