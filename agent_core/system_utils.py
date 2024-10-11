@@ -12,18 +12,6 @@ logger = logging.getLogger('InstallationLogger')
 class SystemUtility:
 
     @staticmethod
-    def is_admin():
-        """
-        Check if the script is running with administrator privileges (Windows).
-        Returns:
-            bool: True if running as admin/root, False otherwise.
-        """
-        try:
-            return ctypes.windll.shell32.IsUserAnAdmin() == 1
-        except:
-            return False
-
-    @staticmethod
     def elevate_privileges():
         """
         Ensures the script is running with root/admin privileges.
@@ -42,7 +30,9 @@ class SystemUtility:
                     # Re-run the script as administrator with current environment variables
                     command = f'cmd.exe /c {env_vars} && "{sys.executable}" ' + ' '.join(sys.argv)
 
-                    ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/C {command}', None, 1)
+                    ctypes.windll.shell32.ShellExecuteW(
+                        None, "runas", "cmd.exe", f'/C {command}', None, 1
+                    )
                     sys.exit(0)  # Exit the non-admin instance of the script
                 except Exception as e:
                     logger.error(f"Failed to elevate privileges on Windows: {e}")
@@ -62,6 +52,26 @@ class SystemUtility:
                 sys.exit(0)  # Exit the non-root process after relaunching with sudo
             else:
                 logger.info("Script is already running with root privileges.")
+
+    @staticmethod
+    def is_admin():
+        """
+        Check if the script is running with administrator (Windows) or root (Linux/macOS) privileges.
+        Returns:
+            bool: True if running as admin/root, False otherwise.
+        """
+        system = platform.system().lower()
+
+        if system == "windows":
+            try:
+                return ctypes.windll.shell32.IsUserAnAdmin() == 1
+            except Exception as e:
+                print(f"Error checking admin privileges on Windows: {e}")
+                return False
+        elif system in ["linux", "darwin"]:
+            return os.geteuid() == 0
+        else:
+            raise NotImplementedError(f"Unsupported operating system: {system}")
 
 
     @staticmethod
