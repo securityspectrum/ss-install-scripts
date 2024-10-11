@@ -426,21 +426,35 @@ class OsqueryInstaller:
         Sets up configuration files, starts the service, and optionally enables Windows Event Log support.
         """
         try:
-            # Copy the example config file to the active config file
-            shutil.copyfile(OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS, OSQUERY_CONFIG_PATH_WINDOWS)
-            self.logger.debug(f"Copied osquery example config to {OSQUERY_CONFIG_PATH_WINDOWS}")
+            # Check if the destination config file already exists
+            if Path(OSQUERY_CONFIG_PATH_WINDOWS).exists():
+                self.logger.debug(f"Config file already exists at {OSQUERY_CONFIG_PATH_WINDOWS}. No need to copy.")
+            else:
+                # Check if the source example config file exists
+                if Path(OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS).exists():
+                    shutil.copyfile(OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS, OSQUERY_CONFIG_PATH_WINDOWS)
+                    self.logger.debug(f"Copied osquery example config to {OSQUERY_CONFIG_PATH_WINDOWS}")
+                else:
+                    self.logger.error(f"Example config file not found: {OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS}")
+                    raise FileNotFoundError(f"Example config file not found: {OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS}")
 
             # Start the osqueryd service
             subprocess.run(['sc.exe', 'start', 'osqueryd'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.logger.debug("osqueryd service started successfully on Windows.")
 
             # Optional: Enable Windows Event Log support (if needed)
-            subprocess.run(['wevtutil', 'im', r'C:\Program Files\osquery\osquery.man'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(['wevtutil', 'im', r'C:\Program Files\osquery\osquery.man'],
+                           check=True,
+                           stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE)
             self.logger.debug("Windows Event Log support enabled for osquery.")
 
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
             self.logger.error(f"Error output: {e.stderr}")
+            raise
+        except FileNotFoundError as ex:
+            self.logger.error(f"An expected file was not found: {ex}")
             raise
         except Exception as ex:
             self.logger.error(f"An unexpected error occurred: {ex}")
