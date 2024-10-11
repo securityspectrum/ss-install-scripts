@@ -10,10 +10,24 @@ logger = logging.getLogger('InstallationLogger')
 
 
 class SystemUtility:
+
+    @staticmethod
+    def is_admin():
+        """
+        Check if the script is running with administrator privileges (Windows).
+        Returns:
+            bool: True if running as admin/root, False otherwise.
+        """
+        try:
+            return ctypes.windll.shell32.IsUserAnAdmin() == 1
+        except:
+            return False
+
     @staticmethod
     def elevate_privileges():
         """
-        Ensures the script is running with root privileges. If not, it re-runs the script with 'sudo'.
+        Ensures the script is running with root/admin privileges.
+        If not, it re-runs the script with the necessary privileges.
         """
         system = platform.system().lower()
 
@@ -21,31 +35,34 @@ class SystemUtility:
             # For Windows, check if the script is running as admin
             if not SystemUtility.is_admin():
                 logger.info("Requesting admin privileges on Windows...")
-                ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, ' '.join(sys.argv), None, 1)
-                sys.exit(0)
-        else:
-            # Check if the script is already running as root (for Unix-like systems: Linux/macOS)
+                try:
+                    # Prepare the current environment variables to be passed to the elevated process
+                    env_vars = ' '.join([f'{key}="{value}"' for key, value in os.environ.items()])
+
+                    # Re-run the script as administrator with current environment variables
+                    command = f'cmd.exe /c {env_vars} && "{sys.executable}" ' + ' '.join(sys.argv)
+
+                    ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/C {command}', None, 1)
+                    sys.exit(0)  # Exit the non-admin instance of the script
+                except Exception as e:
+                    logger.error(f"Failed to elevate privileges on Windows: {e}")
+                    sys.exit(1)
+            else:
+                logger.info("Script is already running with admin privileges.")
+        elif system in ["linux", "darwin"]:
+            # For Unix-like systems (Linux/macOS), check if the script is running as root
             if os.geteuid() != 0:
                 logger.info("Elevating script privileges with sudo...")
                 try:
-                    # Re-run the current script with sudo using the current Python interpreter
+                    # Re-run the script with sudo, preserving the environment
                     subprocess.run(['sudo', '-E', sys.executable] + sys.argv, check=True)
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to elevate privileges: {e}")
+                    logger.error(f"Failed to elevate privileges with sudo: {e}")
                     sys.exit(1)
                 sys.exit(0)  # Exit the non-root process after relaunching with sudo
+            else:
+                logger.info("Script is already running with root privileges.")
 
-    @staticmethod
-    def is_admin():
-        try:
-            # For Unix-like systems, check if the user is root
-            return os.geteuid() == 0
-        except AttributeError:
-            # For Windows, check if the script is running as admin
-            try:
-                return ctypes.windll.shell32.IsUserAnAdmin()
-            except:
-                return False
 
     @staticmethod
     def run_command(command, check=True, shell=False):
