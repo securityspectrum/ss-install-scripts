@@ -6,9 +6,12 @@ import requests
 import logging
 import subprocess
 from pathlib import Path
+
+from agent_core import SystemUtility
 from agent_core.constants import (
     FLUENT_BIT_REPO,
     FLUENT_BIT_ASSET_PATTERNS,
+    FLUENT_BIT_DIR_WINDOWS
 )
 
 import os
@@ -342,25 +345,141 @@ class FluentBitInstaller:
             raise
 
     def configure_windows(self):
+        service_name = 'fluent-bit'
+        fluent_bit_path = r'C:\Program Files\fluent-bit\bin\fluent-bit.exe'
+
+        SystemUtility.request_admin_access()
+
+        # Verify that the Fluent Bit executable exists
+        if not Path(fluent_bit_path).exists():
+            self.logger.error(f"Fluent Bit executable not found at: {fluent_bit_path}. Please verify the installation path.")
+            raise FileNotFoundError(f"Fluent Bit executable not found at {fluent_bit_path}")
+
         try:
-            # Windows-specific installation commands
-            self.logger.debug("Starting the Fluent Bit service...")
+            # Step 1: Check if the service exists
+            self.logger.debug(f"Checking if the '{service_name}' service exists...")
+            result = subprocess.run(
+                ['sc.exe', 'query', service_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            service_exists = 'SERVICE_NAME: ' + service_name in result.stdout
 
-            subprocess.run(['sc.exe', 'start', 'fluent-bit'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.logger.debug("Fluent Bit service started successfully.")
+            # Step 2: Create the service if it doesn't exist
+            if not service_exists:
+                self.logger.debug(f"Service '{service_name}' not found. Creating the service...")
+                create_command = [
+                    'sc.exe', 'create', service_name,
+                    'binPath=', f'"{fluent_bit_path}"',
+                    'start=', 'auto',
+                    'obj=', 'LocalSystem'
+                ]
+                self.logger.debug(f"Creating service with command: {' '.join(create_command)}")
+                subprocess.run(create_command, check=True)
+                self.logger.info(f"Service '{service_name}' created successfully.")
+            else:
+                self.logger.debug(f"Service '{service_name}' already exists.")
 
-            self.logger.debug("Configuring Fluent Bit service to start automatically on boot...")
-            subprocess.run(['sc.exe', 'config', 'fluent-bit', 'start=', 'auto'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.logger.debug("Fluent Bit service set to start automatically on boot.")
+            # Step 3: Ensure the service uses the LocalSystem account and auto-starts on boot
+            self.logger.debug(f"Configuring service '{service_name}' to start with LocalSystem and auto-start on boot...")
+            config_command = ['sc.exe', 'config', service_name, 'obj=', 'LocalSystem', 'start=', 'auto']
+            subprocess.run(config_command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.logger.info(f"Service '{service_name}' configured successfully.")
+
+            # Step 4: Check the service status before attempting to start it
+            self.logger.debug(f"Checking the status of service '{service_name}' before starting...")
+            query_result = subprocess.run(
+                ['sc.exe', 'query', service_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            if "RUNNING" in query_result.stdout:
+                self.logger.info(f"Service '{service_name}' is already running. No need to start it.")
+            else:
+                # Step 5: Start the service if not already running
+                self.logger.debug(f"Starting service '{service_name}'...")
+                start_result = subprocess.run(
+                    ['sc.exe', 'start', service_name],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                self.logger.info(f"Service '{service_name}' started successfully.")
+
         except subprocess.CalledProcessError as e:
-            # Log the error with the command, return code, and output
-            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
-            self.logger.error(f"Error output: {e.stderr.decode() if e.stderr else 'No error output'}")
+            # Log detailed output to help with troubleshooting
+            if e.returncode == 1056:
+                self.logger.warning(f"Service '{service_name}' is already running. Skipping start.")
+            else:
+                self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+                self.logger.error(f"stdout: {e.stdout.strip()}")
+                self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+                raise
+        except Exception as ex:
+            self.logger.error(f"An unexpected error occurred: {ex}")
             raise
 
+    def verify_permissions(self, path):
+        """
+        Verifies that SYSTEM has full control over the provided path.
+        If not, it attempts to fix the permissions.
+
+        Parameters:
+        - path: The file or directory to check permissions for.
+
+        Raises:
+        - PermissionError: If SYSTEM cannot be granted full control over the path.
+        """
+        self.logger.debug(f"Verifying permissions for SYSTEM on {path}...")
+
+        try:
+            # Run the icacls command to check permissions for the specified path
+            result = subprocess.run(
+                ['icacls', path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True
+            )
+
+            # Check if SYSTEM has full control
+            if 'SYSTEM:(F)' not in result.stdout:
+                self.logger.error(f"SYSTEM does not have full control on {path}. Attempting to fix permissions...")
+
+                # Attempt to grant SYSTEM full control using icacls
+                fix_permissions_command = ['icacls', path, '/grant', 'SYSTEM:F']
+                fix_result = subprocess.run(fix_permissions_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                            text=True, check=True)
+
+                self.logger.debug(f"Fix permissions command output: {fix_result.stdout.strip()}")
+
+                # Re-check permissions after attempting to fix
+                result = subprocess.run(
+                    ['icacls', path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=True
+                )
+                if 'SYSTEM:(F)' not in result.stdout:
+                    self.logger.error(f"Failed to grant SYSTEM full control on {path}.")
+                    raise PermissionError(f"Failed to grant SYSTEM full control on {path}.")
+                else:
+                    self.logger.info(f"SYSTEM was successfully granted full control on {path}.")
+
+            self.logger.info(f"SYSTEM has full control over {path}.")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to check or fix permissions for {path} using icacls.")
+            self.logger.error(f"stdout: {e.stdout.strip()}")
+            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            raise
         except Exception as ex:
-            # Log any unexpected errors
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            self.logger.error(f"An unexpected error occurred while checking or fixing permissions: {ex}")
             raise
 
     def uninstall(self):

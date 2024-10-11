@@ -18,7 +18,10 @@ class SSAgentConfigurator:
         self.cert_dir = Path(cert_dir)
         self.platform_context = PlatformContext()
 
-    def configure_ss_agent(self, secrets, template_path: Path):
+    def configure_ss_agent(self, secrets: dict, template_path: Path):
+        """
+        Configures the ss-agent by generating a config.json from a template.
+        """
         logger.debug(f"Configuring ss-agent using template: {template_path}")
         try:
             with open(template_path) as f:
@@ -28,19 +31,28 @@ class SSAgentConfigurator:
             logger.error(f"Error loading ss-agent template: {e}")
             return
 
-        config = template.substitute(
-            api_url=f"{self.api_url_domain}{API_VERSION_PATH}",
-            organization_key=secrets["organization_key"],
-            api_access_key=secrets["api_access_key"],
-            api_secret_key=secrets["api_secret_key"],
-            cert_file=str(self.cert_dir / "client.crt"),
-            key_file=str(self.cert_dir / "client.key"),
-            ca_file=str(self.cert_dir / "cacert.crt")
-        )
+        # Use as_posix() to ensure paths are JSON-compatible
+        config = template.substitute(api_url=f"{self.api_url_domain}/api/v1",
+            organization_key=secrets.get("organization_key", ""),
+            api_access_key=secrets.get("api_access_key", ""),
+            api_secret_key=secrets.get("api_secret_key", ""),
+            cert_file=(self.cert_dir / "client.crt").as_posix(),
+            key_file=(self.cert_dir / "client.key").as_posix(),
+            ca_file=(self.cert_dir / "cacert.crt").as_posix())
 
         logger.debug(f"Generated ss-agent configuration: {config}")
 
+        # Validate JSON
         try:
+            import json
+            json.loads(config)
+            logger.debug("JSON configuration is valid.")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON configuration: {e}")
+            return
+
+        try:
+            # Create a temporary file to store the config
             temp_config_fd, temp_config_path = tempfile.mkstemp(suffix=".json")
             with os.fdopen(temp_config_fd, 'w') as f:
                 f.write(config)
@@ -52,7 +64,11 @@ class SSAgentConfigurator:
         final_config_path = self.config_dir / "config.json"
         try:
             self.platform_context.create_directory(self.config_dir)
-            SystemUtility.move_with_sudo(temp_config_path, str(final_config_path))
+            # Move the temporary config to the final destination with appropriate permissions
+            SystemUtility.move_with_sudo(Path(temp_config_path), final_config_path)
             logger.debug(f"Moved config file to {final_config_path}")
         except Exception as e:
             logger.error(f"Error moving config file to {final_config_path}: {e}")
+            return
+
+        logger.info(f"ss-agent configured successfully at {final_config_path}")

@@ -25,6 +25,9 @@ SS_NETWORK_ANALYZER_EXECUTABLE_PATH_MACOS = "/usr/local/bin/ss-network-analyzer"
 SS_NETWORK_ANALYZER_EXECUTABLE_PATH_LINUX = "/usr/local/bin/ss-network-analyzer"
 SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS = r"C:\Program Files\ss-network-analyzer\ss-network-analyzer.exe"
 
+
+ZEEK_EXECUTABLE_PATH_WINDOWS = r"C:\Program Files\Zeek\bin\zeek.exe"  # Desired installation path on Windows
+
 # Npcap dirctory
 NPCAP_PATH = "C:/Program Files/Npcap"
 NPCAP_URL_WINDOWS = "https://npcap.com/dist/npcap-1.79.exe"
@@ -44,7 +47,7 @@ FLUENT_BIT_CERTS_ZIP_TEMPLATE = "fluent-bit-certificates-{}.zip"
 # fluent-bit paths
 FLUENT_BIT_DIR_LINUX = "/etc/fluent-bit"
 FLUENT_BIT_DIR_MACOS = "/Library/Application Support/FluentBit"
-FLUENT_BIT_DIR_WINDOWS = r"C:\ProgramData\fluent-bit"
+FLUENT_BIT_DIR_WINDOWS = r"C:\Program Files\fluent-bit"
 
 FLUENT_BIT_CONFIG_DIR_LINUX = "/etc/fluent-bit"
 FLUENT_BIT_CONFIG_DIR_MACOS = "/Library/Application Support/FluentBit"
@@ -61,6 +64,7 @@ ZEEK_CONFIG_DIR_MACOS = "/Library/Application Support/ss-network-analyzer/config
 # Zeek log paths
 ZEEK_LOG_PATH_LINUX = "/opt/zeek/logs/current/*.log"
 ZEEK_LOG_PATH_MACOS = "/usr/local/opt/zeek/logs/current/*.log"
+ZEEK_LOG_PATH_WINDOWS = r"C:/ProgramData/zeek/logs/*.log"
 
 # Network analyzer config paths
 SS_NETWORK_ANALYZER_CONFIG_DIR_LINUX = "/etc/ss-network-analyzer/config"
@@ -77,11 +81,11 @@ NETWORK_ANALYZER_CONFIG_FILENAME = "network-analyzer.conf"
 
 # ss-agent config path
 SS_AGENT_CONFIG_DIR_LINUX = "/etc/ss-agent/config"
-SS_AGENT_CONFIG_DIR_WINDOWS = r"C:\ProgramData\ss-agent\config"
+SS_AGENT_CONFIG_DIR_WINDOWS = "C:/ProgramData/ss-agent/config"
 SS_AGENT_CONFIG_DIR_MACOS = "/Library/Application Support/ss-agent/config"
 SS_AGENT_SSL_DIR_LINUX = "/etc/ss-agent/ssl"
 SS_AGENT_SSL_DIR_MACOS = "/Library/Application Support/ss-agent/ssl"
-SS_AGENT_SSL_DIR_WINDOWS = r"C:\ProgramData\ss-agent\ssl"
+SS_AGENT_SSL_DIR_WINDOWS = "C:/ProgramData/ss-agent/ssl"
 
 # ss-agent service
 SS_AGENT_SERVICE_MACOS = '/Library/LaunchDaemons/com.ss-agent.plist'
@@ -94,10 +98,10 @@ SS_AGENT_TEMPLATE = "ss-agent-template.json"
 
 OSQUERY_CONFIG_EXAMPLE_PATH_LINUX = '/opt/osquery/share/osquery/osquery.example.conf'
 OSQUERY_CONFIG_EXAMPLE_PATH_MACOS = '/var/osquery/osquery.example.conf'
-OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS = r"C:\Program Files\osquery\osquery.example.conf"
+OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS = "C:/Program Files/osquery/osquery.example.conf"
 OSQUERY_CONFIG_PATH_LINUX = "/etc/osquery/osquery.conf"
 OSQUERY_CONFIG_PATH_MACOS = "/var/osquery/osquery.conf"
-OSQUERY_CONFIG_PATH_WINDOWS = r"C:\Program Files\osquery\osquery.conf"
+OSQUERY_CONFIG_PATH_WINDOWS = "C:/Program Files/osquery/osquery.conf"
 
 # Repositories
 FLUENT_BIT_REPO = "securityspectrum/fluent-bit"

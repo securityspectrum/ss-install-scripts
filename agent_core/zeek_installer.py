@@ -7,14 +7,23 @@ from pathlib import Path
 import sys
 import os
 import time
+
+import requests
 import select
-import pwd
 import shutil
 import getpass
 import time
+import os
+import platform
+import ctypes
+import win32security
+import win32con
+import win32api
 
 # Configure logging
 from agent_core import SystemUtility
+from agent_core.constants import ZEEK_EXECUTABLE_PATH_WINDOWS, SS_NETWORK_ANALYZER_REPO
+from agent_core.network_analyzer_installer import SS_NETWORK_ANALYZER_ASSET_PATTERNS
 
 
 class ZeekInstaller:
@@ -38,6 +47,21 @@ class ZeekInstaller:
 
         # Determine the operating system
         self.os_system = platform.system().lower()
+
+        if self.os_system == 'windows':
+            try:
+                # Import Windows-specific modules
+                import win32security
+                import win32con
+                import win32api
+                self.win32security = win32security
+                self.win32con = win32con
+                self.win32api = win32api
+                self.logger.debug("Windows-specific modules imported successfully.")
+            except ImportError as e:
+                self.logger.error("Failed to import Windows-specific modules: {}".format(e))
+                sys.exit(1)
+
 
     def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None, require_root=False):
         """
@@ -73,22 +97,34 @@ class ZeekInstaller:
         """
         Ensures the script is run with appropriate privileges based on the OS.
         - Root privileges are required for Linux installations.
+        - Administrative privileges are required for Windows installations.
         - No root privileges should be used for macOS installations.
         """
-        if self.os_system != 'darwin':
-            # For Linux systems, enforce running as root
-            if os.geteuid() != 0:
-                self.logger.error("This script must be run as root. Please run again with 'sudo' or as the root user.")
-                # Optionally, you can attempt to elevate privileges here
-                SystemUtility.elevate_privileges()
+        if self.os_system == 'windows':
+            # Check if the user has administrative privileges on Windows
+            try:
+                is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+                if not is_admin:
+                    self.logger.error("This script must be run as an administrator on Windows. Please run as an admin.")
+                    sys.exit(1)
+                self.logger.debug("Script is running with administrative privileges on Windows.")
+            except Exception as e:
+                self.logger.error(f"Failed to check admin privileges: {e}")
                 sys.exit(1)
-            self.logger.debug("Script is running as root.")
-        else:
+
+        elif self.os_system == 'darwin':
             # For macOS, ensure the script is NOT run as root
             if os.geteuid() == 0:
                 self.logger.error("Do not run this script as root on macOS. Please run as a regular user.")
                 self.downgrade_privileges()
             self.logger.debug("Script is running as a regular user on macOS.")
+
+        else:
+            # For Linux systems, enforce running as root
+            if os.geteuid() != 0:
+                self.logger.error("This script must be run as root. Please run again with 'sudo' or as the root user.")
+                sys.exit(1)
+            self.logger.debug("Script is running as root on Linux.")
 
     def command_exists(self, command):
         """
@@ -138,13 +174,30 @@ class ZeekInstaller:
 
     def downgrade_privileges(self):
         """
-        Downgrades privileges from root to the specified non-root user.
+        Downgrades privileges from root/administrator to the specified non-root/non-admin user.
+        """
+        current_platform = platform.system()
+        self.logger.debug(f"Operating System detected: {current_platform}")
+
+        if current_platform in ['Linux', 'Darwin']:  # Unix-like systems
+            self._downgrade_privileges_unix()
+        elif current_platform == 'Windows':
+            self._downgrade_privileges_windows()
+        else:
+            self.logger.error(f"Unsupported operating system: {current_platform}")
+            sys.exit(1)
+
+
+    def _downgrade_privileges_unix(self):
+        """
+        Downgrades privileges on Unix-like systems using setuid and setgid.
         """
         sudo_user = os.getenv('SUDO_USER')
         if not sudo_user:
             self.logger.error('Could not determine the original non-root user. Exiting.')
             sys.exit(1)
         try:
+            import pwd  # Import locally to avoid issues on Windows
             pw_record = pwd.getpwnam(sudo_user)
             user_uid = pw_record.pw_uid
             user_gid = pw_record.pw_gid
@@ -160,6 +213,45 @@ class ZeekInstaller:
             sys.exit(1)
         except Exception as e:
             self.logger.error(f"Failed to drop privileges: {e}")
+            sys.exit(1)
+
+    def _downgrade_privileges_windows(self):
+        """
+        Downgrades privileges on Windows by impersonating a non-administrator user.
+        """
+        if not self.is_windows:
+            return
+
+        username = os.getenv("USERNAME")
+        if not username:
+            self.logger.error("Could not retrieve the current user. Exiting.")
+            sys.exit(1)
+
+        self.logger.debug(f"Attempting to downgrade privileges for user: {username}")
+
+        try:
+            # Prompt the user for the target username and password for impersonation
+            target_user = input("Enter the username of the user to impersonate: ")
+            target_domain = input("Enter the domain (or leave blank for local user): ")
+            target_password = getpass.getpass("Enter the password for the user: ")
+
+            # Log on the user and obtain a handle to the user's access token
+            handle = self.win32security.LogonUser(
+                target_user,
+                target_domain or None,  # Local machine if domain is not specified
+                target_password,
+                self.win32con.LOGON32_LOGON_INTERACTIVE,  # Interactive logon
+                self.win32con.LOGON32_PROVIDER_DEFAULT
+            )
+
+            # Impersonate the logged-on user
+            self.win32security.ImpersonateLoggedOnUser(handle)
+            self.logger.debug(f"Successfully downgraded privileges to user: {target_user}")
+
+            # Run your installation or other operations here under the impersonated user
+
+        except Exception as e:
+            self.logger.error(f"Failed to downgrade privileges: {e}")
             sys.exit(1)
 
     def is_zeek_installed(self):
@@ -582,6 +674,103 @@ class ZeekInstaller:
 
         # Add Zeek to the system PATH
         self.add_zeek_to_path()
+
+
+    def install_zeek_windows(self):
+        """
+        Installs Zeek on Windows.
+        """
+        self.logger.debug("Starting Zeek installation on Windows...")
+
+        # Get the latest release URL
+        try:
+            self.logger.debug("Fetching latest Zeek release information...")
+            release_info = self.get_latest_release_info(SS_NETWORK_ANALYZER_REPO)
+        except Exception as e:
+            self.logger.error(f"Failed to fetch latest Zeek release info: {e}")
+            sys.exit(1)
+
+        # Categorize assets
+        categorized_assets = self.categorize_assets(release_info['assets'])
+        selected_assets = self.select_asset(categorized_assets)
+
+        if not selected_assets:
+            self.logger.error("No suitable Zeek Windows asset found for installation.")
+            sys.exit(1)
+
+        asset_name, download_url = selected_assets[0]  # Get the first matching asset
+
+        # Define download and install paths
+        if platform.system() == "Windows":
+            tmp_path = Path(r"C:\Temp") / asset_name
+            tmp_path.parent.mkdir(parents=True, exist_ok=True)
+            final_path = Path(ZEEK_EXECUTABLE_PATH_WINDOWS)
+            final_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
+        else:
+            self.logger.error(f"install_zeek_windows called on unsupported OS: {platform.system()}")
+            sys.exit(1)
+
+        self.logger.info(f"Downloading {asset_name} from {download_url}...")
+        self.download_binary(download_url, tmp_path)
+
+        self.logger.info(f"Installing {asset_name}...")
+        self.run_installation_command(tmp_path, final_path)
+
+        self.logger.info("Zeek installation on Windows complete.")
+
+    def download_binary(self, download_url, dest_path):
+        """
+        Downloads the binary from the specified URL to the destination path.
+        """
+        try:
+            response = requests.get(download_url, stream=True)
+            response.raise_for_status()
+            with open(dest_path, 'wb') as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    file.write(chunk)
+            self.logger.debug(f"Downloaded binary to {dest_path}.")
+        except Exception as e:
+            self.logger.error(f"Failed to download binary: {e}")
+            raise
+
+    def get_latest_release_info(self, repo):
+        """
+        Fetches the latest release information from GitHub for the specified repository.
+        """
+        api_url = f"https://api.github.com/repos/{repo}/releases"
+        response = requests.get(api_url)
+        response.raise_for_status()
+        releases = response.json()
+        latest_release = releases[0]  # Assuming the first one is the latest
+        return latest_release
+
+    def categorize_assets(self, assets):
+        """
+        Categorizes the assets based on the predefined asset patterns.
+        """
+        categorized = {key: [] for key in SS_NETWORK_ANALYZER_ASSET_PATTERNS}
+        for asset in assets:
+            asset_name = asset["name"]
+            download_url = asset["browser_download_url"]
+            for key, pattern in SS_NETWORK_ANALYZER_ASSET_PATTERNS.items():
+                if pattern in asset_name:
+                    categorized[key].append((asset_name, download_url))
+        return categorized
+
+    def select_asset(self, categorized_assets):
+        """
+        Selects the appropriate asset for the current operating system.
+        """
+        system = platform.system().lower()
+        self.logger.info(f"Detected system: {system}")
+        if system == "linux":
+            return categorized_assets.get("linux")
+        elif system == "darwin":
+            return categorized_assets.get("darwin")
+        elif system == "windows":
+            return categorized_assets.get("windows")
+        else:
+            raise NotImplementedError(f"Unsupported OS: {system}")
 
     def add_zeek_to_path(self):
         """
@@ -1340,6 +1529,8 @@ make install
             else:
                 self.logger.error(f"Unsupported Linux distribution: {self.os_id}")
                 sys.exit(1)
+        elif self.os_system == 'windows':
+            self.install_zeek_windows()
         else:
             self.logger.error("Unsupported operating system.")
             sys.exit(1)
@@ -1367,6 +1558,8 @@ make install
             self.uninstall_zeek_macos()
         elif self.os_system == "linux":
             self.uninstall_zeek_linux()
+        elif self.os_system == "windows":
+            self.uninstall_zeek_windows()
         else:
             self.logger.error(f"Unsupported OS for Zeek uninstallation: {self.os_system}")
             sys.exit(1)
@@ -1434,6 +1627,98 @@ make install
             self.logger.debug(f"{package_name} has been successfully uninstalled using zypper.")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"zypper failed to uninstall {package_name}: {e}")
+            raise
+
+
+    def uninstall_zeek_windows(self):
+        """
+        Uninstalls Zeek on Windows by removing the Zeek executable and updating PATH.
+        """
+        self.logger.info("Starting Zeek uninstallation on Windows...")
+        zeek_executable_path = Path(ZEEK_EXECUTABLE_PATH_WINDOWS)  # Adjust this path accordingly
+        try:
+            if zeek_executable_path.exists():
+                self.logger.debug(f"Removing Zeek executable at {zeek_executable_path}...")
+                zeek_executable_path.unlink()
+                self.logger.debug("Zeek executable removed.")
+            else:
+                self.logger.debug("Zeek executable not found; skipping removal.")
+
+            # Remove Zeek bin directory from PATH
+            zeek_bin_dir = zeek_executable_path.parent
+            self.remove_zeek_from_windows_path(zeek_bin_dir)
+
+            self.logger.info("Zeek has been successfully uninstalled from Windows.")
+        except Exception as e:
+            self.logger.error(f"Failed to uninstall Zeek on Windows: {e}")
+            raise
+
+    def remove_zeek_from_windows_path(self, zeek_bin_dir):
+        """
+        Removes the Zeek binary directory from the Windows PATH environment variable.
+        """
+        try:
+            self.logger.debug("Removing Zeek from Windows PATH...")
+            # Get current PATH from the system
+            current_path = os.environ.get('PATH', '')
+            zeek_bin_dir_str = str(zeek_bin_dir)
+            if zeek_bin_dir_str in current_path:
+                # Remove Zeek bin directory from PATH
+                new_path = current_path.replace(f"{zeek_bin_dir_str};", "").replace(f";{zeek_bin_dir_str}", "")
+                os.environ['PATH'] = new_path
+
+                # Update the system PATH permanently using setx
+                subprocess.run(['setx', 'PATH', new_path], check=True)
+                self.logger.debug(f"Removed {zeek_bin_dir_str} from PATH.")
+            else:
+                self.logger.debug("Zeek binary directory is not in PATH.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to remove Zeek from PATH: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Unexpected error while removing Zeek from PATH: {e}")
+            raise
+
+    def run_installation_command(self, dest_path, final_path):
+        """
+        Moves the downloaded binary to the final installation path and updates PATH.
+        """
+        try:
+            self.logger.info(f"Moving {dest_path} to {final_path}...")
+
+            if platform.system() in ["Linux", "Darwin"]:
+                # Use sudo to move the file to a protected directory
+                subprocess.run(["sudo", "cp", str(dest_path), str(final_path)], check=True)
+                os.remove(str(dest_path))  # Remove the original file if the copy was successful
+
+                # Set the necessary permissions and capabilities
+                subprocess.run(["sudo", "chmod", "755", str(final_path)], check=True)
+
+                if platform.system() == "Linux":
+                    subprocess.run(["sudo", "setcap", "cap_net_raw,cap_net_admin=eip", str(final_path)], check=True)
+                    self.logger.info(f"Set network capture capabilities on {final_path}.")
+
+            elif platform.system() == "Windows":
+                shutil.move(str(dest_path), str(final_path))
+
+            self.logger.info(f"{final_path} has been installed successfully.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to move the file to {final_path}: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Failed to move the file to {final_path}: {e}")
+            raise
+
+        # Verify installation by running the version command of the installed binary
+        try:
+            self.logger.info(f"Running '{final_path} --version' to verify installation...")
+            result = subprocess.run([str(final_path), "--version"], check=True, capture_output=True, text=True)
+            self.logger.info(f"Installed binary version: {result.stdout.strip()}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Running {final_path} failed: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Unexpected error during installation verification: {e}")
             raise
 
 

@@ -151,3 +151,17 @@ class SystemUtility:
                         logger.error(f"Error accessing registry key: {e}")
                         continue
         return None
+
+    @staticmethod
+    def is_admin():
+        try:
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        except:
+            return False
+
+    @staticmethod
+    def request_admin_access():
+        if not SystemUtility.is_admin():
+            # Re-run the script with admin rights
+            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+            sys.exit()

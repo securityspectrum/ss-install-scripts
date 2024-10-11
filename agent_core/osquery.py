@@ -78,14 +78,23 @@ class OsqueryInstaller:
             # Debugging print statement to track the filename
             self.logger.debug(f"Processing asset: {name}")
 
-            if 'linux' in lower_name and (lower_name.endswith('.rpm') or lower_name.endswith('.deb') or lower_name.endswith('.tar.gz')):
+            # Linux files
+            if 'linux' in lower_name and (
+                    lower_name.endswith('.rpm') or lower_name.endswith('.deb') or lower_name.endswith('.tar.gz')):
                 distributions['linux'].append({'name': name, 'url': download_url})
-            elif 'windows' in lower_name and (lower_name.endswith('.msi') or lower_name.endswith('.exe') or lower_name.endswith('.zip')):
+                self.logger.debug(f"Asset {name} added to Linux group.")
+            # Windows files (.msi, .exe, or .zip)
+            elif 'windows' in lower_name or name.endswith('.msi'):
                 distributions['windows'].append({'name': name, 'url': download_url})
-            elif ('macos' in lower_name or 'darwin' in lower_name or name.endswith('.pkg')):  # Updated this condition
+                self.logger.debug(f"Asset {name} added to Windows group.")
+            # macOS files (.pkg or .dmg)
+            elif 'macos' in lower_name or 'darwin' in lower_name or name.endswith('.pkg'):
                 distributions['macos'].append({'name': name, 'url': download_url})
+                self.logger.debug(f"Asset {name} added to macOS group.")
+            # Source code files
             elif 'source code' in lower_name or name.endswith('.tar.gz') or name.endswith('.zip'):
                 distributions['source'].append({'name': name, 'url': download_url})
+                self.logger.debug(f"Asset {name} added to Source group.")
 
         # Print grouped distributions for validation
         for distro, files in distributions.items():
@@ -124,6 +133,9 @@ class OsqueryInstaller:
             self.logger.error("No assets found for the detected distribution.")
             sys.exit(1)
 
+        for asset in distribution_assets:
+            self.logger.debug(f"Asset: {asset}")
+
         os_system = platform.system().lower()
         selected_asset = None
         system_arch = platform.machine().lower()
@@ -143,9 +155,15 @@ class OsqueryInstaller:
                     selected_asset = asset
 
             # Windows: prioritize .msi files
-            elif os_system == 'windows' and name.endswith('.msi'):
-                selected_asset = asset
-                break
+            elif os_system == 'windows':
+                if 'x86_64' in name or 'amd64' in name:  # Prefer x86_64 or amd64 packages
+                    if name.endswith('.msi'):
+                        selected_asset = asset
+                        break
+                    elif name.endswith('.exe'):  # Fallback to .exe
+                        selected_asset = asset
+                elif 'arm64' in name:
+                    self.logger.debug(f"Skipping ARM64 asset: {name}")
 
             # Linux: prioritize based on architecture
             elif os_system == 'linux':
@@ -262,18 +280,25 @@ class OsqueryInstaller:
             elif system == "windows":
                 if file_path.suffix == ".msi":
                     self.logger.debug(f"Installing MSI package: {file_path}")
-                    subprocess.run([str(file_path), "/quiet", "/norestart"], check=True)
+                    # Use msiexec to install the MSI package
+                    try:
+                        subprocess.run(["msiexec", "/i", str(file_path), "/quiet", "/norestart"], check=True)
+                    except subprocess.CalledProcessError as e:
+                        self.logger.error(f"Failed to install MSI package: {e}")
+                        raise
                 elif file_path.suffix == ".exe":
                     self.logger.debug(f"Running executable installer: {file_path}")
-                    subprocess.run([str(file_path), "/S"], check=True)
+                    try:
+                        subprocess.run([str(file_path), "/S"], check=True)
+                    except subprocess.CalledProcessError as e:
+                        self.logger.error(f"Failed to install EXE package: {e}")
+                        raise
                 else:
                     self.logger.warning(f"Unsupported Windows package format: {file_path.suffix}")
-            else:
-                self.logger.error(f"Unsupported OS for installation: {system}")
                 sys.exit(1)
             self.logger.info("osquery installation completed successfully.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to install osquery: {e}")
+            self.logger.error(f": {e}")
             sys.exit(1)
 
     def install(self, extract_dir=OSQUERY_EXTRACT_DIR):
