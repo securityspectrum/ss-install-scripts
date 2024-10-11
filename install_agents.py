@@ -24,16 +24,26 @@ def configure_logging(log_dir_path, log_level):
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / 'installation.log'
 
+    # Get or create the root logger
     logger = logging.getLogger()
+
+    # Set the overall log level
     logger.setLevel(log_level)
 
+    # Define handlers
     console_handler = logging.StreamHandler()
     file_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=2)
 
+    # Set log level for handlers
+    console_handler.setLevel(log_level)
+    file_handler.setLevel(log_level)
+
+    # Create formatters and add them to the handlers
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     console_handler.setFormatter(formatter)
     file_handler.setFormatter(formatter)
 
+    # Add the handlers to the logger
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
 
@@ -56,6 +66,13 @@ def get_platform_specific_paths():
 def install(args):
     log_level = getattr(logging, args.log_level.upper(), logging.DEBUG)
     logger = configure_logging(LOG_DIR_PATH, log_level)
+
+    # Test logger to ensure it works
+    logger.debug("Logger initialized at DEBUG level.")
+    logger.info("Logger initialized at INFO level.")
+    logger.warning("Logger initialized at WARNING level.")
+    logger.error("Logger initialized at ERROR level.")
+    logger.critical("Logger initialized at CRITICAL level.")
 
     try:
         supported_os = ["linux", "darwin", "windows"]

@@ -43,7 +43,7 @@ class OsqueryInstaller:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.logger.debug("INFO Starting osquery installation...")
+        self.logger.info("INFO Starting osquery installation...")
         self.logger.debug("DEBUG Starting osquery installation...")
 
     def get_latest_release(self):
@@ -249,56 +249,66 @@ class OsqueryInstaller:
                     package_name = "osquery"
                     self.logger.debug(f"Checking if {package_name} is already installed...")
 
-                    # Check if osquery is installed
                     installed_version = self.get_installed_version(package_name)
 
                     if installed_version:
-                        # Extract version from the RPM file name
                         rpm_version = file_path.stem.split('-')[1]
                         if installed_version == rpm_version:
                             self.logger.debug(f"{package_name} version {installed_version} is already up-to-date.")
                             return
                         else:
                             self.logger.debug(f"{package_name} is already installed, updating from version {installed_version} to {rpm_version}.")
+                            self.logger.debug(f"Running command: sudo rpm -Uvh {file_path}")
                             subprocess.run(["sudo", "rpm", "-Uvh", str(file_path)], check=True)
+                            self.logger.debug(f"Successfully updated {package_name} to version {rpm_version}.")
                     else:
                         self.logger.debug(f"{package_name} is not installed, installing the package.")
+                        self.logger.debug(f"Running command: sudo rpm -ivh {file_path}")
                         subprocess.run(["sudo", "rpm", "-ivh", str(file_path)], check=True)
+                        self.logger.debug(f"Successfully installed {package_name}.")
                 elif file_path.suffix == ".deb":
                     self.logger.debug(f"Installing DEB package: {file_path}")
+                    self.logger.debug(f"Running command: sudo dpkg -i {file_path}")
                     subprocess.run(["sudo", "dpkg", "-i", str(file_path)], check=True)
+                    self.logger.debug("Running command: sudo apt-get -f install")
                     subprocess.run(["sudo", "apt-get", "-f", "install"], check=True)
+                    self.logger.debug(f"Successfully installed {file_path}.")
                 else:
                     self.logger.warning(f"Unsupported Linux package format: {file_path.suffix}")
             elif system == "darwin":
                 self.logger.debug(f"file_path.suffix : {file_path.suffix}")
                 if file_path.suffix == ".pkg":
                     self.logger.debug(f"Installing PKG package: {file_path}")
+                    self.logger.debug(f"Running command: sudo installer -pkg {file_path} -target /")
                     subprocess.run(["sudo", "installer", "-pkg", str(file_path), "-target", "/"], check=True)
+                    self.logger.debug(f"Successfully installed {file_path}.")
                 else:
                     self.logger.warning(f"Unsupported macOS package format: {file_path.suffix}")
             elif system == "windows":
                 if file_path.suffix == ".msi":
                     self.logger.debug(f"Installing MSI package: {file_path}")
-                    # Use msiexec to install the MSI package
+                    self.logger.debug(f"Running command: msiexec /i {file_path} /quiet /norestart")
                     try:
                         subprocess.run(["msiexec", "/i", str(file_path), "/quiet", "/norestart"], check=True)
+                        self.logger.debug(f"Successfully installed {file_path}.")
                     except subprocess.CalledProcessError as e:
                         self.logger.error(f"Failed to install MSI package: {e}")
                         raise
                 elif file_path.suffix == ".exe":
                     self.logger.debug(f"Running executable installer: {file_path}")
+                    self.logger.debug(f"Running command: {file_path} /S")
                     try:
                         subprocess.run([str(file_path), "/S"], check=True)
+                        self.logger.debug(f"Successfully installed {file_path}.")
                     except subprocess.CalledProcessError as e:
                         self.logger.error(f"Failed to install EXE package: {e}")
                         raise
                 else:
                     self.logger.warning(f"Unsupported Windows package format: {file_path.suffix}")
-                sys.exit(1)
+                    sys.exit(1)
             self.logger.info("osquery installation completed successfully.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f": {e}")
+            self.logger.error(f"Subprocess failed with error: {e}")
             sys.exit(1)
 
     def install(self, extract_dir=OSQUERY_EXTRACT_DIR):

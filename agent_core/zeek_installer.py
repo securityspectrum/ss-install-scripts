@@ -30,7 +30,7 @@ class ZeekInstaller:
     def __init__(self):
 
         self.logger = logging.getLogger(__name__)
-        self.logger.debug("INFO Starting Zeek installation...")
+        self.logger.info("INFO Starting Zeek installation...")
         self.logger.debug("DEBUG Starting Zeek installation...")
 
         # Fetch distribution info as a dictionary
