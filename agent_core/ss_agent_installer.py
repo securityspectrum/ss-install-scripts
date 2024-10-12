@@ -8,7 +8,7 @@ from agent_core import SystemUtility
 from agent_core.constants import (SS_AGENT_REPO, DOWNLOAD_DIR_LINUX, DOWNLOAD_DIR_WINDOWS, DOWNLOAD_DIR_MACOS,
                                   SS_AGENT_SERVICE_MACOS, SS_AGENT_SERVICE_NAME_WINDOWS, SS_AGENT_SERVICE_NAME,
                                   SS_AGENT_CONFIG_DIR_WINDOWS, SS_AGENT_CONFIG_DIR_MACOS, SS_AGENT_CONFIG_DIR_LINUX,
-                                  SS_AGENT_SERVICE_LINUX, )
+                                  SS_AGENT_SERVICE_LINUX, SS_AGENT_SERVICE_BINARY_WINDOWS, )
 import shutil
 import platform
 import subprocess
@@ -196,125 +196,150 @@ class SSAgentInstaller:
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
+    def service_exists(self, service_name):
+        system = platform.system().lower()
+        if system == 'windows':
+            result = subprocess.run(['sc.exe', 'query', service_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            return 'The specified service does not exist' not in result.stdout
+        elif system == 'linux':
+            result = subprocess.run(['systemctl', 'status', service_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            return 'could not be found' not in result.stdout
+        elif system == 'darwin':
+            result = subprocess.run(['launchctl', 'list', service_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            return service_name in result.stdout
+        else:
+            raise NotImplementedError(f"Unsupported OS: {system}")
+
     def setup_systemd_service(self, executable_path):
         """
         Sets up a systemd service for the SS Agent on Linux.
         The service uses the 'ss-agent --debug start' command to start.
         """
-        self.logger.debug("Setting up systemd service for SS Agent..")
-        service_content = f"""[Unit]
-    Description=SS Agent Service
-    After=network.target
+        service_name = SS_AGENT_SERVICE_NAME
+        if self.service_exists(service_name):
+            self.logger.debug(f"Service {service_name} already exists. Skipping creation.")
+        else:
+            self.logger.debug("Setting up systemd service for SS Agent..")
+            service_content = f"""[Unit]
+        Description=SS Agent Service
+        After=network.target
 
-    [Service]
-    Type=simple
-    ExecStart={executable_path} --debug start
-    Restart=always
-    User=root
+        [Service]
+        Type=simple
+        ExecStart={executable_path} --debug start
+        Restart=always
+        User=root
 
-    [Install]
-    WantedBy=multi-user.target
-    """
+        [Install]
+        WantedBy=multi-user.target
+        """
+            service_path = '/etc/systemd/system/ss-agent.service'
+            try:
+                # Write service file to a temporary location
+                temp_service_path = '/tmp/ss-agent.service'
+                with open(temp_service_path, 'w') as f:
+                    f.write(service_content)
 
-        service_path = '/etc/systemd/system/ss-agent.service'
-        try:
-            # Write service file to a temporary location
-            temp_service_path = '/tmp/ss-agent.service'
-            with open(temp_service_path, 'w') as f:
-                f.write(service_content)
+                # Move the service file to the system directory with proper permissions
+                SystemUtility.move_with_sudo(temp_service_path, service_path)
 
-            # Move the service file to the system directory with proper permissions
-            SystemUtility.move_with_sudo(temp_service_path, service_path)
+                # Reload systemd, enable and start the service
+                subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
+                subprocess.run(['sudo', 'systemctl', 'enable', 'ss-agent'], check=True)
+                subprocess.run(['sudo', 'systemctl', 'start', 'ss-agent'], check=True)
+                self.logger.debug("SS Agent service installed and started (systemd).")
 
-            # Reload systemd, enable and start the service
-            subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
-            subprocess.run(['sudo', 'systemctl', 'enable', 'ss-agent'], check=True)
-            subprocess.run(['sudo', 'systemctl', 'start', 'ss-agent'], check=True)
-            self.logger.debug("SS Agent service installed and started (systemd).")
-
-        except Exception as e:
-            self.logger.error(f"Failed to set up systemd service: {e}")
-            raise
+            except Exception as e:
+                self.logger.error(f"Failed to set up systemd service: {e}")
+                raise
 
     def setup_launchd_service(self, executable_path):
         """
         Sets up a launchd service for the SS Agent on macOS.
         The service uses the 'ss-agent --debug start' command to start.
         """
-        self.logger.debug("Setting up launchd service for SS Agent..")
-        plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-    <!DOCTYPE plist PUBLIC "-//Apple Inc//DTD PLIST 1.0//EN" \
-    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-    <plist version="1.0">
-    <dict>
-        <key>Label</key>
-        <string>com.ss-agent</string>
-        <key>ProgramArguments</key>
-        <array>
-            <string>{executable_path}</string>
-            <string>--debug</string>
-            <string>start</string>
-        </array>
-        <key>RunAtLoad</key>
-        <true/>
-        <key>KeepAlive</key>
-        <true/>
-        <key>StandardOutPath</key>
-        <string>/var/log/ss-agent.log</string>
-        <key>StandardErrorPath</key>
-        <string>/var/log/ss-agent.err</string>
-    </dict>
-    </plist>
-    """
+        service_name = "com.ss-agent"
+        if self.service_exists(service_name):
+            self.logger.debug(f"Service {service_name} already exists. Skipping creation.")
+        else:
+            self.logger.debug("Setting up launchd service for SS Agent..")
+            plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple Inc//DTD PLIST 1.0//EN" \
+        "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>{service_name}</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>{executable_path}</string>
+                <string>--debug</string>
+                <string>start</string>
+            </array>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>KeepAlive</key>
+            <true/>
+            <key>StandardOutPath</key>
+            <string>/var/log/ss-agent.log</string>
+            <key>StandardErrorPath</key>
+            <string>/var/log/ss-agent.err</string>
+        </dict>
+        </plist>
+        """
 
+            try:
+                temp_plist_path = '/tmp/com.ss-agent.plist'
+                with open(temp_plist_path, 'w') as f:
+                    f.write(plist_content)
 
-        try:
-            temp_plist_path = '/tmp/com.ss-agent.plist'
-            with open(temp_plist_path, 'w') as f:
-                f.write(plist_content)
+                # Move the plist file to the system directory with proper permissions
+                SystemUtility.move_with_sudo(temp_plist_path, SS_AGENT_SERVICE_MACOS)
 
-            # Move the plist file to the system directory with proper permissions
-            SystemUtility.move_with_sudo(temp_plist_path, SS_AGENT_SERVICE_MACOS)
+                # Load and enable the launchd service
+                subprocess.run(['sudo', 'launchctl', 'load', SS_AGENT_SERVICE_MACOS], check=True)
+                subprocess.run(['sudo', 'launchctl', 'enable', 'system/com.ss-agent'], check=True)
+                self.logger.debug("SS Agent service installed and started (launchd).")
 
-            # Load and enable the launchd service
-            subprocess.run(['sudo', 'launchctl', 'load', SS_AGENT_SERVICE_MACOS], check=True)
-            subprocess.run(['sudo', 'launchctl', 'enable', 'system/com.ss-agent'], check=True)
-            self.logger.debug("SS Agent service installed and started (launchd).")
-
-        except Exception as e:
-            self.logger.error(f"Failed to set up launchd service: {e}")
-            raise
+            except Exception as e:
+                self.logger.error(f"Failed to set up launchd service: {e}")
+                raise
 
     def setup_windows_service(self, executable_path):
         """
         Sets up a Windows service for the SS Agent.
         The service uses the 'ss-agent --debug start' command to start.
         """
-        self.logger.debug("Setting up Windows service for SS Agent..")
-        display_name = "SS Agent Service"
+        service_name = SS_AGENT_SERVICE_NAME_WINDOWS
+        if self.service_exists(service_name):
+            self.logger.debug(f"Service {service_name} already exists. Skipping creation.")
+        else:
+            self.logger.debug("Setting up Windows service for SS Agent..")
+            display_name = "SS Agent Service"
 
-        try:
-            # Install the service using sc.exe with the '--debug start' command
-            install_cmd = f'sc create {SS_AGENT_SERVICE_NAME_WINDOWS} binPath= "{executable_path} --debug start" DisplayName= "{display_name}" start= auto'
-            self.logger.debug(f"Running command: {install_cmd}")
-            subprocess.run(install_cmd, shell=True, check=True)
-            self.logger.debug(f"Service {SS_AGENT_SERVICE_NAME_WINDOWS} created successfully.")
+            try:
+                # Install the service using sc.exe with the '--debug start' command
+                install_cmd = f'sc create {service_name} binPath= "{executable_path} --debug start" DisplayName= "{display_name}" start= auto'
+                self.logger.debug(f"Running command: {install_cmd}")
+                subprocess.run(install_cmd, shell=True, check=True)
+                self.logger.debug(f"Service {service_name} created successfully.")
 
-            # Configure the service to restart automatically on failure
-            failure_cmd = f'sc failure {SS_AGENT_SERVICE_NAME_WINDOWS} reset= 60 actions= restart/6000/restart/6000/restart/6000'
-            self.logger.debug(f"Setting up automatic restart: {failure_cmd}")
-            subprocess.run(failure_cmd, shell=True, check=True)
-            self.logger.debug(f"Service {SS_AGENT_SERVICE_NAME_WINDOWS} configured for automatic restarts.")
+                # Configure the service to restart automatically on failure
+                failure_cmd = f'sc failure {service_name} reset= 60 actions= restart/6000/restart/6000/restart/6000'
+                self.logger.debug(f"Setting up automatic restart: {failure_cmd}")
+                subprocess.run(failure_cmd, shell=True, check=True)
+                self.logger.debug(f"Service {service_name} configured for automatic restarts.")
 
-            # Start the service
-            start_cmd = f'sc start {SS_AGENT_SERVICE_NAME_WINDOWS}'
-            self.logger.debug(f"Starting service: {start_cmd}")
-            subprocess.run(start_cmd, shell=True, check=True)
-            self.logger.debug(f"Service {SS_AGENT_SERVICE_NAME_WINDOWS} started successfully.")
+                # Start the service
+                start_cmd = f'sc start {service_name}'
+                self.logger.debug(f"Starting service: {start_cmd}")
+                subprocess.run(start_cmd, shell=True, check=True)
+                self.logger.debug(f"Service {service_name} started successfully.")
 
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to set up Windows service for SS Agent: {e}")
-            raise
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Failed to set up Windows service for SS Agent: {e}")
+                raise
+
 
     def stop_windows_service(self, service_name):
         """
@@ -361,30 +386,36 @@ class SSAgentInstaller:
         """
         system = platform.system().lower()
         try:
-            if system == 'linux' or system == 'darwin':
-                # Use systemctl on Linux and launchctl on macOS to check service status
-                if system == 'linux':
-                    status_cmd = ['systemctl', 'is-active', service_name]
-                else:
-                    status_cmd = ['launchctl', 'list', service_name]
-
+            if system == 'linux':
+                # Check status with systemctl for Linux
+                status_cmd = ['systemctl', 'is-active', service_name]
                 result = subprocess.run(status_cmd, text=True, capture_output=True, check=False)
                 if result.returncode == 0 and 'active' in result.stdout:
                     return True
-                elif system == 'darwin' and service_name in result.stdout:
+                return False
+
+            elif system == 'darwin':
+                # Check status with launchctl for macOS
+                status_cmd = ['launchctl', 'list', service_name]
+                result = subprocess.run(status_cmd, text=True, capture_output=True, check=False)
+                if result.returncode == 0 and service_name in result.stdout:
                     return True
                 return False
 
             elif system == 'windows':
                 # Use sc query on Windows to check service status
                 result = subprocess.run(['sc', 'query', service_name], text=True, capture_output=True, check=False)
-                return 'RUNNING' in result.stdout
+                if result.returncode == 0 and 'RUNNING' in result.stdout:
+                    return True
+                return False
+
+            else:
+                self.logger.error(f"Unsupported OS: {system}")
+                return False
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error checking service status: {e}")
+            self.logger.error(f"Error checking service status on {system}: {e}")
             return False
-
-        return False
 
     def start_all_services_ss_agent(self):
         """
@@ -417,12 +448,27 @@ class SSAgentInstaller:
                 if system == 'linux' or system == 'darwin':
                     stop_cmd = ['sudo', 'ss-agent', 'service', 'stop', 'all']
                 elif system == 'windows':
-                    stop_cmd = ['ss-agent.exe', 'service', 'stop', 'all']
+                    stop_cmd = [SS_AGENT_SERVICE_BINARY_WINDOWS, 'service', 'stop', 'all']
 
-                subprocess.run(stop_cmd, check=True)
-                self.logger.debug("All services stopped successfully.")
+                # Capture the output and errors
+                result = subprocess.run(stop_cmd, check=True, capture_output=True, text=True)
+
+                # Log the output and verify if all services stopped successfully
+                if result.stdout:
+                    self.logger.debug(f"Command output: {result.stdout}")
+                if result.stderr:
+                    self.logger.error(f"Command error output: {result.stderr}")
+
+                # Verify the output to ensure all services have stopped
+                if "success" in result.stdout.lower() or "stopped" in result.stdout.lower():
+                    self.logger.debug("All services stopped successfully.")
+                else:
+                    self.logger.error("Failed to stop some or all services.")
+                    raise RuntimeError("Service stop verification failed.")
+
             except subprocess.CalledProcessError as e:
                 self.logger.error(f"Failed to stop services: {e}")
+                raise
         else:
             self.logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
 

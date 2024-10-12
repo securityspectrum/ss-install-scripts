@@ -560,6 +560,52 @@ class OsqueryInstaller:
             self.logger.error(f"An unexpected error occurred: {ex}")
             raise
 
+    def setup_windows_service(self, executable_path):
+        """
+        Sets up the Windows service for SS Agent.
+        """
+        try:
+            # Create the service
+            create_cmd = f'sc create SSAgentService binPath= "{executable_path}" start= auto'
+            self.logger.debug(f"Creating SSAgentService with command: {create_cmd}")
+            create_result = subprocess.run(create_cmd,
+                                           shell=True,
+                                           check=True,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE,
+                                           text=True)
+            self.logger.debug(f"sc create output: {create_result.stdout}")
+
+            # Start the service with retries
+            start_cmd = 'sc start SSAgentService'
+            self.logger.debug(f"Running command: {start_cmd}")
+            max_retries = 5
+            wait_time = 10  # seconds
+
+            for attempt in range(max_retries):
+                self.logger.debug(f"Attempting to start SSAgentService (Attempt {attempt + 1}/{max_retries})...")
+                start_result = subprocess.run(start_cmd,
+                                              shell=True,
+                                              stdout=subprocess.PIPE,
+                                              stderr=subprocess.PIPE,
+                                              text=True)
+                if start_result.returncode == 0:
+                    self.logger.debug("SSAgentService started successfully.")
+                    break
+                else:
+                    self.logger.error(f"Failed to start SSAgentService (Attempt {attempt + 1}/{max_retries}): {start_result.stderr}")
+                    time.sleep(wait_time)
+            else:
+                self.logger.error("SSAgentService did not start after multiple attempts.")
+                raise RuntimeError("Failed to start SSAgentService after multiple attempts.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            self.logger.error(f"Error output: {e.stderr}")
+            raise
+        except Exception as ex:
+            self.logger.error(f"An unexpected error occurred while setting up SSAgentService: {ex}")
+            raise
+
     def uninstall(self):
         """
         Orchestrates the uninstallation of osquery based on the operating system.
