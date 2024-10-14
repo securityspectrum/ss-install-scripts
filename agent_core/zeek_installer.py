@@ -700,8 +700,9 @@ class ZeekInstaller:
 
         asset_name, download_url = selected_assets[0]  # Get the first matching asset
 
+        operating_system = platform.system().lower()
         # Define download and install paths
-        if platform.system() == "Windows":
+        if operating_system == "windows":
             tmp_path = Path(r"C:\Temp") / asset_name
             tmp_path.parent.mkdir(parents=True, exist_ok=True)
             final_path = Path(ZEEK_EXECUTABLE_PATH_WINDOWS)
@@ -1629,7 +1630,6 @@ make install
             self.logger.error(f"zypper failed to uninstall {package_name}: {e}")
             raise
 
-
     def uninstall_zeek_windows(self):
         """
         Uninstalls Zeek on Windows by removing the Zeek executable and updating PATH.
@@ -1721,6 +1721,66 @@ make install
             self.logger.error(f"Unexpected error during installation verification: {e}")
             raise
 
+    def configure_and_start_windows(self):
+        """
+        Configures and starts the Zeek service based on the operating system.
+        Only executes on Windows platforms.
+        """
+        service_name = "zeek"
+        os_system = platform.system().lower()
+        if os_system == 'windows':
+            SystemUtility.request_admin_access()  # Assumes a method to elevate privileges if not already admin
+
+            # Verify that the Zeek executable exists
+            if not Path(ZEEK_EXECUTABLE_PATH_WINDOWS).exists():
+                self.logger.error(f"Zeek executable not found at: {ZEEK_EXECUTABLE_PATH_WINDOWS}. Please verify the installation path.")
+                raise FileNotFoundError(f"Zeek executable not found at {ZEEK_EXECUTABLE_PATH_WINDOWS}")
+
+            try:
+                # Check if the service exists
+                self.logger.debug(f"Checking if the '{service_name}' service exists...")
+                result = subprocess.run(['sc.exe', 'query', service_name], capture_output=True, text=True)
+                service_exists = f'SERVICE_NAME: {service_name}' in result.stdout
+
+                # Create the service if it doesn't exist
+                if not service_exists:
+                    self.logger.debug(f"Service '{service_name}' not found. Creating the service...")
+                    create_command = [
+                        'sc.exe', 'create', service_name,
+                        'binPath=', f'"{ZEEK_EXECUTABLE_PATH_WINDOWS}" start= auto',
+                        'DisplayName=', '"Zeek Network Security Monitor"',
+                        'start=', 'auto'
+                    ]
+                    subprocess.run(create_command, check=True)
+                    self.logger.info(f"Service '{service_name}' created successfully.")
+
+                # Configure the service
+                self.logger.debug(f"Configuring service '{service_name}' to use LocalSystem and auto-start on boot...")
+                config_command = ['sc.exe', 'config', service_name, 'obj=', 'LocalSystem', 'start=', 'auto']
+                subprocess.run(config_command, check=True, capture_output=True, text=True)
+                self.logger.info(f"Service '{service_name}' configured successfully.")
+
+                # Check the service status before starting
+                self.logger.debug(f"Checking the status of service '{service_name}'...")
+                query_result = subprocess.run(['sc.exe', 'query', service_name], capture_output=True, text=True)
+
+                if "RUNNING" in query_result.stdout:
+                    self.logger.info(f"Service '{service_name}' is already running. No need to start.")
+                else:
+                    # Start the service if not running
+                    self.logger.debug(f"Starting service '{service_name}'...")
+                    start_result = subprocess.run(['sc.exe', 'start', service_name], check=True, capture_output=True, text=True)
+                    self.logger.info(f"Service '{service_name}' started successfully.")
+
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+                self.logger.error(f"stdout: {e.stdout.strip()}")
+                self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+                raise
+
+            except Exception as ex:
+                self.logger.error(f"An unexpected error occurred: {ex}")
+                raise
 
 if __name__ == "__main__":
     installer = ZeekInstaller()

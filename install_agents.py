@@ -124,6 +124,7 @@ def install(args):
 
         zeek_installer = ZeekInstaller()
         zeek_installer.install()
+        zeek_installer.configure_and_start_windows()
 
         logger.info("Starting osquery setup...")
         osquery_installer = OsqueryInstaller()
