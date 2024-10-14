@@ -8,11 +8,8 @@ import subprocess
 from pathlib import Path
 
 from agent_core import SystemUtility
-from agent_core.constants import (
-    FLUENT_BIT_REPO,
-    FLUENT_BIT_ASSET_PATTERNS,
-    FLUENT_BIT_DIR_WINDOWS
-)
+from agent_core.constants import (FLUENT_BIT_REPO, FLUENT_BIT_ASSET_PATTERNS,
+                                  FLUENT_BIT_SERVICE_NAME, FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS, FLUENT_BIT_EXE_WINDOWS)
 
 import os
 import tempfile
@@ -345,75 +342,73 @@ class FluentBitInstaller:
             raise
 
     def configure_windows(self):
-        service_name = 'fluent-bit'
-        fluent_bit_path = r'C:\Program Files\fluent-bit\bin\fluent-bit.exe'
 
         SystemUtility.request_admin_access()
 
         # Verify that the Fluent Bit executable exists
-        if not Path(fluent_bit_path).exists():
-            self.logger.error(f"Fluent Bit executable not found at: {fluent_bit_path}. Please verify the installation path.")
-            raise FileNotFoundError(f"Fluent Bit executable not found at {fluent_bit_path}")
+        if not Path(FLUENT_BIT_EXE_WINDOWS).exists():
+            self.logger.error(f"Fluent Bit executable not found at: {FLUENT_BIT_EXE_WINDOWS}. Please verify the installation path.")
+            raise FileNotFoundError(f"Fluent Bit executable not found at {FLUENT_BIT_EXE_WINDOWS}")
 
         try:
             # Step 1: Check if the service exists
-            self.logger.debug(f"Checking if the '{service_name}' service exists...")
+            self.logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists...")
             result = subprocess.run(
-                ['sc.exe', 'query', service_name],
+                ['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
             )
-            service_exists = 'SERVICE_NAME: ' + service_name in result.stdout
+            service_exists = 'SERVICE_NAME: ' + FLUENT_BIT_SERVICE_NAME in result.stdout
 
             # Step 2: Create the service if it doesn't exist
             if not service_exists:
-                self.logger.debug(f"Service '{service_name}' not found. Creating the service...")
+                self.logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' not found. Creating the service...")
                 create_command = [
-                    'sc.exe', 'create', service_name,
-                    'binPath=', f'"{fluent_bit_path}"',
+                    'sc.exe', 'create', FLUENT_BIT_SERVICE_NAME,
+                    'binPath=', f'"{FLUENT_BIT_EXE_WINDOWS}" -c "{FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS}"',
                     'start=', 'auto',
                     'obj=', 'LocalSystem'
                 ]
                 self.logger.debug(f"Creating service with command: {' '.join(create_command)}")
                 subprocess.run(create_command, check=True)
-                self.logger.info(f"Service '{service_name}' created successfully.")
+                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' created successfully.")
             else:
-                self.logger.debug(f"Service '{service_name}' already exists.")
+                self.logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' already exists.")
 
             # Step 3: Ensure the service uses the LocalSystem account and auto-starts on boot
-            self.logger.debug(f"Configuring service '{service_name}' to start with LocalSystem and auto-start on boot...")
-            config_command = ['sc.exe', 'config', service_name, 'obj=', 'LocalSystem', 'start=', 'auto']
+            self.logger.debug(f"Configuring service '{FLUENT_BIT_SERVICE_NAME}' to start with LocalSystem and auto-start on boot...")
+            config_command = ['sc.exe', 'config', FLUENT_BIT_SERVICE_NAME, 'obj=', 'LocalSystem', 'start=', 'auto']
             subprocess.run(config_command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            self.logger.info(f"Service '{service_name}' configured successfully.")
+            self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' configured successfully.")
 
             # Step 4: Check the service status before attempting to start it
-            self.logger.debug(f"Checking the status of service '{service_name}' before starting...")
+            self.logger.debug(f"Checking the status of service '{FLUENT_BIT_SERVICE_NAME}' before starting...")
             query_result = subprocess.run(
-                ['sc.exe', 'query', service_name],
+                ['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
             )
 
             if "RUNNING" in query_result.stdout:
-                self.logger.info(f"Service '{service_name}' is already running. No need to start it.")
+                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' is already running. No need to start it.")
             else:
                 # Step 5: Start the service if not already running
-                self.logger.debug(f"Starting service '{service_name}'...")
+                self.logger.debug(f"Starting service '{FLUENT_BIT_SERVICE_NAME}'...")
                 start_result = subprocess.run(
-                    ['sc.exe', 'start', service_name],
+                    ['sc.exe', 'start', FLUENT_BIT_SERVICE_NAME],
                     check=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True
                 )
-                self.logger.info(f"Service '{service_name}' started successfully.")
+                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' started successfully.")
 
         except subprocess.CalledProcessError as e:
             # Log detailed output to help with troubleshooting
             if e.returncode == 1056:
-                self.logger.warning(f"Service '{service_name}' is already running. Skipping start.")
+                self.logger.warning(f"Service '{FLUENT_BIT_SERVICE_NAME}' is already running. Skipping start.")
             else:
                 self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
                 self.logger.error(f"stdout: {e.stdout.strip()}")

@@ -39,6 +39,7 @@ FLUENT_BIT_PARSER_TEMPLATE = "fluent-bit-parser-template.conf"
 # Parser config file name
 FLUENT_BIT_CONFIG_FILENAME = "fluent-bit.conf"
 FLUENT_BIT_PARSER_CONFIG_FILENAME = "fluent-bit-parsers.conf"
+FLUENT_BIT_SERVICE_NAME = 'fluent-bit'
 
 # Certificate paths and files
 CACERT_FILENAME = "cacert.crt"
@@ -47,11 +48,13 @@ FLUENT_BIT_CERTS_ZIP_TEMPLATE = "fluent-bit-certificates-{}.zip"
 # fluent-bit paths
 FLUENT_BIT_DIR_LINUX = "/etc/fluent-bit"
 FLUENT_BIT_DIR_MACOS = "/Library/Application Support/FluentBit"
-FLUENT_BIT_DIR_WINDOWS = r"C:\Program Files\fluent-bit"
+FLUENT_BIT_DIR_WINDOWS = "C:/Program Files/fluent-bit"
+FLUENT_BIT_EXE_WINDOWS = FLUENT_BIT_DIR_WINDOWS + "/bin/fluent-bit.exe"
 
 FLUENT_BIT_CONFIG_DIR_LINUX = "/etc/fluent-bit"
 FLUENT_BIT_CONFIG_DIR_MACOS = "/Library/Application Support/FluentBit"
-FLUENT_BIT_CONFIG_DIR_WINDOWS = r"C:\ProgramData\fluent-bit"
+FLUENT_BIT_CONFIG_DIR_WINDOWS = "C:/ProgramData/fluent-bit"
+FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS = FLUENT_BIT_CONFIG_DIR_WINDOWS + "/conf/fluent-bit.conf"
 
 FLUENT_BIT_SSL_DIR_LINUX = "/etc/fluent-bit/ssl"
 FLUENT_BIT_SSL_DIR_MACOS = "/Library/Application Support/FluentBit/ssl"
