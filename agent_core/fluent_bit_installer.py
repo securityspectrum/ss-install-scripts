@@ -420,6 +420,11 @@ class FluentBitInstaller:
 
     def stop_and_delete_windows_service(self):
 
+        os_system = platform.system().lower()
+        if os_system != 'windows':
+            self.logger.warning("The stop_and_delete_windows_service method is intended for Windows platforms.")
+            return
+
         SystemUtility.request_admin_access()
 
         try:

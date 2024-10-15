@@ -6,7 +6,7 @@ import requests
 
 from agent_core import SystemUtility
 from agent_core.constants import (SS_AGENT_REPO, DOWNLOAD_DIR_LINUX, DOWNLOAD_DIR_WINDOWS, DOWNLOAD_DIR_MACOS,
-                                  SS_AGENT_SERVICE_MACOS, SS_AGENT_SERVICE_NAME_WINDOWS, SS_AGENT_SERVICE_NAME,
+                                  SS_AGENT_SERVICE_MACOS, SS_AGENT_SERVICE_NAME,
                                   SS_AGENT_CONFIG_DIR_WINDOWS, SS_AGENT_CONFIG_DIR_MACOS, SS_AGENT_CONFIG_DIR_LINUX,
                                   SS_AGENT_SERVICE_LINUX, SS_AGENT_SERVICE_BINARY_WINDOWS, )
 import shutil
@@ -310,7 +310,7 @@ class SSAgentInstaller:
         Sets up a Windows service for the SS Agent.
         The service uses the 'ss-agent --debug start' command to start.
         """
-        service_name = SS_AGENT_SERVICE_NAME_WINDOWS
+        service_name = SS_AGENT_SERVICE_NAME
         if self.service_exists(service_name):
             self.logger.debug(f"Service {service_name} already exists. Skipping creation.")
         else:
@@ -319,7 +319,7 @@ class SSAgentInstaller:
 
             try:
                 # Install the service using sc.exe with the '--debug start' command
-                install_cmd = f'sc create {service_name} binPath= "{executable_path} --debug start" DisplayName= "{display_name}" start= auto'
+                install_cmd = f'sc create {service_name} binPath= "{executable_path} --debug start" start= auto'
                 self.logger.debug(f"Running command: {install_cmd}")
                 subprocess.run(install_cmd, shell=True, check=True)
                 self.logger.debug(f"Service {service_name} created successfully.")
@@ -340,18 +340,58 @@ class SSAgentInstaller:
                 self.logger.error(f"Failed to set up Windows service for SS Agent: {e}")
                 raise
 
+    def stop_and_delete_windows_service(self):
 
-    def stop_windows_service(self, service_name):
-        """
-        Stops a Windows service.
-        """
-        stop_cmd = f'sc stop {service_name}'
-        self.logger.debug(f"Stopping service: {stop_cmd}")
+        service_name = SS_AGENT_SERVICE_NAME
+
+        os_system = platform.system().lower()
+        if os_system != 'windows':
+            self.logger.warning("The stop_and_remove_zeek_service method is intended for Windows platforms.")
+            return
+
         try:
-            subprocess.run(stop_cmd, shell=True, check=True)
-            self.logger.debug(f"Service {service_name} stopped successfully.")
+            # Step 1: Check if the service exists
+            self.logger.debug(f"Checking if the '{service_name}' service exists before stopping and deleting...")
+            result = subprocess.run(['sc.exe', 'query', service_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True)
+            service_exists = 'SERVICE_NAME: ' + service_name in result.stdout
+
+            if not service_exists:
+                self.logger.warning(f"Service '{service_name}' not found. Nothing to stop or delete.")
+                return
+
+            # Step 2: Stop the service if it's running
+            self.logger.debug(f"Checking if the '{service_name}' service is running...")
+            if "RUNNING" in result.stdout:
+                self.logger.debug(f"Service '{service_name}' is running. Attempting to stop it...")
+                stop_command = ['sc.exe', 'stop', service_name]
+                stop_result = subprocess.run(stop_command,
+                                             check=True,
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE,
+                                             text=True)
+                self.logger.info(f"Service '{service_name}' stopped successfully.")
+            else:
+                self.logger.info(f"Service '{service_name}' is not running.")
+
+            # Step 3: Delete the service
+            self.logger.debug(f"Deleting service '{service_name}'...")
+            delete_command = ['sc.exe', 'delete', service_name]
+            delete_result = subprocess.run(delete_command,
+                                           check=True,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE,
+                                           text=True)
+            self.logger.info(f"Service '{service_name}' deleted successfully.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to stop the service {service_name}: {e}")
+            self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+            self.logger.error(f"stdout: {e.stdout.strip()}")
+            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            raise
+        except Exception as ex:
+            self.logger.error(f"An unexpected error occurred: {ex}")
             raise
 
     def stop_linux_service(self, service_name):
@@ -485,7 +525,7 @@ class SSAgentInstaller:
                 elif system == 'darwin':
                     self.stop_macos_service(SS_AGENT_SERVICE_NAME)
                 elif system == 'windows':
-                    self.stop_windows_service(SS_AGENT_SERVICE_NAME_WINDOWS)
+                    self.stop_and_delete_windows_service()
                 self.logger.info("Service stopped successfully.")
             except subprocess.CalledProcessError as e:
                 self.logger.error(f"Failed to stop service: {e}")
@@ -844,7 +884,7 @@ class SSAgentInstaller:
         elif system == 'darwin':
             self.stop_macos_service(SS_AGENT_SERVICE_MACOS)
         elif system == 'windows':
-            self.stop_windows_service(SS_AGENT_SERVICE_NAME_WINDOWS)
+            self.stop_windows_service(SS_AGENT_SERVICE_NAME)
         else:
             self.logger.error(f"Unsupported OS for stopping service: {system}")
             raise NotImplementedError(f"Unsupported OS: {system}")

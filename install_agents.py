@@ -151,6 +151,7 @@ def uninstall(args):
 
     ss_agent_installer = SSAgentInstaller()
     ss_agent_installer.stop_all_services_ss_agent()
+    ss_agent_installer.stop_and_delete_windows_service()
     ss_agent_installer.stop_ss_agent()
 
     fluent_bit_installer = FluentBitInstaller()
