@@ -54,7 +54,7 @@ def get_platform_specific_paths():
     os_name = platform.system().lower()
 
     if os_name == "windows":
-        return FLUENT_BIT_CONFIG_DIR_WINDOWS, SS_AGENT_CONFIG_DIR_WINDOWS, SS_AGENT_SSL_DIR_WINDOWS, ZEEK_LOG_PATH_WINDOWS
+        return FLUENT_BIT_DIR_WINDOWS, SS_AGENT_CONFIG_DIR_WINDOWS, SS_AGENT_SSL_DIR_WINDOWS, ZEEK_LOG_PATH_WINDOWS
     elif os_name == "linux":
         return FLUENT_BIT_CONFIG_DIR_LINUX, SS_AGENT_CONFIG_DIR_LINUX, SS_AGENT_SSL_DIR_LINUX, ZEEK_LOG_PATH_LINUX
     elif os_name == "darwin":
