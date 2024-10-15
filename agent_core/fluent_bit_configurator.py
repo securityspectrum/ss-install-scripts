@@ -12,8 +12,8 @@ import requests
 from agent_core.constants import FLUENT_BIT_CONFIG_DIR_LINUX, FLUENT_BIT_SSL_DIR_LINUX, FLUENT_BIT_CONFIG_FILENAME, \
     FLUENT_BIT_CONFIG_DIR_MACOS, FLUENT_BIT_SSL_DIR_MACOS, CONFIG_DIR_PATH, FLUENT_BIT_CONF_TEMPLATE, \
     FLUENT_BIT_PARSER_CONFIG_FILENAME, FLUENT_BIT_PARSER_TEMPLATE, CACERT_FILENAME, ZEEK_LOG_PATH_LINUX, \
-    ZEEK_LOG_PATH_MACOS, ZEEK_LOG_PATH_WINDOWS, FLUENT_BIT_SSL_DIR_WINDOWS, FLUENT_BIT_CONFIG_DIR_WINDOWS, \
-    SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS
+    ZEEK_LOG_PATH_MACOS, ZEEK_LOG_PATH_WINDOWS, FLUENT_BIT_SSL_DIR_WINDOWS, SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS, \
+    FLUENT_BIT_DIR_WINDOWS
 from agent_core.platform_context import PlatformContext
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class FluentBitConfigurator:
         elif system == "windows":
             self.zeek_log_path = SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS
             self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_WINDOWS) / organization_slug / "cacert.crt"
-            self.fluent_bit_config_path = Path(FLUENT_BIT_CONFIG_DIR_WINDOWS) / FLUENT_BIT_CONFIG_FILENAME
+            self.fluent_bit_config_path = Path(FLUENT_BIT_DIR_WINDOWS) / FLUENT_BIT_CONFIG_FILENAME
             self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_WINDOWS) / organization_slug
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")

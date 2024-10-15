@@ -52,8 +52,8 @@ FLUENT_BIT_EXE_WINDOWS = FLUENT_BIT_DIR_WINDOWS + "/bin/fluent-bit.exe"
 
 FLUENT_BIT_CONFIG_DIR_LINUX = "/etc/fluent-bit"
 FLUENT_BIT_CONFIG_DIR_MACOS = "/Library/Application Support/FluentBit"
-FLUENT_BIT_CONFIG_DIR_WINDOWS = "C:/ProgramData/fluent-bit"
-FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS = FLUENT_BIT_CONFIG_DIR_WINDOWS + "/fluent-bit.conf"
+FLUENT_BIT_PROGRAMDATA_DIR_WINDOWS = "C:/ProgramData/fluent-bit"
+FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS = FLUENT_BIT_DIR_WINDOWS + "/fluent-bit.conf"
 
 FLUENT_BIT_SSL_DIR_LINUX = "/etc/fluent-bit/ssl"
 FLUENT_BIT_SSL_DIR_MACOS = "/Library/Application Support/FluentBit/ssl"
