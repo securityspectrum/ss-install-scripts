@@ -3,4 +3,4 @@ pyjwt
 distro
 certifi
 charset-normalizer
-pywin32
+pywin32==307; platform_system == "Windows"

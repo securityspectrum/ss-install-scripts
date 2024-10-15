@@ -16,9 +16,15 @@ import time
 import os
 import platform
 import ctypes
-import win32security
-import win32con
-import win32api
+
+if platform.system() == 'Windows':
+    import win32security
+    import win32con
+    import win32api
+else:
+    # Imports or logic for Linux/MacOS can be added here if necessary
+    pass
+
 
 # Configure logging
 from agent_core import SystemUtility
@@ -51,10 +57,6 @@ class ZeekInstaller:
 
         if self.os_system == 'windows':
             try:
-                # Import Windows-specific modules
-                import win32security
-                import win32con
-                import win32api
                 self.win32security = win32security
                 self.win32con = win32con
                 self.win32api = win32api
