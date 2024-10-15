@@ -1560,8 +1560,8 @@ make install
         elif self.os_system == "linux":
             self.uninstall_zeek_linux()
         elif self.os_system == "windows":
-            self.uninstall_zeek_windows()
             self.stop_and_remove_zeek_service()
+            self.uninstall_zeek_windows()
         else:
             self.logger.error(f"Unsupported OS for Zeek uninstallation: {self.os_system}")
             sys.exit(1)

@@ -418,6 +418,56 @@ class FluentBitInstaller:
             self.logger.error(f"An unexpected error occurred: {ex}")
             raise
 
+    def stop_and_delete_windows_service(self):
+
+        SystemUtility.request_admin_access()
+
+        try:
+            # Step 1: Check if the service exists
+            self.logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists before stopping and deleting...")
+            result = subprocess.run(['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True)
+            service_exists = 'SERVICE_NAME: ' + FLUENT_BIT_SERVICE_NAME in result.stdout
+
+            if not service_exists:
+                self.logger.warning(f"Service '{FLUENT_BIT_SERVICE_NAME}' not found. Nothing to stop or delete.")
+                return
+
+            # Step 2: Stop the service if it's running
+            self.logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service is running...")
+            if "RUNNING" in result.stdout:
+                self.logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' is running. Attempting to stop it...")
+                stop_command = ['sc.exe', 'stop', FLUENT_BIT_SERVICE_NAME]
+                stop_result = subprocess.run(stop_command,
+                                             check=True,
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE,
+                                             text=True)
+                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' stopped successfully.")
+            else:
+                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' is not running.")
+
+            # Step 3: Delete the service
+            self.logger.debug(f"Deleting service '{FLUENT_BIT_SERVICE_NAME}'...")
+            delete_command = ['sc.exe', 'delete', FLUENT_BIT_SERVICE_NAME]
+            delete_result = subprocess.run(delete_command,
+                                           check=True,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE,
+                                           text=True)
+            self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' deleted successfully.")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+            self.logger.error(f"stdout: {e.stdout.strip()}")
+            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            raise
+        except Exception as ex:
+            self.logger.error(f"An unexpected error occurred: {ex}")
+            raise
+
     def verify_permissions(self, path):
         """
         Verifies that SYSTEM has full control over the provided path.
@@ -486,6 +536,7 @@ class FluentBitInstaller:
         elif system == "darwin":
             self.uninstall_macos()
         elif system == "windows":
+            self.stop_and_delete_windows_service()
             self.uninstall_windows()
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
