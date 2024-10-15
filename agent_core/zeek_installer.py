@@ -1799,7 +1799,6 @@ make install
                     create_command = [
                         'sc.exe', 'create', SS_NETWORK_ANALYZER_SERVICE_NAME,
                         'binPath=', f'"{SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS}" start= auto',
-                        'DisplayName=', 'Security Spectrum Network Analyzer',
                         'start=', 'auto'
                     ]
                     subprocess.run(create_command, check=True)
