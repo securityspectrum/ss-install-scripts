@@ -23,10 +23,9 @@ SS_AGENT_EXECUTABLE_PATH_WINDOWS = r"C:\Program Files\ss-agent\ss-agent.exe"
 
 SS_NETWORK_ANALYZER_EXECUTABLE_PATH_MACOS = "/usr/local/bin/ss-network-analyzer"
 SS_NETWORK_ANALYZER_EXECUTABLE_PATH_LINUX = "/usr/local/bin/ss-network-analyzer"
-SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS = r"C:\Program Files\ss-network-analyzer\ss-network-analyzer.exe"
+SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS = "C:/Program Files/ss-network-analyzer/bin/ss-network-analyzer.exe"
 
-
-ZEEK_EXECUTABLE_PATH_WINDOWS = r"C:\Program Files\Zeek\bin\zeek.exe"  # Desired installation path on Windows
+#SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS = r"C:\Program Files\Zeek\bin\zeek.exe"  # Desired installation path on Windows
 
 # Npcap dirctory
 NPCAP_PATH = "C:/Program Files/Npcap"
@@ -67,17 +66,19 @@ ZEEK_CONFIG_DIR_MACOS = "/Library/Application Support/ss-network-analyzer/config
 # Zeek log paths
 ZEEK_LOG_PATH_LINUX = "/opt/zeek/logs/current/*.log"
 ZEEK_LOG_PATH_MACOS = "/usr/local/opt/zeek/logs/current/*.log"
-ZEEK_LOG_PATH_WINDOWS = r"C:/ProgramData/zeek/logs/*.log"
+ZEEK_LOG_PATH_WINDOWS = "C:/ProgramData/zeek/logs/*.log"
+
+SS_NETWORK_ANALYZER_SERVICE_NAME = "ss-network-analyzer"
 
 # Network analyzer config paths
 SS_NETWORK_ANALYZER_CONFIG_DIR_LINUX = "/etc/ss-network-analyzer/config"
 SS_NETWORK_ANALYZER_CONFIG_DIR_MACOS = "/Library/Application Support/ss-network-analyzer/config"
-SS_NETWORK_ANALYZER_CONFIG_DIR_WINDOWS = r"C:\ProgramData\ss-network-analyzer\config"
+SS_NETWORK_ANALYZER_CONFIG_DIR_WINDOWS = "C:/ProgramData/ss-network-analyzer/config"
 
 # Network analyzer log paths
 SS_NETWORK_ANALYZER_LOG_PATH_LINUX = "/var/log/ss-network-analyzer/*.log"
 SS_NETWORK_ANALYZER_LOG_PATH_MACOS = "/usr/local/var/log/ss-network-analyzer/*.log"
-SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS = r"C:\ProgramData\ss-network-analyzer\logs\*.log"
+SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS = "C:/ProgramData/ss-network-analyzer/logs/*.log"
 
 # Network analyzer config file name
 NETWORK_ANALYZER_CONFIG_FILENAME = "network-analyzer.conf"

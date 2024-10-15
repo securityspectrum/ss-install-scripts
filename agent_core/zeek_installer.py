@@ -22,7 +22,8 @@ import win32api
 
 # Configure logging
 from agent_core import SystemUtility
-from agent_core.constants import ZEEK_EXECUTABLE_PATH_WINDOWS, SS_NETWORK_ANALYZER_REPO
+from agent_core.constants import SS_NETWORK_ANALYZER_REPO, SS_NETWORK_ANALYZER_SERVICE_NAME, \
+    SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS
 from agent_core.network_analyzer_installer import SS_NETWORK_ANALYZER_ASSET_PATTERNS
 
 
@@ -675,19 +676,18 @@ class ZeekInstaller:
         # Add Zeek to the system PATH
         self.add_zeek_to_path()
 
-
-    def install_zeek_windows(self):
+    def install_ss_network_analyzer_windows(self):
         """
         Installs Zeek on Windows.
         """
-        self.logger.debug("Starting Zeek installation on Windows...")
+        self.logger.debug(f"Starting {SS_NETWORK_ANALYZER_SERVICE_NAME} installation on Windows...")
 
         # Get the latest release URL
         try:
-            self.logger.debug("Fetching latest Zeek release information...")
+            self.logger.debug(f"Fetching latest {SS_NETWORK_ANALYZER_SERVICE_NAME} release information...")
             release_info = self.get_latest_release_info(SS_NETWORK_ANALYZER_REPO)
         except Exception as e:
-            self.logger.error(f"Failed to fetch latest Zeek release info: {e}")
+            self.logger.error(f"Failed to fetch latest {SS_NETWORK_ANALYZER_SERVICE_NAME} release info: {e}")
             sys.exit(1)
 
         # Categorize assets
@@ -695,7 +695,7 @@ class ZeekInstaller:
         selected_assets = self.select_asset(categorized_assets)
 
         if not selected_assets:
-            self.logger.error("No suitable Zeek Windows asset found for installation.")
+            self.logger.error(f"No suitable {SS_NETWORK_ANALYZER_SERVICE_NAME} Windows asset found for installation.")
             sys.exit(1)
 
         asset_name, download_url = selected_assets[0]  # Get the first matching asset
@@ -705,10 +705,10 @@ class ZeekInstaller:
         if operating_system == "windows":
             tmp_path = Path(r"C:\Temp") / asset_name
             tmp_path.parent.mkdir(parents=True, exist_ok=True)
-            final_path = Path(ZEEK_EXECUTABLE_PATH_WINDOWS)
+            final_path = Path(SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS)
             final_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
         else:
-            self.logger.error(f"install_zeek_windows called on unsupported OS: {platform.system()}")
+            self.logger.error(f"install_ss_network_analyzer_windows called on unsupported OS: {platform.system()}")
             sys.exit(1)
 
         self.logger.info(f"Downloading {asset_name} from {download_url}...")
@@ -717,7 +717,7 @@ class ZeekInstaller:
         self.logger.info(f"Installing {asset_name}...")
         self.run_installation_command(tmp_path, final_path)
 
-        self.logger.info("Zeek installation on Windows complete.")
+        self.logger.info(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} installation on Windows complete.")
 
     def download_binary(self, download_url, dest_path):
         """
@@ -1219,7 +1219,7 @@ make install
 
         # Detect network interface based on the platform
         try:
-            if platform.system() == 'Darwin':
+            if platform.system().lower() == 'darwin':
                 # macOS uses 'route' to detect the default network interface
                 route_output = self.run_command(['route', 'get', 'default'], capture_output=True)
                 interface = None
@@ -1271,7 +1271,7 @@ make install
 
         self.logger.debug(f"Using zeekctl at: {zeekctl_path}")
 
-        if platform.system() == 'Darwin':
+        if platform.system().lower() == 'darwin':
             logs_dir = os.path.join(zeek_install_dir, 'logs')
             spool_dir = os.path.join(zeek_install_dir, 'spool', 'zeek')
             Path(logs_dir).mkdir(parents=True, exist_ok=True)
@@ -1531,7 +1531,7 @@ make install
                 self.logger.error(f"Unsupported Linux distribution: {self.os_id}")
                 sys.exit(1)
         elif self.os_system == 'windows':
-            self.install_zeek_windows()
+            self.install_ss_network_analyzer_windows()
         else:
             self.logger.error("Unsupported operating system.")
             sys.exit(1)
@@ -1561,6 +1561,7 @@ make install
             self.uninstall_zeek_linux()
         elif self.os_system == "windows":
             self.uninstall_zeek_windows()
+            self.stop_and_remove_zeek_service()
         else:
             self.logger.error(f"Unsupported OS for Zeek uninstallation: {self.os_system}")
             sys.exit(1)
@@ -1634,15 +1635,15 @@ make install
         """
         Uninstalls Zeek on Windows by removing the Zeek executable and updating PATH.
         """
-        self.logger.info("Starting Zeek uninstallation on Windows...")
-        zeek_executable_path = Path(ZEEK_EXECUTABLE_PATH_WINDOWS)  # Adjust this path accordingly
+        self.logger.info(f"Starting {SS_NETWORK_ANALYZER_SERVICE_NAME} uninstallation on Windows...")
+        zeek_executable_path = Path(SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS)  # Adjust this path accordingly
         try:
             if zeek_executable_path.exists():
-                self.logger.debug(f"Removing Zeek executable at {zeek_executable_path}...")
+                self.logger.debug(f"Removing {SS_NETWORK_ANALYZER_SERVICE_NAME} executable at {zeek_executable_path}...")
                 zeek_executable_path.unlink()
-                self.logger.debug("Zeek executable removed.")
+                self.logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} executable removed.")
             else:
-                self.logger.debug("Zeek executable not found; skipping removal.")
+                self.logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} executable not found; skipping removal.")
 
             # Remove Zeek bin directory from PATH
             zeek_bin_dir = zeek_executable_path.parent
@@ -1658,7 +1659,7 @@ make install
         Removes the Zeek binary directory from the Windows PATH environment variable.
         """
         try:
-            self.logger.debug("Removing Zeek from Windows PATH...")
+            self.logger.debug(f"Removing {SS_NETWORK_ANALYZER_SERVICE_NAME} from Windows PATH...")
             # Get current PATH from the system
             current_path = os.environ.get('PATH', '')
             zeek_bin_dir_str = str(zeek_bin_dir)
@@ -1671,12 +1672,63 @@ make install
                 subprocess.run(['setx', 'PATH', new_path], check=True)
                 self.logger.debug(f"Removed {zeek_bin_dir_str} from PATH.")
             else:
-                self.logger.debug("Zeek binary directory is not in PATH.")
+                self.logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} binary directory is not in PATH.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to remove Zeek from PATH: {e}")
+            self.logger.error(f"Failed to remove {SS_NETWORK_ANALYZER_SERVICE_NAME} from PATH: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"Unexpected error while removing Zeek from PATH: {e}")
+            self.logger.error(f"Unexpected error while removing {SS_NETWORK_ANALYZER_SERVICE_NAME} from PATH: {e}")
+            raise
+
+    def stop_and_remove_zeek_service(self):
+        """
+        Stops and removes the Zeek service on Windows.
+        """
+        os_system = platform.system().lower()
+        if os_system != 'windows':
+            self.logger.warning("The stop_and_remove_zeek_service method is intended for Windows platforms.")
+            return
+
+        try:
+            # Check if the service exists
+            self.logger.debug(f"Checking if the '{SS_NETWORK_ANALYZER_SERVICE_NAME}' service exists...")
+            result = subprocess.run(['sc.exe', 'query', SS_NETWORK_ANALYZER_SERVICE_NAME], capture_output=True, text=True)
+            service_exists = f"SERVICE_NAME: {SS_NETWORK_ANALYZER_SERVICE_NAME}" in result.stdout
+
+            if service_exists:
+                # Stop the service if it's running
+                self.logger.debug(f"Attempting to stop the '{SS_NETWORK_ANALYZER_SERVICE_NAME}' service...")
+                stop_result = subprocess.run(['sc.exe', 'stop', SS_NETWORK_ANALYZER_SERVICE_NAME], capture_output=True, text=True)
+                if "FAILED" in stop_result.stdout or "FAILED" in stop_result.stderr:
+                    self.logger.warning(f"Failed to stop service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'. It might not be running.")
+                    self.logger.debug(f"stop_result stdout: {stop_result.stdout.strip()}")
+                    self.logger.debug(f"stop_result stderr: {stop_result.stderr.strip()}")
+                else:
+                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' stopped successfully.")
+                    # Wait for the service to stop completely
+                    time.sleep(2)
+
+                # Delete the service
+                self.logger.debug(f"Deleting service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'...")
+                delete_result = subprocess.run(['sc.exe', 'delete', SS_NETWORK_ANALYZER_SERVICE_NAME],
+                                               check=True,
+                                               capture_output=True,
+                                               text=True)
+                if "SUCCESS" in delete_result.stdout:
+                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' deleted successfully.")
+                else:
+                    self.logger.warning(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' deletion output: {delete_result.stdout.strip()}")
+            else:
+                self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' does not exist. No need to stop or delete.")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+            self.logger.error(f"stdout: {e.stdout.strip()}")
+            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            raise
+
+        except Exception as ex:
+            self.logger.error(f"An unexpected error occurred while stopping and deleting the service: {ex}")
             raise
 
     def run_installation_command(self, dest_path, final_path):
@@ -1726,51 +1778,50 @@ make install
         Configures and starts the Zeek service based on the operating system.
         Only executes on Windows platforms.
         """
-        service_name = "zeek"
         os_system = platform.system().lower()
         if os_system == 'windows':
             SystemUtility.request_admin_access()  # Assumes a method to elevate privileges if not already admin
 
             # Verify that the Zeek executable exists
-            if not Path(ZEEK_EXECUTABLE_PATH_WINDOWS).exists():
-                self.logger.error(f"Zeek executable not found at: {ZEEK_EXECUTABLE_PATH_WINDOWS}. Please verify the installation path.")
-                raise FileNotFoundError(f"Zeek executable not found at {ZEEK_EXECUTABLE_PATH_WINDOWS}")
+            if not Path(SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS).exists():
+                self.logger.error(f"Zeek executable not found at: {SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS}. Please verify the installation path.")
+                raise FileNotFoundError(f"Zeek executable not found at {SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS}")
 
             try:
                 # Check if the service exists
-                self.logger.debug(f"Checking if the '{service_name}' service exists...")
-                result = subprocess.run(['sc.exe', 'query', service_name], capture_output=True, text=True)
-                service_exists = f'SERVICE_NAME: {service_name}' in result.stdout
+                self.logger.debug(f"Checking if the '{SS_NETWORK_ANALYZER_SERVICE_NAME}' service exists...")
+                result = subprocess.run(['sc.exe', 'query', SS_NETWORK_ANALYZER_SERVICE_NAME], capture_output=True, text=True)
+                service_exists = f'SERVICE_NAME: {SS_NETWORK_ANALYZER_SERVICE_NAME}' in result.stdout
 
                 # Create the service if it doesn't exist
                 if not service_exists:
-                    self.logger.debug(f"Service '{service_name}' not found. Creating the service...")
+                    self.logger.debug(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' not found. Creating the service...")
                     create_command = [
-                        'sc.exe', 'create', service_name,
-                        'binPath=', f'"{ZEEK_EXECUTABLE_PATH_WINDOWS}" start= auto',
-                        'DisplayName=', '"Zeek Network Security Monitor"',
+                        'sc.exe', 'create', SS_NETWORK_ANALYZER_SERVICE_NAME,
+                        'binPath=', f'"{SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS}" start= auto',
+                        'DisplayName=', 'Security Spectrum Network Analyzer',
                         'start=', 'auto'
                     ]
                     subprocess.run(create_command, check=True)
-                    self.logger.info(f"Service '{service_name}' created successfully.")
+                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' created successfully.")
 
                 # Configure the service
-                self.logger.debug(f"Configuring service '{service_name}' to use LocalSystem and auto-start on boot...")
-                config_command = ['sc.exe', 'config', service_name, 'obj=', 'LocalSystem', 'start=', 'auto']
+                self.logger.debug(f"Configuring service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' to use LocalSystem and auto-start on boot...")
+                config_command = ['sc.exe', 'config', SS_NETWORK_ANALYZER_SERVICE_NAME, 'obj=', 'LocalSystem', 'start=', 'auto']
                 subprocess.run(config_command, check=True, capture_output=True, text=True)
-                self.logger.info(f"Service '{service_name}' configured successfully.")
+                self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' configured successfully.")
 
                 # Check the service status before starting
-                self.logger.debug(f"Checking the status of service '{service_name}'...")
-                query_result = subprocess.run(['sc.exe', 'query', service_name], capture_output=True, text=True)
+                self.logger.debug(f"Checking the status of service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'...")
+                query_result = subprocess.run(['sc.exe', 'query', SS_NETWORK_ANALYZER_SERVICE_NAME], capture_output=True, text=True)
 
                 if "RUNNING" in query_result.stdout:
-                    self.logger.info(f"Service '{service_name}' is already running. No need to start.")
+                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' is already running. No need to start.")
                 else:
                     # Start the service if not running
-                    self.logger.debug(f"Starting service '{service_name}'...")
-                    start_result = subprocess.run(['sc.exe', 'start', service_name], check=True, capture_output=True, text=True)
-                    self.logger.info(f"Service '{service_name}' started successfully.")
+                    self.logger.debug(f"Starting service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'...")
+                    start_result = subprocess.run(['sc.exe', 'start', SS_NETWORK_ANALYZER_SERVICE_NAME], check=True, capture_output=True, text=True)
+                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' started successfully.")
 
             except subprocess.CalledProcessError as e:
                 self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
