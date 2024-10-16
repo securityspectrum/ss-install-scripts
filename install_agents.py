@@ -110,12 +110,12 @@ def install(args):
             npcap_installer = NpcapInstaller(download_url=npcap_url)
             npcap_installer.install_npcap()
 
-        fluent_bit_configurator = FluentBitConfigurator(API_URL_DOMAIN, fluent_bit_config_dir, ss_agent_ssl_dir, organization_slug)
-        fluent_bit_configurator.configure_fluent_bit(api_url, secrets, organization_slug)
-
         fluent_bit_installer = FluentBitInstaller()
         fluent_bit_installer.install()
         fluent_bit_installer.enable_and_start()
+
+        fluent_bit_configurator = FluentBitConfigurator(API_URL_DOMAIN, fluent_bit_config_dir, ss_agent_ssl_dir, organization_slug)
+        fluent_bit_configurator.configure_fluent_bit(api_url, secrets, organization_slug)
 
         ss_agent_configurator = SSAgentConfigurator(API_URL_DOMAIN, ss_agent_config_dir, ss_agent_ssl_dir)
         ss_agent_configurator.configure_ss_agent(secrets, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
