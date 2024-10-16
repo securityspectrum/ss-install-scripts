@@ -44,11 +44,15 @@ FLUENT_BIT_SERVICE_NAME = 'fluent-bit'
 CACERT_FILENAME = "cacert.crt"
 FLUENT_BIT_CERTS_ZIP_TEMPLATE = "fluent-bit-certificates-{}.zip"
 
+MACOS_LAUNCHD_SERVICE_PATH = "/Library/LaunchDaemons"
+
 # fluent-bit paths
 FLUENT_BIT_DIR_LINUX = "/etc/fluent-bit"
 FLUENT_BIT_DIR_MACOS = "/Library/Application Support/FluentBit"
 FLUENT_BIT_DIR_WINDOWS = "C:/Program Files/fluent-bit"
 FLUENT_BIT_EXE_WINDOWS = FLUENT_BIT_DIR_WINDOWS + "/bin/fluent-bit.exe"
+
+FLUENT_BIT_SERVICE_MACOS = MACOS_LAUNCHD_SERVICE_PATH + "/fluent-bit.plist"
 
 FLUENT_BIT_CONFIG_DIR_LINUX = "/etc/fluent-bit"
 FLUENT_BIT_CONFIG_DIR_MACOS = "/opt/fluent-bit/etc/fluent-bit"
