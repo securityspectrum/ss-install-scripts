@@ -634,26 +634,17 @@ class SSAgentInstaller:
             # Step 3: Remove installed files and directories
             installed_paths = [
                 SS_AGENT_EXECUTABLE_PATH_MACOS,
-                SS_AGENT_SERVICE_MACOS
+                SS_AGENT_SERVICE_MACOS,
+                SS_AGENT_CONFIG_DIR_MACOS,
             ]
 
             for path_str in installed_paths:
                 path = Path(path_str)
                 if path.exists():
-                    if path.is_file() or path.is_symlink():
-                        try:
-                            path.unlink()
-                            self.logger.debug(f"Removed file: {path}")
-                        except Exception as e:
-                            self.logger.error(f"Failed to remove file {path}: {e}")
-                    elif path.is_dir():
-                        try:
-                            shutil.rmtree(path)
-                            self.logger.debug(f"Removed directory: {path}")
-                        except Exception as e:
-                            self.logger.error(f"Failed to remove directory {path}: {e}")
+                    self.remove_file(path)
                 else:
                     self.logger.debug(f"Path does not exist, skipping: {path}")
+
 
             self.logger.debug("SS Agent has been successfully uninstalled from macOS.")
         except subprocess.CalledProcessError as e:
@@ -662,6 +653,28 @@ class SSAgentInstaller:
         except Exception as e:
             self.logger.error(f"An unexpected error occurred during SS Agent uninstallation on macOS: {e}")
             raise
+
+
+    def remove_file(self, path):
+        """
+        Remove a file or directory using sudo.
+
+        :param path: Path object representing the file or directory to remove.
+        """
+        try:
+            if path.is_dir():
+                subprocess.run(["sudo", "rm", "-rf", str(path)], check=True)
+                self.logger.debug(f"Removed directory: {path}")
+            else:
+                subprocess.run(["sudo", "rm", "-f", str(path)], check=True)
+                self.logger.debug(f"Removed file: {path}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to remove {path}: {e}")
+            # Continue execution without halting the script
+        except Exception as e:
+            self.logger.error(f"An unexpected error occurred while removing {path}: {e}")
+            # Continue execution without halting the script
+
 
     def uninstall_windows(self):
         """
