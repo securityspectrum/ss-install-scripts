@@ -16,6 +16,7 @@ import time
 import os
 import platform
 import ctypes
+import re
 
 if platform.system() == 'Windows':
     import win32security
@@ -1570,15 +1571,187 @@ make install
 
     def uninstall_zeek_macos(self):
         """
-        Uninstall Zeek on macOS using Homebrew.
+        Uninstall Zeek on macOS using Homebrew. If Homebrew fails, attempt manual removal.
         """
-        self.logger.debug("Attempting to uninstall Zeek on macOS using Homebrew...")
+        self.logger.debug("Starting Zeek uninstallation process on macOS.")
+
         try:
-            subprocess.run(["brew", "uninstall", "zeek"], check=True)
-            self.logger.debug("Zeek has been successfully uninstalled on macOS.")
+            # Step 1: Uninstall Zeek via Homebrew
+            self.uninstall_zeek_via_brew()
+
+            # If uninstallation via Homebrew succeeds, exit successfully
+            self.logger.info("Zeek uninstallation via Homebrew completed successfully.")
+            return
+
+        except RuntimeError as e:
+            self.logger.error(f"{e}")
+            self.logger.info("Attempting manual removal of Zeek...")
+            try:
+                # Step 2: Manual removal
+                self.handle_manual_removal_macos(e)
+            except RuntimeError as manual_e:
+                self.logger.error(f"{manual_e}")
+                raise RuntimeError("Zeek uninstallation failed. Manual intervention may be required.") from manual_e
+
+    def uninstall_zeek_via_brew(self):
+        """
+        Attempt to uninstall Zeek using Homebrew.
+        """
+        self.logger.debug("Attempting to uninstall Zeek via Homebrew...")
+        try:
+            result = subprocess.run(
+                ["brew", "uninstall", "zeek"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            self.logger.info("Zeek has been successfully uninstalled via Homebrew.")
+            self.logger.debug(f"Homebrew output: {result.stdout.strip()}")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall Zeek on macOS: {e}")
-            raise
+            self.logger.error("Failed to uninstall Zeek via Homebrew.")
+            self.logger.debug(f"Homebrew stderr: {e.stderr.strip()}")
+            # Check if the error is due to Zeek not being installed
+            if "No such keg" in e.stderr:
+                self.logger.info("Zeek is not installed via Homebrew. No further action required.")
+                raise RuntimeError("Zeek is not installed via Homebrew.") from e
+            else:
+                # Raise exception for other errors to attempt manual removal
+                raise RuntimeError(e.stderr.strip()) from e
+
+    def handle_manual_removal_macos(self, brew_error):
+        """
+        Handle manual removal of Zeek if Homebrew uninstallation fails.
+
+        :param brew_error: The RuntimeError raised from brew uninstallation.
+        """
+        error_message = brew_error.args[0]
+        self.logger.debug(f"Handling manual removal with error message: {error_message}")
+
+        # Attempt to get the installation prefix using brew
+        zeek_prefix = self._get_brew_prefix()
+        if zeek_prefix:
+            zeek_path = Path(zeek_prefix).resolve()
+            self.logger.info(f"Manual removal of Zeek directory is required: {zeek_path}")
+            self.logger.debug(f"Attempting to remove Zeek directory manually: {zeek_path}")
+
+            # Check if the path exists before attempting validation
+            if zeek_path.exists():
+                # Validate the path to ensure safety
+                if self._is_valid_zeek_path_macos(zeek_path):
+                    self.logger.debug(f"Validated Zeek directory path: {zeek_path}")
+
+                    # Attempt to remove the directory using sudo rm -rf
+                    removal_success = self._remove_directory_with_sudo(zeek_path)
+                    if removal_success:
+                        self.logger.info("Zeek directory has been successfully removed manually.")
+                        return
+                    else:
+                        # If removal failed, instruct the user to remove it manually
+                        self.logger.warning(
+                            f"Failed to remove Zeek directory: {zeek_path}. "
+                            "You may need to remove it manually with elevated permissions."
+                        )
+                        self.logger.debug(f"Manual removal command: sudo rm -rf {zeek_path}")
+                        raise RuntimeError(
+                            f"Manual removal of Zeek directory failed. "
+                            f"Please run: sudo rm -rf {zeek_path}"
+                        )
+                else:
+                    self.logger.error(
+                        f"The extracted path does not appear to be a valid Zeek installation directory: {zeek_path}"
+                    )
+                    raise RuntimeError(
+                        "Uninstallation failed due to invalid manual removal path. "
+                        "Please verify the Zeek installation directory."
+                    )
+            else:
+                self.logger.info(f"Zeek directory does not exist: {zeek_path}. No manual removal needed.")
+                return
+        else:
+            # If brew_prefix is not found, assume Zeek is not installed via Homebrew
+            self.logger.info("No Zeek installation found via Homebrew. No manual removal needed.")
+            return
+
+
+    def _get_brew_prefix(self):
+        """
+        Get the installation prefix of Zeek via brew.
+
+        :return: The prefix path as a string, or None if not found.
+        """
+        try:
+            result = subprocess.run(
+                ["brew", "--prefix", "zeek"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            zeek_prefix = result.stdout.strip()
+            if zeek_prefix:
+                self.logger.debug(f"Zeek is installed via Homebrew at: {zeek_prefix}")
+                return zeek_prefix
+        except subprocess.CalledProcessError as e:
+            self.logger.debug(f"brew --prefix zeek failed: {e.stderr.strip()}")
+        return None
+
+    def _is_valid_zeek_path_macos(self, path):
+        """
+        Validate that the path is the expected Zeek installation directory.
+
+        :param path: Path object representing the directory to validate.
+        :return: True if valid, False otherwise.
+        """
+        # Define the expected base directory (Homebrew Cellar)
+        expected_base = Path("/usr/local/Cellar/zeek")
+        is_valid = expected_base in path.parents and path.exists()
+        self.logger.debug(f"Validating Zeek path: {path} - Valid: {is_valid}")
+        return is_valid
+
+    def _remove_directory_with_sudo(self, path):
+        """
+        Attempt to remove the specified directory using 'sudo rm -rf'.
+
+        :param path: Path object representing the directory to remove.
+        :return: True if removal was successful, False otherwise.
+        """
+        try:
+            self.logger.debug(f"Attempting to remove directory with sudo: {path}")
+            # Construct the sudo rm -rf command
+            remove_command = ["sudo", "rm", "-rf", str(path)]
+            self.logger.debug(f"Running command: {' '.join(remove_command)}")
+            subprocess.run(remove_command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.logger.debug(f"Directory {path} removed successfully with sudo.")
+            return True
+        except subprocess.CalledProcessError as rm_error:
+            self.logger.error(f"Failed to remove Zeek directory with sudo: {rm_error.stderr.strip()}")
+            return False
+        except Exception as ex:
+            self.logger.error(f"Unexpected error while removing directory with sudo: {ex}")
+            return False
+
+    def get_macos_package_id(self):
+        """
+        Retrieves the Zeek package identifier using pkgutil.
+        Assumes the package ID contains 'zeek'.
+        """
+        try:
+            result = subprocess.run(
+                ["pkgutil", "--pkgs"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True
+            )
+            packages = result.stdout.splitlines()
+            for pkg in packages:
+                if "zeek" in pkg.lower():
+                    self.logger.debug(f"Identified Zeek package ID: {pkg}")
+                    return pkg
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to list packages with pkgutil: {e.stderr.strip()}")
+        return None
 
     def uninstall_zeek_linux(self):
         """
