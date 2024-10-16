@@ -1,15 +1,15 @@
 import os
 import platform
 import shutil
-
+import sys
 import requests
 import logging
 import subprocess
 from pathlib import Path
 
 from agent_core import SystemUtility
-from agent_core.constants import (FLUENT_BIT_REPO, FLUENT_BIT_ASSET_PATTERNS,
-                                  FLUENT_BIT_SERVICE_NAME, FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS, FLUENT_BIT_EXE_WINDOWS)
+from agent_core.constants import (FLUENT_BIT_REPO, FLUENT_BIT_ASSET_PATTERNS, FLUENT_BIT_SERVICE_NAME,
+                                  FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS, FLUENT_BIT_EXE_WINDOWS, FLUENT_BIT_SERVICE_MACOS)
 
 import os
 import tempfile
@@ -285,7 +285,7 @@ class FluentBitInstaller:
             self.logger.debug("Enabling Fluent Bit service to start automatically on boot...")
 
             # Enable Fluent Bit on boot
-            result = subprocess.run(['sudo', 'systemctl', 'enable', 'fluent-bit'],
+            result = subprocess.run(['sudo', 'systemctl', 'enable', FLUENT_BIT_SERVICE_NAME],
                                     check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.logger.debug(f"Enable command output: {result.stdout.strip()}")
             self.logger.debug(f"Fluent Bit service enabled successfully.")
@@ -294,7 +294,7 @@ class FluentBitInstaller:
             self.logger.debug("Starting Fluent Bit service...")
 
             # Start Fluent Bit service
-            result = subprocess.run(['sudo', 'systemctl', 'start', 'fluent-bit'],
+            result = subprocess.run(['sudo', 'systemctl', 'start', FLUENT_BIT_SERVICE_NAME],
                                     check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.logger.debug(f"Start command output: {result.stdout.strip()}")
             self.logger.debug("Fluent Bit service started successfully.")
@@ -316,7 +316,7 @@ class FluentBitInstaller:
             self.logger.debug("Loading Fluent Bit service plist...")
 
             # Load the Fluent Bit service plist
-            result = subprocess.run(['sudo', 'launchctl', 'load', '/Library/LaunchDaemons/fluent-bit.plist'],
+            result = subprocess.run(['sudo', 'launchctl', 'load', FLUENT_BIT_SERVICE_MACOS],
                                     check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.logger.debug(f"Load command output: {result.stdout.strip()}")
             self.logger.debug("Fluent Bit service loaded successfully.")
@@ -597,62 +597,147 @@ class FluentBitInstaller:
         self.logger.debug(f"Fluent Bit has been successfully uninstalled using rpm/dpkg.")
 
     def uninstall_macos(self):
-        self.logger.debug("Attempting to uninstall Fluent Bit on macOS...")
+        """
+        Uninstall Fluent Bit from macOS.
+        """
+        self.logger.debug("Starting Fluent Bit uninstallation process on macOS.")
+
         try:
-            # Step 1: Remove the package receipt using pkgutil
-            package_id = self.get_macos_package_id()
-            if package_id:
-                self.logger.debug(f"Found Fluent Bit package ID: {package_id}. Removing package receipt...")
-                subprocess.run(["sudo", "pkgutil", "--forget", package_id], check=True)
-                self.logger.debug("Package receipt removed.")
-            else:
-                self.logger.warning("Fluent Bit package ID not found. Skipping pkgutil --forget step.")
+            # Step 1: Unload LaunchDaemon
+            self.unload_launchdaemon()
 
-            # Step 2: Remove installed files and directories
-            installed_paths = [
-                "/opt/fluent-bit/bin/fluent-bit",
-                "/opt/fluent-bit",
-                "/usr/local/bin/fluent-bit",
-                "/usr/local/etc/fluent-bit",
-                "/usr/local/var/log/fluent-bit",
-                "/usr/local/opt/fluent-bit",
-                "/Library/LaunchDaemons/fluent-bit.plist",
-            ]
+            # Step 2: Remove LaunchDaemon plist
+            self.remove_launchdaemon_plist()
 
-            for path_str in installed_paths:
-                path = Path(path_str)
-                if path.exists():
-                    if path.is_file() or path.is_symlink():
-                        try:
-                            path.unlink()
-                            self.logger.debug(f"Removed file: {path}")
-                        except Exception as e:
-                            self.logger.error(f"Failed to remove file {path}: {e}")
-                    elif path.is_dir():
-                        try:
-                            shutil.rmtree(path)
-                            self.logger.debug(f"Removed directory: {path}")
-                        except Exception as e:
-                            self.logger.error(f"Failed to remove directory {path}: {e}")
-                else:
-                    self.logger.debug(f"Path does not exist, skipping: {path}")
+            # Step 3: Remove installed files and directories
+            self.remove_installed_paths()
 
-            # Step 3: Unload and remove LaunchDaemon if exists
-            launch_daemon = "/Library/LaunchDaemons/fluent-bit.plist"
-            if Path(launch_daemon).exists():
-                try:
-                    subprocess.run(["sudo", "launchctl", "unload", launch_daemon], check=True)
-                    self.logger.debug(f"Unloaded LaunchDaemon: {launch_daemon}")
-                except subprocess.CalledProcessError as e:
-                    self.logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e}")
+            # Step 4: Remove package receipt
+            self.forget_package_receipt()
 
-            self.logger.debug("Fluent Bit has been successfully uninstalled from macOS.")
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall Fluent Bit on macOS: {e}")
-            raise
+            self.logger.info("Fluent Bit has been successfully uninstalled from macOS.")
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred during Fluent Bit uninstallation on macOS: {e}")
-            raise
+            self.logger.error(f"Fluent Bit uninstallation failed: {e}")
+            raise RuntimeError("Fluent Bit uninstallation failed. Manual intervention may be required.") from e
+
+    def unload_launchdaemon(self):
+        """
+        Unload the Fluent Bit LaunchDaemon if it exists.
+        """
+        launch_daemon = FLUENT_BIT_SERVICE_MACOS
+        if Path(launch_daemon).exists():
+            try:
+                self.logger.debug(f"Attempting to unload LaunchDaemon: {launch_daemon}")
+                result = subprocess.run(
+                    ["sudo", "launchctl", "unload", launch_daemon],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                self.logger.debug(f"Unload command output: {result.stdout.strip()}")
+                self.logger.info(f"Unloaded LaunchDaemon: {launch_daemon}")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e.stderr.strip()}")
+                raise RuntimeError(f"Failed to unload LaunchDaemon {launch_daemon}: {e.stderr.strip()}") from e
+        else:
+            self.logger.debug(f"LaunchDaemon plist does not exist, skipping: {launch_daemon}")
+
+    def remove_launchdaemon_plist(self):
+        """
+        Remove the Fluent Bit LaunchDaemon plist file.
+        """
+        launch_daemon = FLUENT_BIT_SERVICE_MACOS
+        path = Path(launch_daemon)
+        if path.exists():
+            try:
+                self.logger.debug(f"Attempting to remove LaunchDaemon plist: {launch_daemon}")
+                result = subprocess.run(
+                    ["sudo", "rm", "-f", launch_daemon],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                self.logger.debug(f"Remove command output: {result.stdout.strip()}")
+                self.logger.info(f"Removed LaunchDaemon plist: {launch_daemon}")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Failed to remove plist {launch_daemon}: {e.stderr.strip()}")
+                raise RuntimeError(f"Failed to remove plist {launch_daemon}: {e.stderr.strip()}") from e
+        else:
+            self.logger.debug(f"LaunchDaemon plist does not exist, skipping: {launch_daemon}")
+
+    def remove_installed_paths(self):
+        """
+        Remove Fluent Bit installed files and directories.
+        """
+        installed_paths = [
+            "/opt/fluent-bit/bin/fluent-bit",
+            "/opt/fluent-bit",
+            "/usr/local/bin/fluent-bit",
+            "/usr/local/etc/fluent-bit",
+            "/usr/local/var/log/fluent-bit",
+            "/usr/local/opt/fluent-bit",
+        ]
+
+        for path_str in installed_paths:
+            path = Path(path_str)
+            if path.exists():
+                if path.is_file() or path.is_symlink():
+                    try:
+                        self.logger.debug(f"Attempting to remove file: {path}")
+                        result = subprocess.run(
+                            ["sudo", "rm", "-f", path_str],
+                            check=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True
+                        )
+                        self.logger.debug(f"Remove file command output: {result.stdout.strip()}")
+                        self.logger.info(f"Removed file: {path}")
+                    except subprocess.CalledProcessError as e:
+                        self.logger.error(f"Failed to remove file {path}: {e.stderr.strip()}")
+                        raise RuntimeError(f"Failed to remove file {path}: {e.stderr.strip()}") from e
+                elif path.is_dir():
+                    try:
+                        self.logger.debug(f"Attempting to remove directory: {path}")
+                        result = subprocess.run(
+                            ["sudo", "rm", "-rf", path_str],
+                            check=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True
+                        )
+                        self.logger.debug(f"Remove directory command output: {result.stdout.strip()}")
+                        self.logger.info(f"Removed directory: {path}")
+                    except subprocess.CalledProcessError as e:
+                        self.logger.error(f"Failed to remove directory {path}: {e.stderr.strip()}")
+                        raise RuntimeError(f"Failed to remove directory {path}: {e.stderr.strip()}") from e
+            else:
+                self.logger.debug(f"Path does not exist, skipping: {path}")
+
+    def forget_package_receipt(self):
+        """
+        Remove the package receipt using pkgutil.
+        """
+        package_id = self.get_macos_package_id()
+        if package_id:
+            try:
+                self.logger.debug(f"Found Fluent Bit package ID: {package_id}. Removing package receipt...")
+                result = subprocess.run(
+                    ["sudo", "pkgutil", "--forget", package_id],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                self.logger.debug(f"Forget package receipt command output: {result.stdout.strip()}")
+                self.logger.info(f"Package receipt removed: {package_id}")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Failed to remove package receipt {package_id}: {e.stderr.strip()}")
+                raise RuntimeError(f"Failed to remove package receipt {package_id}: {e.stderr.strip()}") from e
+        else:
+            self.logger.warning("Fluent Bit package ID not found. Skipping pkgutil --forget step.")
 
     def get_macos_package_id(self):
         """
@@ -660,13 +745,20 @@ class FluentBitInstaller:
         Assumes the package ID contains 'fluent-bit'.
         """
         try:
-            result = subprocess.run(["pkgutil", "--pkgs"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            result = subprocess.run(
+                ["pkgutil", "--pkgs"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True
+            )
             packages = result.stdout.splitlines()
             for pkg in packages:
                 if "fluent-bit" in pkg.lower():
+                    self.logger.debug(f"Identified Fluent Bit package ID: {pkg}")
                     return pkg
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to list packages with pkgutil: {e}")
+            self.logger.error(f"Failed to list packages with pkgutil: {e.stderr.strip()}")
         return None
 
     def uninstall_windows(self):
