@@ -1,6 +1,6 @@
 import sys
 import zipfile
-
+import time
 import distro
 import requests
 
@@ -337,22 +337,21 @@ class SSAgentInstaller:
                 raise
 
     def stop_and_delete_windows_service(self):
-
         service_name = SS_AGENT_SERVICE_NAME
 
         os_system = platform.system().lower()
         if os_system != 'windows':
-            self.logger.warning("The stop_and_remove_zeek_service method is intended for Windows platforms.")
+            self.logger.warning("The stop_and_delete_windows_service method is intended for Windows platforms.")
             return
 
         try:
             # Step 1: Check if the service exists
             self.logger.debug(f"Checking if the '{service_name}' service exists before stopping and deleting...")
             result = subprocess.run(['sc.exe', 'query', service_name],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True)
-            service_exists = 'SERVICE_NAME: ' + service_name in result.stdout
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True)
+            service_exists = f"SERVICE_NAME: {service_name}" in result.stdout
 
             if not service_exists:
                 self.logger.warning(f"Service '{service_name}' not found. Nothing to stop or delete.")
@@ -364,31 +363,67 @@ class SSAgentInstaller:
                 self.logger.debug(f"Service '{service_name}' is running. Attempting to stop it...")
                 stop_command = ['sc.exe', 'stop', service_name]
                 stop_result = subprocess.run(stop_command,
-                                             check=True,
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
-                                             text=True)
+                                             text=True,
+                                             check=True)
                 self.logger.info(f"Service '{service_name}' stopped successfully.")
             else:
                 self.logger.info(f"Service '{service_name}' is not running.")
 
             # Step 3: Delete the service
-            self.logger.debug(f"Deleting service '{service_name}'...")
+            self.logger.debug(f"Attempting to delete service '{service_name}'...")
             delete_command = ['sc.exe', 'delete', service_name]
             delete_result = subprocess.run(delete_command,
-                                           check=True,
                                            stdout=subprocess.PIPE,
                                            stderr=subprocess.PIPE,
-                                           text=True)
-            self.logger.info(f"Service '{service_name}' deleted successfully.")
+                                           text=True,
+                                           check=False)  # Set check=False to handle errors manually
+
+            if delete_result.returncode == 0:
+                self.logger.info(f"Service '{service_name}' deleted successfully.")
+            elif delete_result.returncode == 1072:
+                self.logger.warning(f"Service '{service_name}' is already marked for deletion.")
+                # Optionally, implement a retry mechanism
+                retry_attempts = 3
+                for attempt in range(1, retry_attempts + 1):
+                    self.logger.debug(f"Retrying deletion attempt {attempt} after waiting for 2 seconds...")
+
+                    time.sleep(2)  # Wait for 2 seconds before retrying
+                    retry_result = subprocess.run(delete_command,
+                                                 stdout=subprocess.PIPE,
+                                                 stderr=subprocess.PIPE,
+                                                 text=True,
+                                                 check=False)
+                    if retry_result.returncode == 0:
+                        self.logger.info(f"Service '{service_name}' deleted successfully on retry attempt {attempt}.")
+                        break
+                    elif retry_result.returncode == 1072:
+                        self.logger.warning(f"Service '{service_name}' is still marked for deletion on retry attempt {attempt}.")
+                    else:
+                        self.logger.error(f"Failed to delete service '{service_name}' on retry attempt {attempt}.")
+                        self.logger.error(f"stdout: {retry_result.stdout.strip()}")
+                        self.logger.error(f"stderr: {retry_result.stderr.strip() if retry_result.stderr else 'No error output'}")
+                        break
+                else:
+                    self.logger.warning(f"Service '{service_name}' is still marked for deletion after {retry_attempts} attempts.")
+            else:
+                self.logger.error(f"Failed to delete service '{service_name}'.")
+                self.logger.error(f"stdout: {delete_result.stdout.strip()}")
+                self.logger.error(f"stderr: {delete_result.stderr.strip() if delete_result.stderr else 'No error output'}")
+                # Decide whether to raise an exception or continue
+                # Here, we'll continue without raising to make the process more resilient
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
             self.logger.error(f"stdout: {e.stdout.strip()}")
             self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
-            raise
+            # Optionally, decide to raise or continue
+            # Here, we'll continue without raising to make the process more resilient
         except Exception as ex:
             self.logger.error(f"An unexpected error occurred: {ex}")
-            raise
+            # Optionally, decide to raise or continue
+            # Here, we'll continue without raising to make the process more resilient
+
 
     def stop_linux_service(self, service_name):
         stop_cmd = ['systemctl', 'stop', service_name]
