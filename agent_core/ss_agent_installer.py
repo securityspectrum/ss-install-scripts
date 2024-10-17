@@ -395,9 +395,6 @@ class SSAgentInstaller:
             raise
 
     def stop_linux_service(self, service_name):
-        """
-        Stops a Windows service.
-        """
         stop_cmd = ['systemctl', 'stop', service_name]
         self.logger.debug(f"Stopping service: {stop_cmd}")
         try:
@@ -408,9 +405,6 @@ class SSAgentInstaller:
             raise
 
     def stop_macos_service(self, service_name):
-        """
-        Stops a Windows service.
-        """
         stop_cmd = ['sudo', 'launchctl', 'unload', SS_AGENT_SERVICE_MACOS]
         self.logger.debug(f"Stopping service: {service_name}")
         try:
@@ -419,6 +413,44 @@ class SSAgentInstaller:
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to stop the service {service_name}: {e}")
             raise
+
+    def stop_windows_service(self, service_name):
+        try:
+            # Step 1: Check if the service exists
+            self.logger.debug(f"Checking if the '{service_name}' service exists before stopping and deleting...")
+            result = subprocess.run(['sc.exe', 'query', service_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True)
+            service_exists = 'SERVICE_NAME: ' + service_name in result.stdout
+
+            if not service_exists:
+                self.logger.warning(f"Service '{service_name}' not found. Nothing to stop or delete.")
+                return
+
+            # Step 2: Stop the service if it's running
+            self.logger.debug(f"Checking if the '{service_name}' service is running...")
+            if "RUNNING" in result.stdout:
+                self.logger.debug(f"Service '{service_name}' is running. Attempting to stop it...")
+                stop_command = ['sc.exe', 'stop', service_name]
+                stop_result = subprocess.run(stop_command,
+                                             check=True,
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE,
+                                             text=True)
+                self.logger.info(f"Service '{service_name}' stopped successfully.")
+            else:
+                self.logger.info(f"Service '{service_name}' is not running.")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+            self.logger.error(f"stdout: {e.stdout.strip()}")
+            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            raise
+        except Exception as ex:
+            self.logger.error(f"An unexpected error occurred: {ex}")
+            raise
+
 
     def is_service_running(self, service_name):
         """
