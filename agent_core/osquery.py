@@ -566,8 +566,8 @@ class OsqueryInstaller:
         """
         try:
             # Create the service
-            create_cmd = f'sc create SSAgentService binPath= "{executable_path}" start= auto'
-            self.logger.debug(f"Creating SSAgentService with command: {create_cmd}")
+            create_cmd = f'sc create ss-agent binPath= "{executable_path}" start= auto'
+            self.logger.debug(f"Creating ss-agent with command: {create_cmd}")
             create_result = subprocess.run(create_cmd,
                                            shell=True,
                                            check=True,
@@ -577,27 +577,27 @@ class OsqueryInstaller:
             self.logger.debug(f"sc create output: {create_result.stdout}")
 
             # Start the service with retries
-            start_cmd = 'sc start SSAgentService'
+            start_cmd = 'sc start ss-agent'
             self.logger.debug(f"Running command: {start_cmd}")
             max_retries = 5
             wait_time = 10  # seconds
 
             for attempt in range(max_retries):
-                self.logger.debug(f"Attempting to start SSAgentService (Attempt {attempt + 1}/{max_retries})...")
+                self.logger.debug(f"Attempting to start ss-agent (Attempt {attempt + 1}/{max_retries})...")
                 start_result = subprocess.run(start_cmd,
                                               shell=True,
                                               stdout=subprocess.PIPE,
                                               stderr=subprocess.PIPE,
                                               text=True)
                 if start_result.returncode == 0:
-                    self.logger.debug("SSAgentService started successfully.")
+                    self.logger.debug("ss-agent started successfully.")
                     break
                 else:
-                    self.logger.error(f"Failed to start SSAgentService (Attempt {attempt + 1}/{max_retries}): {start_result.stderr}")
+                    self.logger.error(f"Failed to start ss-agent (Attempt {attempt + 1}/{max_retries}): {start_result.stderr}")
                     time.sleep(wait_time)
             else:
-                self.logger.error("SSAgentService did not start after multiple attempts.")
-                raise RuntimeError("Failed to start SSAgentService after multiple attempts.")
+                self.logger.error("ss-agent did not start after multiple attempts.")
+                raise RuntimeError("Failed to start ss-agent after multiple attempts.")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
             self.logger.error(f"Error output: {e.stderr}")
@@ -623,6 +623,21 @@ class OsqueryInstaller:
             self.logger.error(f"Unsupported OS for uninstallation: {system}")
             sys.exit(1)
 
+    def stop_and_disable_service_linux(self):
+        """
+        Stops and disables the osqueryd service on Linux.
+        """
+        self.logger.debug("Stopping and disabling osqueryd on Linux.")
+        try:
+            subprocess.run(['sudo', 'systemctl', 'stop', 'osqueryd'],
+                           check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(['sudo', 'systemctl', 'disable', 'osqueryd'],
+                           check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.logger.debug("osqueryd service stopped and disabled on Linux.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to stop or disable osqueryd on Linux: {e.stderr}")
+            raise
+
     def uninstall_linux(self):
         """
         Uninstalls osquery on Linux using the appropriate package manager.
@@ -630,6 +645,8 @@ class OsqueryInstaller:
         package_name = "osquery"
         distro_id = distro.id().lower()
         self.logger.debug(f"Detected Linux distribution: {distro_id}")
+
+        self.stop_and_disable_service_linux()
 
         try:
             if distro_id in ["ubuntu", "debian"]:
@@ -685,11 +702,29 @@ class OsqueryInstaller:
 
         self.logger.debug(f"{package_name} has been successfully uninstalled using rpm/dpkg.")
 
+    def stop_and_disable_service_macos(self):
+        """
+        Stops and disables the osqueryd service on macOS.
+        """
+        self.logger.debug("Stopping and disabling osquery agent on macOS.")
+        try:
+            subprocess.run(['sudo', 'launchctl', 'unload', '/Library/LaunchDaemons/io.osquery.agent.plist'],
+                           check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(['sudo', 'launchctl', 'disable', 'system/io.osquery.agent'],
+                           check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.logger.debug("osquery agent service stopped and disabled on macOS.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to stop or disable osquery agent on macOS: {e.stderr}")
+            raise
+
     def uninstall_macos(self):
         """
         Uninstalls osquery on macOS by removing package receipts, binaries, configuration files, and launch daemons.
         """
         self.logger.debug("Attempting to uninstall osquery on macOS...")
+
+        self.stop_and_disable_service_macos()
+
         try:
             # Step 1: Remove the package receipt using pkgutil
             package_id = self.get_macos_package_id()
@@ -749,6 +784,8 @@ class OsqueryInstaller:
         if not winreg:
             self.logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
             return
+
+        self.setup_windows_service()
 
         try:
             uninstall_command = self.get_windows_uninstall_command("osquery")
