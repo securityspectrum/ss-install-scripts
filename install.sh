@@ -7,6 +7,27 @@ error_exit() {
     exit 1
 }
 
+# Default action is to install
+ACTION="install"
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --install)
+            ACTION="install"
+            shift
+            ;;
+        --uninstall)
+            ACTION="uninstall"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            error_exit "Usage: $0 [--install | --uninstall]"
+            ;;
+    esac
+done
+
 # Install git, curl, and sudo if they are missing
 install_prerequisites() {
     if command -v apt-get &> /dev/null; then
@@ -216,9 +237,9 @@ else
     echo "requirements.txt not found."
 fi
 
-# Run the Python script
+# Run the Python script with the selected action
 if [ -f "install_agents.py" ]; then
-    echo "Running install_agents.py..."
+    echo "Running install_agents.py with action: --$ACTION"
     # Validate environment variables
     required_vars=("ORG_KEY" "API_ACCESS_KEY" "API_SECRET_KEY" "JWT_TOKEN" "MASTER_KEY")
     for var in "${required_vars[@]}"; do
@@ -229,7 +250,7 @@ if [ -f "install_agents.py" ]; then
             echo "$var is set."
         fi
     done
-    python install_agents.py --log-level INFO --install
+    python install_agents.py --log-level INFO --$ACTION
     if [ $? -ne 0 ]; then
         echo "Failed to run install_agents.py."
         exit 1
