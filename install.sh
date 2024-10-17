@@ -240,16 +240,22 @@ fi
 # Run the Python script with the selected action
 if [ -f "install_agents.py" ]; then
     echo "Running install_agents.py with action: --$ACTION"
-    # Validate environment variables
-    required_vars=("ORG_KEY" "API_ACCESS_KEY" "API_SECRET_KEY" "JWT_TOKEN" "MASTER_KEY")
-    for var in "${required_vars[@]}"; do
-        if [ -z "${!var}" ]; then
-            echo "Error: Environment variable $var is not set."
-            exit 1
-        else
-            echo "$var is set."
-        fi
-    done
+
+    # Only validate environment variables if the action is 'install'
+    if [ "$ACTION" = "install" ]; then
+        # Validate environment variables
+        required_vars=("ORG_KEY" "API_ACCESS_KEY" "API_SECRET_KEY" "JWT_TOKEN" "MASTER_KEY")
+        for var in "${required_vars[@]}"; do
+            if [ -z "${!var}" ]; then
+                echo "Error: Environment variable $var is not set."
+                exit 1
+            else
+                echo "$var is set."
+            fi
+        done
+    fi
+
+    # Run the install_agents.py script with the selected action
     python install_agents.py --log-level INFO --$ACTION
     if [ $? -ne 0 ]; then
         echo "Failed to run install_agents.py."
