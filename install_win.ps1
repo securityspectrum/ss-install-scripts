@@ -31,6 +31,17 @@ function Check-ExecutionPolicy {
 # Start by checking the execution policy
 Check-ExecutionPolicy
 
+# Default action is 'install'
+$Action = "install"
+
+# Parse command-line arguments for --install or --uninstall
+param (
+    [string]$action = "install"
+)
+if ($action -eq "--uninstall") {
+    $Action = "uninstall"
+}
+
 # Check if git, curl, and python are installed
 function Install-Prerequisites {
     $programs = @("git", "curl")
@@ -124,29 +135,30 @@ if (-not $?) {
     Error-Exit "Failed to install dependencies."
 }
 
+# Check if required environment variables are set (only for install)
+if ($Action -eq "install") {
+    $requiredVars = @("ORG_KEY", "API_ACCESS_KEY", "API_SECRET_KEY", "JWT_TOKEN", "MASTER_KEY")
+    foreach ($var in $requiredVars) {
+        # Get the value of the environment variable dynamically
+        $envValue = [System.Environment]::GetEnvironmentVariable($var)
 
-# Check if required environment variables are set
-$requiredVars = @("ORG_KEY", "API_ACCESS_KEY", "API_SECRET_KEY", "JWT_TOKEN", "MASTER_KEY")
-foreach ($var in $requiredVars) {
-    # Get the value of the environment variable dynamically
-    $envValue = [System.Environment]::GetEnvironmentVariable($var)
+        if (-not $envValue) {
+            Error-Exit "Environment variable $var is not set."
+        } else {
+            # Define the number of characters to show from the start and end
+            $numChars = 4
+            $startPart = $envValue.Substring(0, [Math]::Min($numChars, $envValue.Length))
+            $endPart = $envValue.Substring([Math]::Max(0, $envValue.Length - $numChars), $numChars)
 
-    if (-not $envValue) {
-        Error-Exit "Environment variable $var is not set."
-    } else {
-        # Define the number of characters to show from the start and end
-        $numChars = 4
-        $startPart = $envValue.Substring(0, [Math]::Min($numChars, $envValue.Length))
-        $endPart = $envValue.Substring([Math]::Max(0, $envValue.Length - $numChars), $numChars)
-
-        # Output the preview with the first few and last few characters
-        Write-Host "$var is set: $startPart***$endPart"
+            # Output the preview with the first few and last few characters
+            Write-Host "$var is set: $startPart***$endPart"
+        }
     }
 }
 
-# Run the Python script
-Write-Host "Running install_agents.py..."
-python install_agents.py --log-level INFO --install
+# Run the Python script with the selected action
+Write-Host "Running install_agents.py with --$Action..."
+python install_agents.py --log-level INFO --$Action
 if (-not $?) {
     Error-Exit "Failed to run install_agents.py."
 }
