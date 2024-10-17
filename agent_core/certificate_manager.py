@@ -85,7 +85,7 @@ class CertificateManager:
         self.logger.debug(f"Downloading certificate ZIP file from URL: {cert_url}")
 
         try:
-            response = requests.get(cert_url, headers=headers, verify=ca_bundle_path)
+            response = requests.get(cert_url, headers=headers, verify=False)
             self.logger.debug(f"Received response with status code: {response.status_code}")
             self.logger.debug(f"Response content length: {len(response.content)} bytes")
             response.raise_for_status()
