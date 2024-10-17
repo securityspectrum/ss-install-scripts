@@ -31,13 +31,13 @@ function Check-ExecutionPolicy {
 # Start by checking the execution policy
 Check-ExecutionPolicy
 
-# Default action is 'install'
-$Action = "install"
-
 # Parse command-line arguments for --install or --uninstall
 param (
     [string]$action = "install"
 )
+
+# Set action based on command-line argument
+$Action = "install"  # Default action
 if ($action -eq "--uninstall") {
     $Action = "uninstall"
 }
