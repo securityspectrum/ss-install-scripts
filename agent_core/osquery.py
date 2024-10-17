@@ -19,7 +19,7 @@ import subprocess
 from agent_core.constants import OSQUERY_DOWNLOAD_DIR, OSQUERY_EXTRACT_DIR, OSQUERY_CONFIG_PATH_MACOS, \
     OSQUERY_CONFIG_PATH_LINUX, OSQUERY_LOGGER_PATH_WINDOWS, OSQUERY_PIDFILE_PATH_WINDOWS, OSQUERY_DATABASE_PATH_WINDOWS, \
     OSQUERY_CONFIG_EXAMPLE_PATH_LINUX, OSQUERY_CONFIG_EXAMPLE_PATH_MACOS, OSQUERY_CONFIG_PATH_WINDOWS, \
-    OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS
+    OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS, SS_AGENT_SERVICE_NAME
 
 try:
     import winreg  # For Windows registry access
@@ -776,6 +776,66 @@ class OsqueryInstaller:
             self.logger.error(f"An unexpected error occurred during osquery uninstallation on macOS: {e}")
             raise
 
+    def stop_and_disable_service_windows(self):
+        """
+        Stops and deletes the SS Agent service on Windows.
+        """
+        service_name = SS_AGENT_SERVICE_NAME
+
+        try:
+            # Check if the service exists
+            check_cmd = f'sc query {service_name}'
+            self.logger.debug(f"Checking if {service_name} service exists with command: {check_cmd}")
+            check_result = subprocess.run(check_cmd,
+                                          shell=True,
+                                          stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE,
+                                          text=True)
+
+            if "FAILED" in check_result.stdout or "does not exist" in check_result.stdout:
+                self.logger.debug(f"{service_name} service does not exist. No need to stop or delete.")
+                return
+
+            # Stop the service
+            stop_cmd = f'sc stop {service_name}'
+            self.logger.debug(f"Stopping {service_name} service with command: {stop_cmd}")
+            stop_result = subprocess.run(stop_cmd,
+                                         shell=True,
+                                         stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE,
+                                         text=True)
+
+            if stop_result.returncode == 0:
+                self.logger.debug(f"{service_name} service stopped successfully.")
+            else:
+                self.logger.error(f"Failed to stop {service_name} service: {stop_result.stderr}")
+
+            # Wait a few seconds to ensure the service stops
+            time.sleep(5)
+
+            # Delete the service
+            delete_cmd = f'sc delete {service_name}'
+            self.logger.debug(f"Deleting {service_name} service with command: {delete_cmd}")
+            delete_result = subprocess.run(delete_cmd,
+                                           shell=True,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE,
+                                           text=True)
+
+            if delete_result.returncode == 0:
+                self.logger.debug(f"{service_name} service deleted successfully.")
+            else:
+                self.logger.error(f"Failed to delete {service_name} service: {delete_result.stderr}")
+                raise RuntimeError(f"Failed to delete {service_name} service.")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            self.logger.error(f"Error output: {e.stderr}")
+            raise
+        except Exception as ex:
+            self.logger.error(f"An unexpected error occurred while stopping and deleting {service_name}: {ex}")
+            raise
+
     def uninstall_windows(self):
         """
         Uninstalls osquery on Windows by executing the uninstall command from the registry.
@@ -785,7 +845,7 @@ class OsqueryInstaller:
             self.logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
             return
 
-        self.setup_windows_service()
+        self.stop_and_disable_service_windows()
 
         try:
             uninstall_command = self.get_windows_uninstall_command("osquery")

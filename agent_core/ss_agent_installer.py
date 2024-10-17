@@ -314,9 +314,7 @@ class SSAgentInstaller:
         if self.service_exists(service_name):
             self.logger.debug(f"Service {service_name} already exists. Skipping creation.")
         else:
-            self.logger.debug("Setting up Windows service for SS Agent..")
-            display_name = "SS Agent Service"
-
+            self.logger.debug("Setting up Windows service for ss-agent.")
             try:
                 # Install the service using sc.exe with the '--debug start' command
                 install_cmd = f'sc create {service_name} binPath= "{executable_path} --debug start" start= auto'
