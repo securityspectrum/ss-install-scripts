@@ -447,7 +447,7 @@ class OsqueryInstaller:
     def configure_windows(self):
         """
         Configures osquery for Windows after MSI installation.
-        Sets up configuration files, starts the service, and optionally enables Windows Event Log support.
+        Sets up configuration files, starts the service, and handles service creation if it doesn't exist.
         """
         try:
             config_path = Path(OSQUERY_CONFIG_PATH_WINDOWS)
@@ -519,16 +519,57 @@ class OsqueryInstaller:
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE,
                                         text=True)
+
                 if result.returncode == 0:
                     self.logger.debug("osqueryd service started successfully on Windows.")
                 else:
                     self.logger.error(f"Command '['sc.exe', 'start', {OSQUERY_SERVICE_NAME}]' failed with exit status {result.returncode}")
                     self.logger.error(f"Error output: {result.stderr}")
-                    # Check the service state after failure
-                    service_state = self.get_service_state(OSQUERY_SERVICE_NAME)
-                    self.logger.debug(f"osqueryd service state after failed start: {service_state}")
-                    if service_state == 'RUNNING':
-                        self.logger.debug("osqueryd service is running despite the error.")
+
+                    # Check if the error is due to the service not existing
+                    if '1060' in result.stderr or 'does not exist' in result.stderr.lower():
+                        self.logger.warning(f"{OSQUERY_SERVICE_NAME} service does not exist. Attempting to create the service.")
+
+                        # Locate the osqueryd executable
+                        osqueryd_path = self.locate_osqueryd_executable()
+                        if not osqueryd_path:
+                            self.logger.error("osqueryd executable not found. Cannot create the service.")
+                            raise FileNotFoundError("osqueryd executable not found.")
+
+                        # Create the service
+                        create_service_cmd = ['sc.exe', 'create', OSQUERY_SERVICE_NAME, 'binPath=',
+                            f'"{osqueryd_path}"', 'start=', 'auto']
+                        self.logger.debug(f"Creating service with command: {' '.join(create_service_cmd)}")
+                        create_result = subprocess.run(create_service_cmd,
+                                                       check=False,
+                                                       stdout=subprocess.PIPE,
+                                                       stderr=subprocess.PIPE,
+                                                       text=True)
+
+                        if create_result.returncode == 0:
+                            self.logger.debug(f"Service {OSQUERY_SERVICE_NAME} created successfully.")
+                            # Start the newly created service
+                            start_service_cmd = ['sc.exe', 'start', OSQUERY_SERVICE_NAME]
+                            self.logger.debug(f"Starting the newly created service with command: {' '.join(start_service_cmd)}")
+                            start_result = subprocess.run(start_service_cmd,
+                                                          check=False,
+                                                          stdout=subprocess.PIPE,
+                                                          stderr=subprocess.PIPE,
+                                                          text=True)
+                            if start_result.returncode == 0:
+                                self.logger.debug(f"Service {OSQUERY_SERVICE_NAME} started successfully after creation.")
+                            else:
+                                self.logger.error(f"Failed to start service {OSQUERY_SERVICE_NAME} after creation: {start_result.stderr}")
+                                raise subprocess.CalledProcessError(start_result.returncode,
+                                                                    start_service_cmd,
+                                                                    output=start_result.stdout,
+                                                                    stderr=start_result.stderr)
+                        else:
+                            self.logger.error(f"Failed to create service {OSQUERY_SERVICE_NAME}: {create_result.stderr}")
+                            raise subprocess.CalledProcessError(create_result.returncode,
+                                                                create_service_cmd,
+                                                                output=create_result.stdout,
+                                                                stderr=create_result.stderr)
                     else:
                         raise subprocess.CalledProcessError(result.returncode,
                                                             ['sc.exe', 'start', OSQUERY_SERVICE_NAME],
@@ -546,7 +587,6 @@ class OsqueryInstaller:
                 self.logger.debug("Windows Event Log support enabled for osquery.")
             else:
                 self.logger.warning(f"Windows Event Log support file not found: {wevtutil_path}")
-
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
             self.logger.error(f"Error output: {e.stderr}")
@@ -557,6 +597,22 @@ class OsqueryInstaller:
         except Exception as ex:
             self.logger.error(f"An unexpected error occurred: {ex}")
             raise
+
+
+    def locate_osqueryd_executable(self):
+        """
+        Attempts to locate the osqueryd executable on the system.
+        Returns the full path if found, else None.
+        """
+        possible_paths = [Path("C:/Program Files/osquery/osqueryd.exe"),
+            Path("C:/Program Files (x86)/osquery/osqueryd.exe"), Path("C:/osquery/osqueryd.exe")]
+
+        for path in possible_paths:
+            if path.exists():
+                self.logger.debug(f"osqueryd executable found at: {path}")
+                return str(path)
+        self.logger.error("osqueryd executable not found in standard installation directories.")
+        return None
 
     def uninstall(self):
         """
