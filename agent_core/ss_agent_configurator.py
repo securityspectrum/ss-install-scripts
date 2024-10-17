@@ -64,8 +64,8 @@ class SSAgentConfigurator:
         final_config_path = self.config_dir / "config.json"
         try:
             self.platform_context.create_directory(self.config_dir)
-            # Move the temporary config to the final destination with appropriate permissions
-            SystemUtility.move_with_sudo(Path(temp_config_path), final_config_path)
+            # Convert Path objects to strings before passing to the move_with_sudo function
+            SystemUtility.move_with_sudo(str(Path(temp_config_path)), str(final_config_path))
             logger.debug(f"Moved config file to {final_config_path}")
         except Exception as e:
             logger.error(f"Error moving config file to {final_config_path}: {e}")
