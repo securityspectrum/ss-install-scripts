@@ -17,8 +17,6 @@ class CertificateManager:
         self.cert_dir = Path(cert_dir)
         self.organization_slug = organization_slug
         self.logger = logging.getLogger(__name__)
-        self.logger.info("INFO Loading certificates installation...")
-        self.logger.debug("DEBUG Loading certificates installation...")
 
 
     def download_and_extract_certificates(self, jwt_token):

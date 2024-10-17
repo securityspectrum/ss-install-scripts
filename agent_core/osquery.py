@@ -19,7 +19,7 @@ import subprocess
 from agent_core.constants import OSQUERY_DOWNLOAD_DIR, OSQUERY_EXTRACT_DIR, OSQUERY_CONFIG_PATH_MACOS, \
     OSQUERY_CONFIG_PATH_LINUX, OSQUERY_LOGGER_PATH_WINDOWS, OSQUERY_PIDFILE_PATH_WINDOWS, OSQUERY_DATABASE_PATH_WINDOWS, \
     OSQUERY_CONFIG_EXAMPLE_PATH_LINUX, OSQUERY_CONFIG_EXAMPLE_PATH_MACOS, OSQUERY_CONFIG_PATH_WINDOWS, \
-    OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS, SS_AGENT_SERVICE_NAME
+    OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS, SS_AGENT_SERVICE_NAME, OSQUERY_SERVICE_NAME, OSQUERY_PRODUCT_NAME
 
 try:
     import winreg  # For Windows registry access
@@ -46,8 +46,6 @@ class OsqueryInstaller:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.logger.info("INFO Starting osquery installation...")
-        self.logger.debug("DEBUG Starting osquery installation...")
 
     def get_latest_release(self):
         """
@@ -488,7 +486,7 @@ class OsqueryInstaller:
                         raise
 
             # Check the current state of the osqueryd service
-            service_state = self.get_service_state('osqueryd')
+            service_state = self.get_service_state(OSQUERY_SERVICE_NAME)
             self.logger.debug(f"osqueryd service state: {service_state}")
 
             if service_state == 'RUNNING':
@@ -500,7 +498,7 @@ class OsqueryInstaller:
                 for attempt in range(max_retries):
                     self.logger.debug(f"Waiting {wait_time} seconds before retrying to start the service... (Attempt {attempt + 1}/{max_retries})")
                     time.sleep(wait_time)
-                    service_state = self.get_service_state('osqueryd')
+                    service_state = self.get_service_state(OSQUERY_SERVICE_NAME)
                     self.logger.debug(f"Attempt {attempt + 1}/{max_retries}: osqueryd service state: {service_state}")
                     if service_state == 'RUNNING':
                         self.logger.debug("osqueryd service started successfully after waiting.")
@@ -516,7 +514,7 @@ class OsqueryInstaller:
             elif service_state in ['STOPPED', 'UNKNOWN']:
                 # Attempt to start the service
                 self.logger.debug("Starting osqueryd service...")
-                result = subprocess.run(['sc.exe', 'start', 'osqueryd'],
+                result = subprocess.run(['sc.exe', 'start', OSQUERY_SERVICE_NAME],
                                         check=False,
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE,
@@ -524,16 +522,16 @@ class OsqueryInstaller:
                 if result.returncode == 0:
                     self.logger.debug("osqueryd service started successfully on Windows.")
                 else:
-                    self.logger.error(f"Command '['sc.exe', 'start', 'osqueryd']' failed with exit status {result.returncode}")
+                    self.logger.error(f"Command '['sc.exe', 'start', {OSQUERY_SERVICE_NAME}]' failed with exit status {result.returncode}")
                     self.logger.error(f"Error output: {result.stderr}")
                     # Check the service state after failure
-                    service_state = self.get_service_state('osqueryd')
+                    service_state = self.get_service_state(OSQUERY_SERVICE_NAME)
                     self.logger.debug(f"osqueryd service state after failed start: {service_state}")
                     if service_state == 'RUNNING':
                         self.logger.debug("osqueryd service is running despite the error.")
                     else:
                         raise subprocess.CalledProcessError(result.returncode,
-                                                            ['sc.exe', 'start', 'osqueryd'],
+                                                            ['sc.exe', 'start', OSQUERY_SERVICE_NAME],
                                                             output=result.stdout,
                                                             stderr=result.stderr)
 
@@ -560,52 +558,6 @@ class OsqueryInstaller:
             self.logger.error(f"An unexpected error occurred: {ex}")
             raise
 
-    def setup_windows_service(self, executable_path):
-        """
-        Sets up the Windows service for SS Agent.
-        """
-        try:
-            # Create the service
-            create_cmd = f'sc create ss-agent binPath= "{executable_path}" start= auto'
-            self.logger.debug(f"Creating ss-agent with command: {create_cmd}")
-            create_result = subprocess.run(create_cmd,
-                                           shell=True,
-                                           check=True,
-                                           stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE,
-                                           text=True)
-            self.logger.debug(f"sc create output: {create_result.stdout}")
-
-            # Start the service with retries
-            start_cmd = 'sc start ss-agent'
-            self.logger.debug(f"Running command: {start_cmd}")
-            max_retries = 5
-            wait_time = 10  # seconds
-
-            for attempt in range(max_retries):
-                self.logger.debug(f"Attempting to start ss-agent (Attempt {attempt + 1}/{max_retries})...")
-                start_result = subprocess.run(start_cmd,
-                                              shell=True,
-                                              stdout=subprocess.PIPE,
-                                              stderr=subprocess.PIPE,
-                                              text=True)
-                if start_result.returncode == 0:
-                    self.logger.debug("ss-agent started successfully.")
-                    break
-                else:
-                    self.logger.error(f"Failed to start ss-agent (Attempt {attempt + 1}/{max_retries}): {start_result.stderr}")
-                    time.sleep(wait_time)
-            else:
-                self.logger.error("ss-agent did not start after multiple attempts.")
-                raise RuntimeError("Failed to start ss-agent after multiple attempts.")
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
-            self.logger.error(f"Error output: {e.stderr}")
-            raise
-        except Exception as ex:
-            self.logger.error(f"An unexpected error occurred while setting up SSAgentService: {ex}")
-            raise
-
     def uninstall(self):
         """
         Orchestrates the uninstallation of osquery based on the operating system.
@@ -629,9 +581,9 @@ class OsqueryInstaller:
         """
         self.logger.debug("Stopping and disabling osqueryd on Linux.")
         try:
-            subprocess.run(['sudo', 'systemctl', 'stop', 'osqueryd'],
+            subprocess.run(['sudo', 'systemctl', 'stop', OSQUERY_SERVICE_NAME],
                            check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            subprocess.run(['sudo', 'systemctl', 'disable', 'osqueryd'],
+            subprocess.run(['sudo', 'systemctl', 'disable', OSQUERY_SERVICE_NAME],
                            check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.logger.debug("osqueryd service stopped and disabled on Linux.")
         except subprocess.CalledProcessError as e:
@@ -778,9 +730,9 @@ class OsqueryInstaller:
 
     def stop_and_disable_service_windows(self):
         """
-        Stops and deletes the SS Agent service on Windows.
+        Stops and deletes the osqueryd service on Windows.
         """
-        service_name = SS_AGENT_SERVICE_NAME
+        service_name = OSQUERY_SERVICE_NAME
 
         try:
             # Check if the service exists
@@ -848,7 +800,7 @@ class OsqueryInstaller:
         self.stop_and_disable_service_windows()
 
         try:
-            uninstall_command = self.get_windows_uninstall_command("osquery")
+            uninstall_command = self.get_windows_uninstall_command(OSQUERY_PRODUCT_NAME)
             if uninstall_command:
                 self.logger.debug(f"Found uninstall command: {uninstall_command}. Executing...")
                 # Determine if it's an MSI or EXE installer

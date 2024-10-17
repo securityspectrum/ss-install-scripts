@@ -104,6 +104,8 @@ SS_AGENT_SERVICE_BINARY_WINDOWS = "C:/Program Files/ss-agent/ss-agent.exe"
 # ss-agent config file template
 SS_AGENT_TEMPLATE = "ss-agent-template.json"
 
+OSQUERY_PRODUCT_NAME = "osquery"
+OSQUERY_SERVICE_NAME = "osqueryd"
 OSQUERY_CONFIG_EXAMPLE_PATH_LINUX = '/opt/osquery/share/osquery/osquery.example.conf'
 OSQUERY_CONFIG_EXAMPLE_PATH_MACOS = '/var/osquery/osquery.example.conf'
 OSQUERY_CONFIG_EXAMPLE_PATH_WINDOWS = "C:/Program Files/osquery/osquery.example.conf"

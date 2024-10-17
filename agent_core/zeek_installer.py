@@ -36,10 +36,7 @@ from agent_core.network_analyzer_installer import SS_NETWORK_ANALYZER_ASSET_PATT
 
 class ZeekInstaller:
     def __init__(self):
-
         self.logger = logging.getLogger(__name__)
-        self.logger.info("INFO Starting Zeek installation...")
-        self.logger.debug("DEBUG Starting Zeek installation...")
 
         # Fetch distribution info as a dictionary
         self.os_info = distro.info()

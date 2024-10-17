@@ -27,8 +27,6 @@ class FluentBitConfigurator:
         self.organization_slug = organization_slug
 
         self.logger = logging.getLogger(__name__)
-        self.logger.info("INFO Starting fluent-bit configurator...")
-        self.logger.debug("DEBUG Starting fluent-bit configurator...")
 
         # Determine paths based on the OS during initialization
         system = platform.system().lower()

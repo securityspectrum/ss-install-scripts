@@ -34,8 +34,6 @@ class SSAgentInstaller:
     def __init__(self):
         self.repo = SS_AGENT_REPO
         self.logger = logging.getLogger(__name__)
-        self.logger.info("INFO Starting fluent-bit installation..")
-        self.logger.debug("DEBUG Starting fluent-bit installation..")
 
     def get_latest_release_url(self):
         url = f"https://api.github.com/repos/{self.repo}/releases"
