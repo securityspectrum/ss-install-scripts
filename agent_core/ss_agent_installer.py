@@ -530,7 +530,7 @@ class SSAgentInstaller:
                 if system == 'linux' or system == 'darwin':
                     stop_cmd = ['sudo', 'ss-agent', 'service', 'start', 'all']
                 elif system == 'windows':
-                    stop_cmd = ['ss-agent.exe', 'service', 'start', 'all']
+                    stop_cmd = [SS_AGENT_SERVICE_BINARY_WINDOWS, 'service', 'start', 'all']
 
                 subprocess.run(stop_cmd, check=True)
                 self.logger.debug("All services started successfully.")
