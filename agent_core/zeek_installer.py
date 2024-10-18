@@ -1763,36 +1763,56 @@ make install
             try:
                 # Stop the service if it's running
                 self.logger.debug("Stopping Zeek service...")
-                result_stop = subprocess.run(["sudo", "systemctl", "stop", "zeek"], check=False)
+                result_stop = subprocess.run(["sudo", "systemctl", "stop", "zeek"],
+                                             check=False,
+                                             text=True,
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE)
                 if result_stop.returncode == 0:
                     self.logger.debug("Zeek service stopped successfully.")
                 else:
-                    self.logger.warning("Zeek service may not have been running, or failed to stop.")
+                    self.logger.warning(f"Zeek service may not have been running, or failed to stop: {result_stop.stderr}")
 
                 # Disable the service
                 self.logger.debug("Disabling Zeek service...")
-                result_disable = subprocess.run(["sudo", "systemctl", "disable", "zeek"], check=False)
+                result_disable = subprocess.run(["sudo", "systemctl", "disable", "zeek"],
+                                                check=False,
+                                                text=True,
+                                                stdout=subprocess.PIPE,
+                                                stderr=subprocess.PIPE)
                 if result_disable.returncode == 0:
                     self.logger.debug("Zeek service disabled successfully.")
                 else:
-                    self.logger.warning("Failed to disable Zeek service. It may not have been enabled.")
+                    self.logger.warning(f"Failed to disable Zeek service: {result_disable.stderr}")
 
-                # Remove the service file
-                self.logger.debug(f"Removing Zeek service file at {zeek_service_path}...")
-                Path(zeek_service_path).unlink()
-                self.logger.debug("Zeek service file removed.")
+                # Remove the service file directly with sudo
+                self.logger.debug(f"Removing Zeek service file at {zeek_service_path} with sudo...")
+                result_remove = subprocess.run(["sudo", "rm", "-f", zeek_service_path],
+                                               check=False,
+                                               text=True,
+                                               stdout=subprocess.PIPE,
+                                               stderr=subprocess.PIPE)
+                if result_remove.returncode == 0:
+                    self.logger.debug("Zeek service file removed successfully.")
+                else:
+                    self.logger.error(f"Failed to remove Zeek service file: {result_remove.stderr}")
+                    raise
 
                 # Reload systemd to reflect the changes
                 self.logger.debug("Reloading systemd daemon to apply changes...")
-                result_reload = subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
+                result_reload = subprocess.run(["sudo", "systemctl", "daemon-reload"],
+                                               check=True,
+                                               text=True,
+                                               stdout=subprocess.PIPE,
+                                               stderr=subprocess.PIPE)
                 if result_reload.returncode == 0:
                     self.logger.debug("Systemd daemon reloaded successfully.")
                 else:
-                    self.logger.warning("Systemd daemon reload failed.")
+                    self.logger.warning(f"Failed to reload systemd daemon: {result_reload.stderr}")
 
                 self.logger.info("Zeek service has been successfully stopped and removed.")
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to stop and remove Zeek service: {e}")
+                self.logger.error(f"Failed to stop and remove Zeek service: {e.stderr}")
                 raise
         else:
             self.logger.debug(f"Zeek service not found at {zeek_service_path}. Skipping stop and removal.")
