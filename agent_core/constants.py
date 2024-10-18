@@ -66,6 +66,7 @@ FLUENT_BIT_SSL_DIR_WINDOWS = r"C:\ProgramData\fluent-bit\ssl"
 # Zeek config paths
 ZEEK_CONFIG_DIR_LINUX = "/etc/fluent-bit"
 ZEEK_CONFIG_DIR_MACOS = "/Library/Application Support/ss-network-analyzer/config"
+ZEEK_SERVICE_PATH_LINUX = "/etc/systemd/system/zeek.service"
 
 # Zeek log paths
 ZEEK_LOG_PATH_LINUX = "/opt/zeek/logs/current/*.log"

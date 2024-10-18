@@ -30,7 +30,7 @@ else:
 # Configure logging
 from agent_core import SystemUtility
 from agent_core.constants import SS_NETWORK_ANALYZER_REPO, SS_NETWORK_ANALYZER_SERVICE_NAME, \
-    SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS
+    SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS, ZEEK_SERVICE_PATH_LINUX
 from agent_core.network_analyzer_installer import SS_NETWORK_ANALYZER_ASSET_PATTERNS
 
 
@@ -1558,9 +1558,10 @@ make install
         if self.os_system == "darwin":
             self.uninstall_zeek_macos()
         elif self.os_system == "linux":
+            self.stop_and_remove_zeek_service_linux()
             self.uninstall_zeek_linux()
         elif self.os_system == "windows":
-            self.stop_and_remove_zeek_service()
+            self.stop_and_remove_zeek_service_windows()
             self.uninstall_zeek_windows()
         else:
             self.logger.error(f"Unsupported OS for Zeek uninstallation: {self.os_system}")
@@ -1750,6 +1751,52 @@ make install
             self.logger.error(f"Failed to list packages with pkgutil: {e.stderr.strip()}")
         return None
 
+    def stop_and_remove_zeek_service_linux(self):
+        """
+        Stops and removes the Zeek service on Linux.
+        This function checks if the Zeek service exists, stops it if running, removes the service file, and reloads systemd.
+        """
+        zeek_service_path = ZEEK_SERVICE_PATH_LINUX
+
+        if Path(zeek_service_path).exists():
+            self.logger.debug(f"Zeek service found at {zeek_service_path}. Proceeding to stop and remove it.")
+            try:
+                # Stop the service if it's running
+                self.logger.debug("Stopping Zeek service...")
+                result_stop = subprocess.run(["sudo", "systemctl", "stop", "zeek"], check=False)
+                if result_stop.returncode == 0:
+                    self.logger.debug("Zeek service stopped successfully.")
+                else:
+                    self.logger.warning("Zeek service may not have been running, or failed to stop.")
+
+                # Disable the service
+                self.logger.debug("Disabling Zeek service...")
+                result_disable = subprocess.run(["sudo", "systemctl", "disable", "zeek"], check=False)
+                if result_disable.returncode == 0:
+                    self.logger.debug("Zeek service disabled successfully.")
+                else:
+                    self.logger.warning("Failed to disable Zeek service. It may not have been enabled.")
+
+                # Remove the service file
+                self.logger.debug(f"Removing Zeek service file at {zeek_service_path}...")
+                Path(zeek_service_path).unlink()
+                self.logger.debug("Zeek service file removed.")
+
+                # Reload systemd to reflect the changes
+                self.logger.debug("Reloading systemd daemon to apply changes...")
+                result_reload = subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
+                if result_reload.returncode == 0:
+                    self.logger.debug("Systemd daemon reloaded successfully.")
+                else:
+                    self.logger.warning("Systemd daemon reload failed.")
+
+                self.logger.info("Zeek service has been successfully stopped and removed.")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Failed to stop and remove Zeek service: {e}")
+                raise
+        else:
+            self.logger.debug(f"Zeek service not found at {zeek_service_path}. Skipping stop and removal.")
+
     def uninstall_zeek_linux(self):
         """
         Uninstall Zeek on Linux based on the distribution's package manager.
@@ -1772,9 +1819,13 @@ make install
         """
         self.logger.debug(f"Using apt to uninstall {package_name}...")
         try:
-            subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
-            subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
-            self.logger.debug(f"{package_name} has been successfully uninstalled using apt.")
+            result_remove = subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
+            result_autoremove = subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
+
+            if result_remove.returncode == 0 and result_autoremove.returncode == 0:
+                self.logger.debug(f"{package_name} has been successfully uninstalled using apt.")
+            else:
+                self.logger.debug(f"{package_name} was not fully removed using apt. Some components may remain.")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"apt failed to uninstall {package_name}: {e}")
             raise
@@ -1785,8 +1836,12 @@ make install
         """
         self.logger.debug(f"Using {package_manager} to uninstall {package_name}...")
         try:
-            subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
-            self.logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
+            result = subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
+
+            if result.returncode == 0:
+                self.logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
+            else:
+                self.logger.debug(f"{package_name} was not fully removed using {package_manager}. Some components may remain.")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
             raise
@@ -1797,8 +1852,12 @@ make install
         """
         self.logger.debug(f"Using zypper to uninstall {package_name}...")
         try:
-            subprocess.run(["sudo", "zypper", "rm", "-y", package_name], check=True)
-            self.logger.debug(f"{package_name} has been successfully uninstalled using zypper.")
+            result = subprocess.run(["sudo", "zypper", "rm", "-y", package_name], check=True)
+
+            if result.returncode == 0:
+                self.logger.debug(f"{package_name} has been successfully uninstalled using zypper.")
+            else:
+                self.logger.debug(f"{package_name} was not fully removed using zypper. Some components may remain.")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"zypper failed to uninstall {package_name}: {e}")
             raise
@@ -1841,8 +1900,11 @@ make install
                 os.environ['PATH'] = new_path
 
                 # Update the system PATH permanently using setx
-                subprocess.run(['setx', 'PATH', new_path], check=True)
-                self.logger.debug(f"Removed {zeek_bin_dir_str} from PATH.")
+                result_setx = subprocess.run(['setx', 'PATH', new_path], check=True)
+                if result_setx.returncode == 0:
+                    self.logger.debug(f"Removed {zeek_bin_dir_str} from PATH.")
+                else:
+                    self.logger.debug(f"Failed to remove {zeek_bin_dir_str} from PATH using setx.")
             else:
                 self.logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} binary directory is not in PATH.")
         except subprocess.CalledProcessError as e:
@@ -1852,7 +1914,7 @@ make install
             self.logger.error(f"Unexpected error while removing {SS_NETWORK_ANALYZER_SERVICE_NAME} from PATH: {e}")
             raise
 
-    def stop_and_remove_zeek_service(self):
+    def stop_and_remove_zeek_service_windows(self):
         """
         Stops and removes the Zeek service on Windows.
         """

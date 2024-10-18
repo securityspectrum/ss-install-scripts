@@ -6,9 +6,9 @@ import requests
 
 from agent_core import SystemUtility
 from agent_core.constants import (SS_AGENT_REPO, DOWNLOAD_DIR_LINUX, DOWNLOAD_DIR_WINDOWS, DOWNLOAD_DIR_MACOS,
-                                  SS_AGENT_SERVICE_MACOS, SS_AGENT_SERVICE_NAME,
-                                  SS_AGENT_CONFIG_DIR_WINDOWS, SS_AGENT_CONFIG_DIR_MACOS, SS_AGENT_CONFIG_DIR_LINUX,
-                                  SS_AGENT_SERVICE_LINUX, SS_AGENT_SERVICE_BINARY_WINDOWS, )
+                                  SS_AGENT_SERVICE_MACOS, SS_AGENT_SERVICE_NAME, SS_AGENT_CONFIG_DIR_WINDOWS,
+                                  SS_AGENT_CONFIG_DIR_MACOS, SS_AGENT_CONFIG_DIR_LINUX, SS_AGENT_SERVICE_LINUX,
+                                  SS_AGENT_SERVICE_BINARY_WINDOWS, )
 import shutil
 import platform
 import subprocess
@@ -231,7 +231,6 @@ class SSAgentInstaller:
         [Install]
         WantedBy=multi-user.target
         """
-            service_path = '/etc/systemd/system/ss-agent.service'
             try:
                 # Write service file to a temporary location
                 temp_service_path = '/tmp/ss-agent.service'
@@ -239,7 +238,7 @@ class SSAgentInstaller:
                     f.write(service_content)
 
                 # Move the service file to the system directory with proper permissions
-                SystemUtility.move_with_sudo(temp_service_path, service_path)
+                SystemUtility.move_with_sudo(temp_service_path, SS_AGENT_SERVICE_LINUX)
 
                 # Reload systemd, enable and start the service
                 subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
@@ -620,10 +619,12 @@ class SSAgentInstaller:
         """
         Uninstalls the SS Agent on Linux using the appropriate package manager.
         """
-        package_name = "ss-agent"
-        distro_id = distro.id().lower()
         try:
-            subprocess.run(["sudo", "rm", "-f", SS_AGENT_EXECUTABLE_PATH_LINUX], check=True)
+            result = subprocess.run(["sudo", "rm", "-f", SS_AGENT_EXECUTABLE_PATH_LINUX], check=True)
+            if result.returncode == 0:
+                self.logger.info(f"Successfully removed {SS_AGENT_EXECUTABLE_PATH_LINUX}")
+            else:
+                self.logger.info(f"No file to remove at {SS_AGENT_EXECUTABLE_PATH_LINUX}")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to remove {SS_AGENT_EXECUTABLE_PATH_LINUX}: {e}")
 
@@ -633,9 +634,13 @@ class SSAgentInstaller:
         """
         self.logger.debug(f"Using apt to uninstall {package_name}...")
         try:
-            subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
-            subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
-            self.logger.debug(f"{package_name} has been successfully uninstalled using apt.")
+            result_remove = subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
+            result_autoremove = subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
+
+            if result_remove.returncode == 0 and result_autoremove.returncode == 0:
+                self.logger.debug(f"{package_name} has been successfully uninstalled using apt.")
+            else:
+                self.logger.debug(f"{package_name} was not fully removed using apt. Some components may remain.")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"apt failed to uninstall {package_name}: {e}")
             raise
@@ -647,8 +652,12 @@ class SSAgentInstaller:
         package_manager = "dnf" if distro_id in ["fedora", "rocky", "almalinux"] else "yum"
         self.logger.debug(f"Using {package_manager} to uninstall {package_name}...")
         try:
-            subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
-            self.logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
+            result = subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
+
+            if result.returncode == 0:
+                self.logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
+            else:
+                self.logger.debug(f"{package_name} was not fully removed using {package_manager}. Some components may remain.")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
             raise
@@ -657,17 +666,24 @@ class SSAgentInstaller:
         """
         Fallback method to uninstall the SS Agent using rpm or dpkg directly.
         """
-        if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
-            self.logger.debug(f"Using dpkg to purge {package_name}...")
-            subprocess.run(["sudo", "dpkg", "--purge", package_name], check=True)
-        elif Path('/usr/bin/rpm').exists() or Path('/bin/rpm').exists():
-            self.logger.debug(f"Using rpm to erase {package_name}...")
-            subprocess.run(["sudo", "rpm", "-e", package_name], check=True)
-        else:
-            self.logger.error("Neither dpkg nor rpm package managers are available on this system.")
-            raise EnvironmentError("No suitable package manager found for uninstallation.")
+        try:
+            if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
+                self.logger.debug(f"Using dpkg to purge {package_name}...")
+                result = subprocess.run(["sudo", "dpkg", "--purge", package_name], check=True)
+                if result.returncode == 0:
+                    self.logger.debug(f"{package_name} has been successfully uninstalled using dpkg.")
+            elif Path('/usr/bin/rpm').exists() or Path('/bin/rpm').exists():
+                self.logger.debug(f"Using rpm to erase {package_name}...")
+                result = subprocess.run(["sudo", "rpm", "-e", package_name], check=True)
+                if result.returncode == 0:
+                    self.logger.debug(f"{package_name} has been successfully uninstalled using rpm.")
+            else:
+                self.logger.error("Neither dpkg nor rpm package managers are available on this system.")
+                raise EnvironmentError("No suitable package manager found for uninstallation.")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to uninstall {package_name}: {e}")
+            raise
 
-        self.logger.debug(f"{package_name} has been successfully uninstalled using rpm/dpkg.")
 
     def uninstall_macos(self):
         """
@@ -679,8 +695,11 @@ class SSAgentInstaller:
             package_id = self.get_macos_package_id()
             if package_id:
                 self.logger.debug(f"Found SS Agent package ID: {package_id}. Removing package receipt...")
-                subprocess.run(["sudo", "pkgutil", "--forget", package_id], check=True)
-                self.logger.debug("Package receipt removed.")
+                result_pkgutil = subprocess.run(["sudo", "pkgutil", "--forget", package_id], check=True)
+                if result_pkgutil.returncode == 0:
+                    self.logger.debug("Package receipt removed.")
+                else:
+                    self.logger.warning(f"Failed to remove package receipt for {package_id}.")
             else:
                 self.logger.warning("SS Agent package ID not found. Skipping pkgutil --forget step.")
 
@@ -689,17 +708,16 @@ class SSAgentInstaller:
             if Path(launch_daemon).exists():
                 try:
                     self.logger.debug(f"Unloading LaunchDaemon: {launch_daemon}")
-                    subprocess.run(["sudo", "launchctl", "unload", launch_daemon], check=True)
-                    self.logger.debug(f"Removed LaunchDaemon: {launch_daemon}")
+                    result_launchctl = subprocess.run(["sudo", "launchctl", "unload", launch_daemon], check=True)
+                    if result_launchctl.returncode == 0:
+                        self.logger.debug(f"Removed LaunchDaemon: {launch_daemon}")
+                    else:
+                        self.logger.warning(f"Failed to unload LaunchDaemon: {launch_daemon}")
                 except subprocess.CalledProcessError as e:
                     self.logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e}")
 
             # Step 3: Remove installed files and directories
-            installed_paths = [
-                SS_AGENT_EXECUTABLE_PATH_MACOS,
-                SS_AGENT_SERVICE_MACOS,
-                SS_AGENT_CONFIG_DIR_MACOS,
-            ]
+            installed_paths = [SS_AGENT_EXECUTABLE_PATH_MACOS, SS_AGENT_SERVICE_MACOS, SS_AGENT_CONFIG_DIR_MACOS, ]
 
             for path_str in installed_paths:
                 path = Path(path_str)
@@ -708,7 +726,6 @@ class SSAgentInstaller:
                 else:
                     self.logger.debug(f"Path does not exist, skipping: {path}")
 
-
             self.logger.debug("SS Agent has been successfully uninstalled from macOS.")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to uninstall SS Agent on macOS: {e}")
@@ -716,7 +733,6 @@ class SSAgentInstaller:
         except Exception as e:
             self.logger.error(f"An unexpected error occurred during SS Agent uninstallation on macOS: {e}")
             raise
-
 
     def remove_file(self, path):
         """
