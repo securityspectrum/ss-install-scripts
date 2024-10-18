@@ -1,10 +1,10 @@
-# Enable strict mode for better error handling
-Set-StrictMode -Version Latest
-
 # -------------------- Parameter Definitions -------------------- #
 param (
     [switch]$Uninstall
 )
+
+# Enable strict mode for better error handling
+Set-StrictMode -Version Latest
 
 # -------------------- Function Definitions -------------------- #
 
@@ -88,6 +88,9 @@ if ($Uninstall) {
     Write-Host "Action selected: INSTALL" -ForegroundColor Cyan
 }
 
+# Debug: Output the current Action before any further processing
+Write-Host "DEBUG: Action before prerequisites: --$Action" -ForegroundColor DarkGray
+
 # Install prerequisites if installing
 if ($Action -eq "install") {
     Write-Host "Checking and installing prerequisites..." -ForegroundColor Yellow
@@ -135,23 +138,21 @@ if (-not (Test-Path "venv")) {
     Write-Host "Virtual environment already exists." -ForegroundColor Green
 }
 
-# Activate virtual environment
-Write-Host "Activating virtual environment..." -ForegroundColor Yellow
-& .\venv\Scripts\Activate
+# Define the path to the virtual environment's Python executable
+$venvPython = Join-Path $PWD "venv\Scripts\python.exe"
 
-# Upgrade pip
+# Upgrade pip using the virtual environment's Python
 Write-Host "Upgrading pip..." -ForegroundColor Yellow
-& "$PWD\venv\Scripts\python.exe" -m pip install --upgrade pip
-
+& $venvPython -m pip install --upgrade pip
 if (-not $?) {
     Error-Exit "Failed to upgrade pip."
 } else {
     Write-Host "Pip upgraded successfully." -ForegroundColor Green
 }
 
-# Install requirements
+# Install requirements using the virtual environment's Python
 Write-Host "Installing Python dependencies..." -ForegroundColor Yellow
-pip install -r requirements.txt
+& $venvPython -m pip install -r requirements.txt
 if (-not $?) {
     Error-Exit "Failed to install dependencies."
 } else {
@@ -171,20 +172,26 @@ if ($Action -eq "install") {
         } else {
             # Define the number of characters to show from the start and end
             $numChars = 4
-            $startPart = $envValue.Substring(0, [Math]::Min($numChars, $envValue.Length))
-            $endPart = $envValue.Substring([Math]::Max(0, $envValue.Length - $numChars), $numChars)
-
-            # Output the preview with the first few and last few characters
-            Write-Host "$var is set: $startPart***$endPart"
+            if ($envValue.Length -gt ($numChars * 2)) {
+                $startPart = $envValue.Substring(0, $numChars)
+                $endPart = $envValue.Substring($envValue.Length - $numChars, $numChars)
+                Write-Host "$var is set: $startPart***$endPart"
+            } else {
+                Write-Host "$var is set: $envValue"
+            }
         }
     }
 } else {
     Write-Host "Skipping environment variable validation for UNINSTALL action." -ForegroundColor Yellow
 }
 
-# Run the Python script with the selected action
+# Debug: Output the current Action before running Python script
+Write-Host "DEBUG: Action before running Python script: --$Action" -ForegroundColor DarkGray
+
+# Run the Python script with the selected action using the virtual environment's Python
 Write-Host "Running install_agents.py with --$Action..." -ForegroundColor Magenta
-python install_agents.py --log-level INFO --$Action
+Write-Host "DEBUG: Executing command: & $venvPython install_agents.py --log-level INFO --$Action" -ForegroundColor DarkGray
+& $venvPython install_agents.py --log-level INFO --$Action
 if (-not $?) {
     Error-Exit "Failed to run install_agents.py."
 } else {
