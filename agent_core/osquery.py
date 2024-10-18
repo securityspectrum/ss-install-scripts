@@ -633,17 +633,73 @@ class OsqueryInstaller:
 
     def stop_and_disable_service_linux(self):
         """
-        Stops and disables the osqueryd service on Linux.
+        Stops and disables the osqueryd service on Linux. It first checks if the service exists,
+        then attempts to stop and disable it. Detailed logging is provided for each step.
         """
-        self.logger.debug("Stopping and disabling osqueryd on Linux.")
+        self.logger.debug("Checking if osqueryd service exists before attempting to stop and disable it.")
+
+        # Check if osqueryd service exists
         try:
-            subprocess.run(['sudo', 'systemctl', 'stop', OSQUERY_SERVICE_NAME],
-                           check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            subprocess.run(['sudo', 'systemctl', 'disable', OSQUERY_SERVICE_NAME],
-                           check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.logger.debug("osqueryd service stopped and disabled on Linux.")
+            result_status = subprocess.run(['sudo', 'systemctl', 'status', OSQUERY_SERVICE_NAME],
+                                           check=False,
+                                           text=True,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE)
+            if result_status.returncode != 0:
+                self.logger.warning(f"osqueryd service is not loaded or does not exist: {result_status.stderr}")
+                return  # If the service doesn't exist, no need to proceed further
+            else:
+                self.logger.debug("osqueryd service exists. Proceeding with stop and disable steps.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to stop or disable osqueryd on Linux: {e.stderr}")
+            self.logger.error(f"Failed to check osqueryd service status: {e.stderr}")
+            raise
+
+        # Stop the service
+        try:
+            self.logger.debug("Stopping osqueryd service...")
+            result_stop = subprocess.run(['sudo', 'systemctl', 'stop', OSQUERY_SERVICE_NAME],
+                                         check=False,
+                                         text=True,
+                                         stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE)
+            if result_stop.returncode == 0:
+                self.logger.debug("osqueryd service stopped successfully.")
+            else:
+                self.logger.warning(f"Failed to stop osqueryd service: {result_stop.stderr}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Error while stopping osqueryd service: {e.stderr}")
+            raise
+
+        # Disable the service
+        try:
+            self.logger.debug("Disabling osqueryd service...")
+            result_disable = subprocess.run(['sudo', 'systemctl', 'disable', OSQUERY_SERVICE_NAME],
+                                            check=False,
+                                            text=True,
+                                            stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE)
+            if result_disable.returncode == 0:
+                self.logger.debug("osqueryd service disabled successfully.")
+            else:
+                self.logger.warning(f"Failed to disable osqueryd service: {result_disable.stderr}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Error while disabling osqueryd service: {e.stderr}")
+            raise
+
+        # Reload systemd to ensure changes are applied
+        try:
+            self.logger.debug("Reloading systemd daemon to apply changes...")
+            result_reload = subprocess.run(['sudo', 'systemctl', 'daemon-reload'],
+                                           check=False,
+                                           text=True,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE)
+            if result_reload.returncode == 0:
+                self.logger.debug("Systemd daemon reloaded successfully.")
+            else:
+                self.logger.warning(f"Failed to reload systemd daemon: {result_reload.stderr}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Error while reloading systemd daemon: {e.stderr}")
             raise
 
     def uninstall_linux(self):
