@@ -4,3 +4,4 @@ distro
 certifi
 charset-normalizer
 pywin32==307; platform_system == "Windows"
+toml

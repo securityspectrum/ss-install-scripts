@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import platform
 import subprocess
 import distro
@@ -18,6 +19,8 @@ import platform
 import ctypes
 import re
 
+import toml
+
 if platform.system() == 'Windows':
     import win32security
     import win32con
@@ -30,7 +33,10 @@ else:
 # Configure logging
 from agent_core import SystemUtility
 from agent_core.constants import SS_NETWORK_ANALYZER_REPO, SS_NETWORK_ANALYZER_SERVICE_NAME, \
-    SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS, ZEEK_SERVICE_PATH_LINUX
+    SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS, ZEEK_SERVICE_PATH_LINUX, SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS, \
+    SS_NETWORK_ANALYZER_CONFIG_DIR_WINDOWS, NETWORK_ANALYZER_CONFIG_FILENAME, \
+    SS_NETWORK_ANALYZER_CONF_DEFAULT_FLUSH_INTERVAL, SS_NETWORK_ANALYZER_LOG_PATH_MACOS, \
+    SS_NETWORK_ANALYZER_CONFIG_DIR_MACOS, SS_NETWORK_ANALYZER_CONFIG_DIR_LINUX, SS_NETWORK_ANALYZER_LOG_PATH_LINUX
 from agent_core.network_analyzer_installer import SS_NETWORK_ANALYZER_ASSET_PATTERNS
 
 
@@ -170,8 +176,10 @@ class ZeekInstaller:
         if self.command_exists('zeek'):
             zeek_version = self.run_command(['zeek', '--version'], capture_output=True).splitlines()[0]
             self.logger.debug(f"Zeek is already installed: {zeek_version}")
+            return True
         else:
             self.logger.debug("Zeek not found.")
+            return False
 
     def downgrade_privileges(self):
         """
@@ -1532,6 +1540,7 @@ make install
                 sys.exit(1)
         elif self.os_system == 'windows':
             self.install_ss_network_analyzer_windows()
+            self.configure_network_interface_ss_network_analyzer_windows()
         else:
             self.logger.error("Unsupported operating system.")
             sys.exit(1)
@@ -2085,6 +2094,232 @@ make install
             except Exception as ex:
                 self.logger.error(f"An unexpected error occurred: {ex}")
                 raise
+
+    def get_default_interface(self):
+        system = platform.system().lower()
+        interface = None
+
+        if system == 'darwin':
+            # macOS uses 'route' to detect the default network interface
+            route_output = self.run_command(['route', 'get', 'default'], capture_output=True)
+            for line in route_output.splitlines():
+                if 'interface:' in line:
+                    interface = line.split(':')[1].strip()
+                    break
+
+        elif system == 'linux':
+            # Linux uses 'ip route' to detect the default network interface
+            ip_output = self.run_command(['ip', 'route'], capture_output=True)
+            for line in ip_output.splitlines():
+                if 'default' in line:
+                    parts = line.split()
+                    if 'dev' in parts:
+                        dev_index = parts.index('dev') + 1
+                        if dev_index < len(parts):
+                            interface = parts[dev_index]
+                            break
+
+        elif system == 'windows':
+            # Step 1: Use PowerShell to get the default network interface's InterfaceAlias and InterfaceIndex in JSON
+            ps_command = (
+                "Get-NetRoute -DestinationPrefix '0.0.0.0/0' | "
+                "Sort-Object -Property RouteMetric | "
+                "Select-Object -First 1 | "
+                "Select-Object InterfaceAlias, InterfaceIndex | "
+                "ConvertTo-Json"
+            )
+            route_output = self.run_command(['powershell', '-Command', ps_command], capture_output=True)
+
+            try:
+                route_data = json.loads(route_output)
+                interface_alias = route_data.get('InterfaceAlias')
+                interface_index = route_data.get('InterfaceIndex')
+
+                if interface_alias and interface_index:
+                    self.logger.debug("Detected InterfaceAlias: %s, InterfaceIndex: %s", interface_alias, interface_index)
+                    # Step 2: Retrieve the GUID for the InterfaceIndex using InterfaceGuid
+                    ps_guid_command = (
+                        f"Get-NetAdapter -InterfaceIndex {interface_index} | Select-Object -ExpandProperty InterfaceGuid | ConvertTo-Json"
+                    )
+                    guid_output = self.run_command(['powershell', '-Command', ps_guid_command], capture_output=True).strip()
+                    interface_guid = json.loads(guid_output) if guid_output else None
+
+                    if interface_guid:
+                        # Format the NPF device name with double backslashes
+                        device_name = f"\\Device\\NPF_{interface_guid.upper()}"
+                        interface = device_name
+                        self.logger.debug("Formatted NPF Device Name: %s", device_name)
+                    else:
+                        self.logger.warning("Failed to retrieve InterfaceGuid via PowerShell. Attempting fallback method.")
+                        interface = self.fallback_windows_interface(interface_index)
+                else:
+                    self.logger.warning("PowerShell command did not return InterfaceAlias and InterfaceIndex. Attempting fallback method.")
+                    interface = self.fallback_windows_interface()
+
+            except json.JSONDecodeError as e:
+                self.logger.error("Failed to parse PowerShell JSON output: %s", e)
+                self.logger.debug("Raw PowerShell Output:\n%s", route_output)
+                interface = self.fallback_windows_interface()
+
+        else:
+            self.logger.error("Unsupported operating system: %s", platform.system())
+            sys.exit(1)
+
+        if not interface:
+            self.logger.error("Unable to detect network interface.")
+            sys.exit(1)
+        self.logger.debug("Using network interface: %s", interface)
+        return interface
+
+    def fallback_windows_interface(self, interface_index=None):
+        """
+        Fallback method to determine the default network interface by parsing 'route print' and using WMI.
+        Returns the \\Device\\NPF_{GUID} if possible.
+        """
+        # Get the routing table
+        route_output = self.run_command(['route', 'print'], capture_output=True)
+        interface_ip = None
+        in_ipv4_section = False
+
+        for line in route_output.splitlines():
+            line = line.strip()
+            if line.startswith('IPv4 Route Table'):
+                in_ipv4_section = True
+                continue
+            if in_ipv4_section:
+                if line.startswith('Active Routes:') or line.startswith('Persistent Routes:'):
+                    continue
+                if line.startswith('Network Destination'):
+                    # Header line, skip
+                    continue
+                if not line:
+                    # End of IPv4 routes
+                    break
+                parts = line.split()
+                if len(parts) >= 5 and parts[0] == '0.0.0.0' and parts[1] == '0.0.0.0':
+                    # The interface is usually the fourth column (index 3)
+                    interface_ip = parts[3]
+                    break
+
+        if not interface_ip:
+            self.logger.error("Unable to find default route in 'route print' output.")
+            return None
+
+        # Map the interface IP to the interface's GUID using WMI with JSON output
+        ps_guid_command = (
+            f"Get-WmiObject Win32_NetworkAdapter | Where-Object {{ $_.IPAddress -contains '{interface_ip}' }} | Select-Object -ExpandProperty GUID | ConvertTo-Json"
+        )
+        guid_output = self.run_command(['powershell', '-Command', ps_guid_command], capture_output=True).strip()
+        try:
+            interface_guid = json.loads(guid_output) if guid_output else None
+            if interface_guid:
+                device_name = f"\\Device\\NPF_{interface_guid.upper()}"
+                self.logger.debug("Formatted NPF Device Name from fallback: %s", device_name)
+                return device_name
+            else:
+                self.logger.error("Failed to retrieve GUID via fallback method.")
+                return None
+        except json.JSONDecodeError as e:
+            self.logger.error("Failed to parse fallback PowerShell JSON output: %s", e)
+            self.logger.debug("Raw Fallback PowerShell Output:\n%s", guid_output)
+            return None
+
+    def configure_network_interface_ss_network_analyzer_windows(self):
+        """
+        Configures the selected network interface, log_dir, and flush_interval in the network-analyzer.conf file.
+        If any of these keys are not set, it detects or assigns default values accordingly.
+        """
+        # Determine the current platform
+        current_platform = platform.system().lower()
+
+        # Define paths based on the platform
+        if current_platform == 'windows':
+            log_dir_default = SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS
+            config_dir = SS_NETWORK_ANALYZER_CONFIG_DIR_WINDOWS
+        elif current_platform == 'linux':
+            log_dir_default = SS_NETWORK_ANALYZER_LOG_PATH_LINUX
+            config_dir = SS_NETWORK_ANALYZER_CONFIG_DIR_LINUX
+        elif current_platform == 'darwin':
+            log_dir_default = SS_NETWORK_ANALYZER_LOG_PATH_MACOS
+            config_dir = SS_NETWORK_ANALYZER_CONFIG_DIR_MACOS
+        else:
+            self.logger.error("Unsupported operating system: %s", platform.system())
+            sys.exit(1)
+
+        # Define the configuration file path
+        config_filename = NETWORK_ANALYZER_CONFIG_FILENAME
+        config_path = os.path.join(config_dir, config_filename)
+
+        # Ensure the configuration directory exists
+        try:
+            os.makedirs(config_dir, exist_ok=True)
+            self.logger.debug("Ensured that the config directory exists: %s", config_dir)
+        except Exception as e:
+            self.logger.error("Failed to create config directory '%s': %s", config_dir, e)
+            sys.exit(1)
+
+        # Load existing config or initialize a new one
+        config = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    config = toml.load(f)
+                self.logger.debug("Loaded existing config file: %s", config_path)
+            except toml.TomlDecodeError as e:
+                self.logger.error("Failed to parse config file '%s': %s", config_path, e)
+                sys.exit(1)
+            except Exception as e:
+                self.logger.error("Error reading config file '%s': %s", config_path, e)
+                sys.exit(1)
+        else:
+            self.logger.debug("Config file does not exist. A new one will be created at: %s", config_path)
+
+        # Flags to track if any updates are made
+        config_updated = False
+
+        # Check and set 'selected_interface' if not set
+        if 'selected_interface' not in config or not config['selected_interface']:
+            self.logger.info("'selected_interface' not set in config. Detecting default network interface...")
+            # Detect the default network interface
+            default_interface = self.get_default_interface()
+
+            # Update the config with the detected interface
+            config['selected_interface'] = default_interface
+            self.logger.debug("Set 'selected_interface' to: %s", default_interface)
+            config_updated = True
+        else:
+            self.logger.info("'selected_interface' is already set to: %s", config['selected_interface'])
+
+        # Check and set 'log_dir' if not set
+        if 'log_dir' not in config or not config['log_dir']:
+            self.logger.info("'log_dir' not set in config. Setting to default path...")
+            config['log_dir'] = log_dir_default
+            self.logger.debug("Set 'log_dir' to: %s", config['log_dir'])
+            config_updated = True
+        else:
+            self.logger.info("'log_dir' is already set to: %s", config['log_dir'])
+
+        # Check and set 'flush_interval' if not set
+        if 'flush_interval' not in config or not config['flush_interval']:
+            self.logger.info("'flush_interval' not set in config. Setting to default value...")
+            config['flush_interval'] = SS_NETWORK_ANALYZER_CONF_DEFAULT_FLUSH_INTERVAL
+            self.logger.debug("Set 'flush_interval' to: %s", config['flush_interval'])
+            config_updated = True
+        else:
+            self.logger.info("'flush_interval' is already set to: %s", config['flush_interval'])
+
+        # Write the updated config back to the file if any updates were made
+        if config_updated:
+            try:
+                with open(config_path, 'w') as f:
+                    toml.dump(config, f)
+                self.logger.info("Updated configuration in config file: %s", config_path)
+            except Exception as e:
+                self.logger.error("Failed to write to config file '%s': %s", config_path, e)
+                sys.exit(1)
+        else:
+            self.logger.info("No updates made to the config file: %s", config_path)
+
 
 if __name__ == "__main__":
     installer = ZeekInstaller()

@@ -81,10 +81,11 @@ SS_NETWORK_ANALYZER_CONFIG_DIR_MACOS = "/Library/Application Support/ss-network-
 SS_NETWORK_ANALYZER_CONFIG_DIR_WINDOWS = "C:/ProgramData/ss-network-analyzer/config"
 
 # Network analyzer log paths
-SS_NETWORK_ANALYZER_LOG_PATH_LINUX = "/var/log/ss-network-analyzer/*.log"
-SS_NETWORK_ANALYZER_LOG_PATH_MACOS = "/usr/local/var/log/ss-network-analyzer/*.log"
-SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS = r"C:\\ProgramData\\ss-network-analyzer\\logs\\*.log"
-
+SS_NETWORK_ANALYZER_LOG_PATH_LINUX = "/var/log/ss-network-analyzer/"
+SS_NETWORK_ANALYZER_LOG_PATH_MACOS = "/usr/local/var/log/ss-network-analyzer/"
+SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS = r"C:\\ProgramData\\ss-network-analyzer\\logs\\"
+SS_NETWORK_ANALYZER_LOG_FILES_MATCH = "*.log"
+SS_NETWORK_ANALYZER_CONF_DEFAULT_FLUSH_INTERVAL = 1
 # Network analyzer config file name
 NETWORK_ANALYZER_CONFIG_FILENAME = "network-analyzer.conf"
 
