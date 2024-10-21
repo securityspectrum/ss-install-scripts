@@ -61,47 +61,73 @@ class OsqueryInstaller:
 
     def group_assets_by_distribution(self, assets):
         """
-        Groups release assets by distribution based on their filenames and prints them for validation.
+        Groups release assets by distribution and package type.
+        Differentiates between main packages.
+
+        Args:
+            assets (list): List of asset dictionaries from the latest release.
+
+        Returns:
+            dict: A dictionary with distribution types as keys and lists of assets as values.
+                  Each distribution type contains a list for main packages.
         """
         distributions = {
-            'linux': [],
-            'windows': [],
-            'macos': [],
+            'linux': {'main': []},
+            'windows': {'main': []},
+            'macos': {'main': []},
             'source': []
         }
 
         for asset in assets:
             name = asset['name']
             download_url = asset['browser_download_url']
-
             lower_name = name.lower()
 
             # Debugging print statement to track the filename
             self.logger.debug(f"Processing asset: {name}")
 
-            # Linux files
+            # Skip debug symbol and debuginfo packages entirely
+            if '-dbgsym' in lower_name or '-dbg' in lower_name or '-debuginfo' in lower_name:
+                self.logger.debug(f"Skipping debug/debuginfo package: {name}")
+                continue
+
+            # Linux main packages
             if 'linux' in lower_name and (
-                    lower_name.endswith('.rpm') or lower_name.endswith('.deb') or lower_name.endswith('.tar.gz')):
-                distributions['linux'].append({'name': name, 'url': download_url})
-                self.logger.debug(f"Asset {name} added to Linux group.")
-            # Windows files (.msi, .exe, or .zip)
-            elif 'windows' in lower_name or name.endswith('.msi'):
-                distributions['windows'].append({'name': name, 'url': download_url})
-                self.logger.debug(f"Asset {name} added to Windows group.")
-            # macOS files (.pkg or .dmg)
-            elif 'macos' in lower_name or 'darwin' in lower_name or name.endswith('.pkg'):
-                distributions['macos'].append({'name': name, 'url': download_url})
-                self.logger.debug(f"Asset {name} added to macOS group.")
+                    lower_name.endswith('.rpm') or lower_name.endswith('.deb') or lower_name.endswith('.tar.gz')
+            ):
+                distributions['linux']['main'].append({'name': name, 'url': download_url})
+                self.logger.debug(f"Asset {name} added to Linux main group.")
+            # Windows main packages
+            elif 'windows' in lower_name or name.endswith('.msi') or name.endswith('.exe'):
+                distributions['windows']['main'].append({'name': name, 'url': download_url})
+                self.logger.debug(f"Asset {name} added to Windows main group.")
+            # macOS main packages
+            elif 'macos' in lower_name or 'darwin' in lower_name or name.endswith('.pkg') or name.endswith('.dmg'):
+                distributions['macos']['main'].append({'name': name, 'url': download_url})
+                self.logger.debug(f"Asset {name} added to macOS main group.")
             # Source code files
-            elif 'source code' in lower_name or name.endswith('.tar.gz') or name.endswith('.zip'):
+            elif 'source code' in lower_name:
                 distributions['source'].append({'name': name, 'url': download_url})
                 self.logger.debug(f"Asset {name} added to Source group.")
+            else:
+                # If it's a .tar.gz or .zip file and hasn't matched yet, consider it source code
+                if name.endswith('.tar.gz') or name.endswith('.zip'):
+                    distributions['source'].append({'name': name, 'url': download_url})
+                    self.logger.debug(f"Asset {name} added to Source group.")
+                else:
+                    self.logger.debug(f"Asset {name} did not match any category and was skipped.")
 
         # Print grouped distributions for validation
         for distro, files in distributions.items():
             self.logger.debug(f"Distribution: {distro}")
-            for file in files:
-                self.logger.debug(f"  - {file['name']}")
+            if isinstance(files, dict):
+                for pkg_type, pkg_files in files.items():
+                    self.logger.debug(f"  - {pkg_type}:")
+                    for file in pkg_files:
+                        self.logger.debug(f"    - {file['name']}")
+            else:
+                for file in files:
+                    self.logger.debug(f"  - {file['name']}")
 
         return distributions
 
@@ -129,62 +155,120 @@ class OsqueryInstaller:
         """
         Selects the appropriate asset based on the system architecture and OS type.
         Prioritizes assets based on architecture for Linux, macOS, and Windows.
+
+        Args:
+            distribution_assets (list): List of assets from the latest release.
+            distro_info (str, optional): Identifier for the Linux distribution (e.g., 'ubuntu', 'centos').
+            version (str, optional): Version of the Linux distribution.
+
+        Returns:
+            dict: Selected asset with 'name' and 'url' keys.
         """
         if not distribution_assets:
             self.logger.error("No assets found for the detected distribution.")
             sys.exit(1)
 
         for asset in distribution_assets:
-            self.logger.debug(f"Asset: {asset}")
+            self.logger.debug(f"Asset available: {asset}")
 
         os_system = platform.system().lower()
         selected_asset = None
         system_arch = platform.machine().lower()
 
-        # Prioritizing asset based on OS and architecture
+        # Define Debian-based distributions for prioritization
+        debian_based_distros = ['ubuntu', 'debian', 'linuxmint', 'pop', 'elementary']
+
+        # Define RPM-based distributions
+        rpm_based_distros = ['fedora', 'centos', 'rhel', 'rocky', 'almalinux', 'opensuse']
+
+        # Determine if the distribution is Debian-based or RPM-based
+        is_debian_based = distro_info in debian_based_distros
+        is_rpm_based = distro_info in rpm_based_distros
+
+        self.logger.debug(f"Operating System: {os_system}")
+        self.logger.debug(f"Distribution Info: {distro_info}")
+        self.logger.debug(f"System Architecture: {system_arch}")
+        self.logger.debug(f"Is Debian-Based: {is_debian_based}")
+        self.logger.debug(f"Is RPM-Based: {is_rpm_based}")
+
+        # Prioritize asset selection based on OS type
         for asset in distribution_assets:
             name = asset['name'].lower()
+
+            # The debug packages are already skipped in the grouping function,
+            # but we can add an extra check to be safe.
+            if '-dbgsym' in name or '-dbg' in name or '-debuginfo' in name:
+                self.logger.debug(f"Skipping debug/debuginfo package: {name}")
+                continue
 
             # macOS: prioritize .pkg files
             if os_system == 'darwin' and ('macos' in name or 'darwin' in name):
                 if system_arch in name and name.endswith('.pkg'):
                     selected_asset = asset
+                    self.logger.debug(f"Selected macOS pkg asset: {name}")
                     break
                 elif 'x86_64' in name and name.endswith('.pkg'):
                     selected_asset = asset
+                    self.logger.debug(f"Selected macOS x86_64 pkg asset: {name}")
                 elif 'arm64' in name and name.endswith('.pkg'):
                     selected_asset = asset
+                    self.logger.debug(f"Selected macOS arm64 pkg asset: {name}")
 
             # Windows: prioritize .msi files
             elif os_system == 'windows':
-                if 'x86_64' in name or 'amd64' in name:  # Prefer x86_64 or amd64 packages
+                if 'x86_64' in name or 'amd64' in name:
                     if name.endswith('.msi'):
                         selected_asset = asset
+                        self.logger.debug(f"Selected Windows MSI asset: {name}")
                         break
-                    elif name.endswith('.exe'):  # Fallback to .exe
+                    elif name.endswith('.exe'):
                         selected_asset = asset
+                        self.logger.debug(f"Selected Windows EXE asset: {name}")
                 elif 'arm64' in name:
-                    self.logger.debug(f"Skipping ARM64 asset: {name}")
+                    self.logger.debug(f"Skipping ARM64 Windows asset: {name}")
 
-            # Linux: prioritize based on architecture
+            # Linux: prioritize based on distribution and architecture
             elif os_system == 'linux':
-                if system_arch in name and (name.endswith('.rpm') or name.endswith('.deb')):
-                    selected_asset = asset
-                    break
-                # Fallback for common x86_64 package names
-                elif 'x86_64' in name and (name.endswith('.rpm') or name.endswith('.deb')):
-                    selected_asset = asset
-                elif 'aarch64' in name and system_arch == 'aarch64' and (
-                        name.endswith('.rpm') or name.endswith('.deb')):
-                    selected_asset = asset
+                # Debian-Based: prefer .deb packages
+                if is_debian_based and name.endswith('.deb'):
+                    if system_arch in name or 'amd64' in name or 'x86_64' in name:
+                        selected_asset = asset
+                        self.logger.debug(f"Selected Debian-based DEB asset: {name}")
+                        break
 
-        # Fallback: Select the first available asset if no specific format is found
+                # RPM-Based: prefer .rpm packages
+                elif is_rpm_based and name.endswith('.rpm'):
+                    if system_arch in name or 'amd64' in name or 'x86_64' in name:
+                        selected_asset = asset
+                        self.logger.debug(f"Selected RPM-based RPM asset: {name}")
+                        break
+
+        # Fallback: Select the first available main asset if no specific format is found
         if not selected_asset:
-            self.logger.warning(f"No specific installer format found for {os_system}. Falling back to the first available asset.")
-            selected_asset = distribution_assets[0]
+            for asset in distribution_assets:
+                name = asset['name'].lower()
+                if '-dbgsym' in name or '-dbg' in name:
+                    continue  # Skip debug symbol packages
+                if os_system == 'linux':
+                    if is_debian_based and name.endswith('.deb'):
+                        selected_asset = asset
+                        self.logger.debug(f"Fallback selection: DEB asset for Debian-based distro: {name}")
+                        break
+                    elif is_rpm_based and name.endswith('.rpm'):
+                        selected_asset = asset
+                        self.logger.debug(f"Fallback selection: RPM asset for RPM-based distro: {name}")
+                        break
+                else:
+                    selected_asset = asset
+                    self.logger.debug(f"Fallback selection: {name}")
+                    break
 
-        self.logger.debug(f"Selected asset: {selected_asset['name']}")
-        return selected_asset
+        if selected_asset:
+            self.logger.debug(f"Final selected asset: {selected_asset['name']}")
+            return selected_asset
+        else:
+            self.logger.error("No suitable asset found for installation.")
+            sys.exit(1)
 
     def download_asset(self, asset):
         """
@@ -328,11 +412,15 @@ class OsqueryInstaller:
         os_type, distro_info, version = self.detect_os()
 
         if os_type == 'linux':
-            selected_asset = self.select_asset(grouped_assets['linux'], distro_info, version)
+            # Use 'main' assets for Linux
+            distribution_assets = grouped_assets['linux']['main']
+            selected_asset = self.select_asset(distribution_assets, distro_info, version)
         elif os_type == 'macos':
-            selected_asset = self.select_asset(grouped_assets['macos'])
+            distribution_assets = grouped_assets['macos']['main']
+            selected_asset = self.select_asset(distribution_assets)
         elif os_type == 'windows':
-            selected_asset = self.select_asset(grouped_assets['windows'])
+            distribution_assets = grouped_assets['windows']['main']
+            selected_asset = self.select_asset(distribution_assets)
         else:
             self.logger.error(f"Unsupported operating system: {os_type}")
             sys.exit(1)
@@ -360,7 +448,6 @@ class OsqueryInstaller:
         self.logger.debug("osquery setup process completed successfully.")
         self.logger.debug(f"Downloaded files are located in: {Path(downloaded_file).resolve()}")
         self.logger.debug(f"Extracted files are located in: {Path(extract_dir).resolve()}")
-
 
     def configure_and_start(self):
         """

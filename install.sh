@@ -3,9 +3,42 @@ set -euxo pipefail
 
 # Function to print error and exit
 error_exit() {
-    echo "ERROR: $1" >&2
+    log "ERROR" "$1"
     exit 1
 }
+
+# Function for logging with timestamps
+log() {
+    local type="$1"
+    shift
+    local message="$@"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$type] $message"
+}
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 [--install | --uninstall | --help]"
+    echo
+    echo "Options:"
+    echo "  --install       Install the agents."
+    echo "  --uninstall     Uninstall the agents."
+    echo "  --help, -h      Display this help message."
+    exit 1
+}
+
+# Function to compare versions using sort -V (more portable)
+version_ge() {
+    # Returns 0 (true) if $1 >= $2, else 1
+    # Example: version_ge "3.10" "3.8"
+    if [[ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Define preferred Python versions
+PREFERRED_PYTHON_VERSIONS=("3.12" "3.11" "3.10" "3.9" "3.8")
 
 # Default action is to install
 ACTION="install"
@@ -21,33 +54,50 @@ while [[ $# -gt 0 ]]; do
             ACTION="uninstall"
             shift
             ;;
+        --help|-h)
+            usage
+            ;;
         *)
             echo "Unknown option: $1"
-            error_exit "Usage: $0 [--install | --uninstall]"
+            usage
             ;;
     esac
 done
 
+# Load environment variables from .env file if it exists
+if [ -f ".env" ]; then
+    log "INFO" "Loading environment variables from .env file."
+    set -o allexport
+    source .env
+    set +o allexport
+fi
+
 # Install git, curl, and sudo if they are missing
 install_prerequisites() {
     if command -v apt-get &> /dev/null; then
-        apt-get update
-        apt-get install -y git curl sudo
+        log "INFO" "Using apt-get to install prerequisites."
+        sudo apt-get update
+        sudo apt-get install -y git curl sudo
     elif command -v dnf &> /dev/null; then
-        dnf install -y git curl sudo
+        log "INFO" "Using dnf to install prerequisites."
+        sudo dnf install -y git curl sudo
     elif command -v yum &> /dev/null; then
-        yum install -y git curl sudo
+        log "INFO" "Using yum to install prerequisites."
+        sudo yum install -y git curl sudo
     elif command -v zypper &> /dev/null; then
-        zypper lu &> /dev/null
+        log "INFO" "Using zypper to install prerequisites."
+        sudo zypper lu &> /dev/null
         if [ $? -eq 4 ]; then
-            echo "Repository metadata is out of date. Refreshing..."
-            zypper refresh
+            log "INFO" "Repository metadata is out of date. Refreshing..."
+            sudo zypper refresh
         fi
-        zypper install -y git curl sudo
+        sudo zypper install -y git curl sudo
     elif [[ "$OSTYPE" == "darwin"* ]]; then
+        log "INFO" "Using Homebrew to install prerequisites."
         if ! command -v brew &> /dev/null; then
-            echo "Homebrew is not installed. Installing Homebrew..."
+            log "INFO" "Homebrew is not installed. Installing Homebrew..."
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            # Add Homebrew to PATH
             eval "$(/opt/homebrew/bin/brew shellenv)" || eval "$(/usr/local/bin/brew shellenv)"
         fi
         brew install git curl
@@ -57,11 +107,18 @@ install_prerequisites() {
 }
 
 # Ensure that the basic tools are available
-if ! command -v git &> /dev/null || ! command -v curl &> /dev/null || ! command -v sudo &> /dev/null; then
-    echo "git, curl, or sudo are not installed. Installing missing dependencies..."
+MISSING_DEPS=()
+for cmd in git curl sudo; do
+    if ! command -v "$cmd" &> /dev/null; then
+        MISSING_DEPS+=("$cmd")
+    fi
+done
+
+if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
+    log "INFO" "Missing dependencies: ${MISSING_DEPS[@]}. Installing missing dependencies..."
     install_prerequisites
 else
-    echo "All basic dependencies are already installed."
+    log "INFO" "All basic dependencies are already installed."
 fi
 
 # Clone the GitHub repository
@@ -69,80 +126,165 @@ REPO_URL="https://github.com/securityspectrum/ss-install-scripts.git"
 REPO_DIR="ss-install-scripts"
 
 if [ -d "$REPO_DIR" ]; then
-    echo "Repository already cloned. Pulling the latest changes..."
+    log "INFO" "Repository already cloned. Pulling the latest changes..."
     cd "$REPO_DIR"
-    git pull
+    if ! git pull; then
+        error_exit "Failed to pull latest changes from repository."
+    fi
 else
-    echo "Cloning the repository..."
-    git clone "$REPO_URL"
+    log "INFO" "Cloning the repository..."
+    if ! git clone "$REPO_URL"; then
+        error_exit "Failed to clone repository."
+    fi
     cd "$REPO_DIR"
 fi
 
 # Navigate to the scripts directory
-echo "Current working directory: $(pwd)"
+log "INFO" "Current working directory: $(pwd)"
 
 # Check if requirements.txt exists
 if [ ! -f requirements.txt ]; then
-    error_exit "requirements.txt not found"
+    error_exit "requirements.txt not found."
 fi
 
 # Check if install_agents.py exists
 if [ ! -f install_agents.py ]; then
-    error_exit "install_agents.py not found"
+    error_exit "install_agents.py not found."
 fi
 
 # Function to install Python3 and necessary packages on Linux
 install_python_on_linux() {
+    SELECTED_PYTHON=""
     if command -v apt-get &> /dev/null; then
-        apt-get update
-        apt-get install -y python3 python3-venv python3-pip perl-modules libterm-readline-gnu-perl iproute2
-    elif command -v dnf &> /dev/null; then
-        dnf install -y python3 python3-venv python3-pip perl-TermReadLine-Gnu iproute2
-    elif command -v yum &> /dev/null; then
-        yum install -y python3 python3-venv python3-pip perl-TermReadLine-Gnu iproute2
-    elif command -v zypper &> /dev/null; then
-        zypper lu &> /dev/null
-        if [ $? -eq 4 ]; then
-            echo "Repository metadata is out of date. Refreshing..."
-            zypper refresh
+        log "INFO" "Using apt-get to install Python and dependencies."
+        sudo apt-get update
+        sudo apt-get install -y software-properties-common python3-apt
+        sudo add-apt-repository ppa:deadsnakes/ppa -y
+        sudo apt-get update
+        for version in "${PREFERRED_PYTHON_VERSIONS[@]}"; do
+            log "INFO" "Attempting to install Python $version."
+            if sudo apt-get install -y "python${version}" "python${version}-venv" "python${version}-distutils" "python${version}-dev"; then
+                SELECTED_PYTHON="/usr/bin/python${version}"
+                log "INFO" "Successfully installed Python ${version}."
+                break
+            else
+                log "WARN" "Python ${version} not available via apt-get."
+            fi
+        done
+        if [ -z "$SELECTED_PYTHON" ]; then
+            error_exit "Failed to install a suitable Python version."
         fi
-        zypper install -y python3 python3-pip perl-TermReadLine-Gnu iproute2 || \
-        zypper install -y python3 python-pip perl-TermReadLine iproute2
+        # Install pip for the selected Python version if not already installed
+        if ! "${SELECTED_PYTHON}" -m pip --version &> /dev/null; then
+            log "INFO" "Installing pip for ${SELECTED_PYTHON}."
+            curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+            sudo "${SELECTED_PYTHON}" get-pip.py
+            rm get-pip.py
+        fi
+        # Install additional necessary packages
+        sudo apt-get install -y perl-modules libterm-readline-gnu-perl iproute2
+    elif command -v dnf &> /dev/null; then
+        log "INFO" "DNF package manager detected. Installing support is not implemented."
+        error_exit "DNF package manager support not implemented in this script."
+    elif command -v yum &> /dev/null; then
+        log "INFO" "YUM package manager detected. Installing support is not implemented."
+        error_exit "YUM package manager support not implemented in this script."
+    elif command -v zypper &> /dev/null; then
+        log "INFO" "Zypper package manager detected. Installing support is not implemented."
+        error_exit "Zypper package manager support not implemented in this script."
     else
         error_exit "Unsupported Linux distribution or package manager. Please install Python3 manually."
+    fi
+
+    # Verify the selected Python version
+    PYTHON_VERSION_INSTALLED=$("${SELECTED_PYTHON}" --version 2>&1 | awk '{print $2}')
+    log "INFO" "Installed Python version: ${PYTHON_VERSION_INSTALLED}"
+
+    if ! version_ge "$PYTHON_VERSION_INSTALLED" "3.8"; then
+        error_exit "Selected Python version is below 3.8. Installed version: $PYTHON_VERSION_INSTALLED"
     fi
 }
 
 # Function to install Python3 and necessary packages on macOS
 install_python_on_macos() {
     if ! command -v brew &> /dev/null; then
-        echo "Homebrew is not installed. Installing Homebrew..."
+        log "INFO" "Homebrew is not installed. Installing Homebrew..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        # Add Homebrew to PATH
         eval "$(/opt/homebrew/bin/brew shellenv)" || eval "$(/usr/local/bin/brew shellenv)"
     fi
 
-    if ! brew list python@3 &> /dev/null && ! brew list python3 &> /dev/null; then
-        echo "Python3 is not installed. Installing Python3 via Homebrew..."
-        brew update
-        brew install python3
+    SELECTED_PYTHON=""
+    for version in "${PREFERRED_PYTHON_VERSIONS[@]}"; do
+        if brew list "python@${version}" &> /dev/null; then
+            SELECTED_PYTHON="$(brew --prefix "python@${version}")/bin/python${version}"
+            log "INFO" "Found Python ${version} installed via Homebrew."
+            break
+        fi
+    done
+
+    if [ -z "$SELECTED_PYTHON" ]; then
+        log "INFO" "Installing Python via Homebrew."
+        for version in "${PREFERRED_PYTHON_VERSIONS[@]}"; do
+            if brew install "python@${version}"; then
+                SELECTED_PYTHON="$(brew --prefix "python@${version}")/bin/python${version}"
+                log "INFO" "Successfully installed Python ${version} via Homebrew."
+                break
+            else
+                log "WARN" "Python ${version} not available via Homebrew."
+            fi
+        done
     else
-        echo "Python3 is already installed via Homebrew."
+        log "INFO" "Python is already installed via Homebrew."
     fi
 
-    brew link --overwrite python3 || true
+    if [ -z "$SELECTED_PYTHON" ]; then
+        error_exit "Failed to install Python on macOS."
+    fi
+
+    # Verify the selected Python version
+    PYTHON_VERSION_INSTALLED=$("${SELECTED_PYTHON}" --version 2>&1 | awk '{print $2}')
+    log "INFO" "Installed Python version: ${PYTHON_VERSION_INSTALLED}"
+
+    if ! version_ge "$PYTHON_VERSION_INSTALLED" "3.8"; then
+        error_exit "Selected Python version is below 3.8. Installed version: $PYTHON_VERSION_INSTALLED"
+    fi
+
+    # Install pip if necessary
+    if ! "${SELECTED_PYTHON}" -m pip --version &> /dev/null; then
+        log "INFO" "Installing pip for ${SELECTED_PYTHON}."
+        curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+        "${SELECTED_PYTHON}" get-pip.py
+        rm get-pip.py
+    fi
 }
 
 # Detect OS type and install Python accordingly
 case "$OSTYPE" in
     darwin*)
-        echo "Detected macOS. Proceeding with macOS-specific installation."
+        log "INFO" "Detected macOS. Proceeding with macOS-specific installation."
         install_python_on_macos
         ;;
     linux*)
-        echo "Detected Linux. Proceeding with Linux-specific installation."
+        log "INFO" "Detected Linux. Proceeding with Linux-specific installation."
+        # Check if python3 is installed
         if ! command -v python3 &> /dev/null; then
-            echo "Python3 is not installed. Installing Python3..."
+            log "INFO" "Python3 is not installed. Installing Python3..."
             install_python_on_linux
+            SELECTED_PYTHON=$(command -v python3)  # May not be accurate, needs to set in install_python_on_linux
+        else
+            # Check python3 version
+            PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
+            log "INFO" "Detected python3 version: $PYTHON_VERSION"
+
+            if version_ge "$PYTHON_VERSION" "3.8"; then
+                log "INFO" "Python3 version is sufficient: $PYTHON_VERSION"
+                SELECTED_PYTHON=$(command -v python3)
+            else
+                log "INFO" "Python3 version is below 3.8 ($PYTHON_VERSION). Installing a newer version..."
+                install_python_on_linux
+                SELECTED_PYTHON=$(command -v python3)
+            fi
         fi
         ;;
     *)
@@ -150,118 +292,103 @@ case "$OSTYPE" in
         ;;
 esac
 
-# Verify Python3 installation
-if ! command -v python3 &> /dev/null; then
-    error_exit "Python3 installation failed."
+# Verify Python installation
+if [ -z "${SELECTED_PYTHON:-}" ]; then
+    error_exit "Python installation failed."
 fi
 
-# Print Python3 version for verification
-python3 --version
+# Print Python version for verification
+"${SELECTED_PYTHON}" --version
 
 # Check if venv module is available
-if ! python3 -c "import venv" &> /dev/null; then
-    echo "venv module is not available. Installing necessary packages..."
-    case "$OSTYPE" in
-        darwin*)
-            brew install python3-venv || true
-            ;;
-        linux*)
-            install_python_on_linux
-            ;;
-    esac
-fi
-
-# Ensure python3-venv and pip are installed
-if ! python3 -m venv --help &> /dev/null; then
-    echo "Python3-venv is not installed. Installing required packages..."
-    case "$OSTYPE" in
-        darwin*)
-            brew install python3-venv || true
-            ;;
-        linux*)
-            install_python_on_linux
-            ;;
-    esac
+if ! "${SELECTED_PYTHON}" -c "import venv" &> /dev/null; then
+    log "INFO" "venv module is not available in ${SELECTED_PYTHON}. Installing necessary packages..."
+    if command -v apt-get &> /dev/null; then
+        PYTHON_VERSION_SHORT=$(echo "${PYTHON_VERSION_INSTALLED}" | cut -d'.' -f1,2)
+        sudo apt-get install -y "python${PYTHON_VERSION_SHORT}-venv"
+    elif command -v brew &> /dev/null; then
+        # Typically venv comes with Python on macOS via Homebrew
+        log "INFO" "venv module should be available via Homebrew Python."
+    else
+        log "WARN" "Cannot install venv module automatically. Please install it manually."
+    fi
 fi
 
 # Re-verify venv module
-if ! python3 -c "import venv" &> /dev/null; then
+if ! "${SELECTED_PYTHON}" -c "import venv" &> /dev/null; then
     error_exit "venv module is still not available after installation."
 fi
 
-# List Python3 binaries for debugging purposes
-echo "Listing Python3 binaries in /usr/bin and /usr/local/bin:"
-ls -l /usr/bin/python3* /usr/local/bin/python3* 2>/dev/null || true
+# Remove existing virtual environment if it exists
+if [ -d "venv" ]; then
+    log "INFO" "Removing existing virtual environment..."
+    rm -rf venv
+fi
 
-# Create virtual environment
-echo "Creating virtual environment..."
-if python3 -m venv venv; then
-    echo "Virtual environment created successfully."
+# Create virtual environment using the selected Python version
+log "INFO" "Creating virtual environment..."
+if "${SELECTED_PYTHON}" -m venv venv; then
+    log "INFO" "Virtual environment created successfully."
 else
-    error_exit "Failed to create virtual environment."
+    error_exit "Failed to create virtual environment with ${SELECTED_PYTHON}."
 fi
 
 # Check if virtual environment was created
-if [ ! -f venv/bin/python3 ] && [ ! -f venv/Scripts/python.exe ]; then
-    error_exit "Virtual environment creation did not include python3."
+if [ ! -f venv/bin/python ] && [ ! -f venv/Scripts/python.exe ]; then
+    error_exit "Virtual environment creation did not include python."
 fi
 
 # Activate virtual environment
-echo "Activating virtual environment..."
+log "INFO" "Activating virtual environment..."
 # shellcheck disable=SC1091
 source venv/bin/activate || source venv/Scripts/activate
 
 # Verify activation
 if [ -z "$VIRTUAL_ENV" ]; then
-    echo "Failed to activate virtual environment."
-    exit 1
+    error_exit "Failed to activate virtual environment."
 fi
 
 # Upgrade pip
-echo "Upgrading pip..."
+log "INFO" "Upgrading pip..."
 pip install --upgrade pip
 if [ $? -ne 0 ]; then
-    echo "Failed to upgrade pip."
-    exit 1
+    error_exit "Failed to upgrade pip."
 fi
 
 # Install requirements
 if [ -f "requirements.txt" ]; then
-    echo "Installing Python dependencies..."
+    log "INFO" "Installing Python dependencies..."
     pip install -r requirements.txt
     if [ $? -ne 0 ]; then
-        echo "Failed to install dependencies."
-        exit 1
+        error_exit "Failed to install dependencies."
     fi
 else
-    echo "requirements.txt not found."
+    log "WARN" "requirements.txt not found."
 fi
 
 # Run the Python script with the selected action
 if [ -f "install_agents.py" ]; then
-    echo "Running install_agents.py with action: --$ACTION"
+    log "INFO" "Running install_agents.py with action: --$ACTION"
 
     # Only validate environment variables if the action is 'install'
     if [ "$ACTION" = "install" ]; then
         # Validate environment variables
         required_vars=("ORG_KEY" "API_ACCESS_KEY" "API_SECRET_KEY" "JWT_TOKEN" "MASTER_KEY")
         for var in "${required_vars[@]}"; do
-            if [ -z "${!var}" ]; then
-                echo "Error: Environment variable $var is not set."
+            if [ -z "${!var:-}" ]; then
+                log "ERROR" "Environment variable $var is not set."
                 exit 1
             else
-                echo "$var is set."
+                log "INFO" "$var is set."
             fi
         done
     fi
 
     # Run the install_agents.py script with the selected action
-    python install_agents.py --log-level INFO --$ACTION
+    python install_agents.py --log-level INFO --"$ACTION"
     if [ $? -ne 0 ]; then
-        echo "Failed to run install_agents.py."
-        exit 1
+        error_exit "Failed to run install_agents.py."
     fi
 else
-    echo "install_agents.py not found."
-    exit 1
+    error_exit "install_agents.py not found."
 fi
