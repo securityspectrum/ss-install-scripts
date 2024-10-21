@@ -29,7 +29,6 @@ usage() {
 # Function to compare versions using sort -V (more portable)
 version_ge() {
     # Returns 0 (true) if $1 >= $2, else 1
-    # Example: version_ge "3.10" "3.8"
     if [[ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]; then
         return 0
     else
@@ -121,6 +120,147 @@ else
     log "INFO" "All basic dependencies are already installed."
 fi
 
+# Function to check and install Python and necessary modules
+install_python_and_modules() {
+    # Function to install Python3 and necessary packages on Linux
+    install_python_on_linux() {
+        SELECTED_PYTHON=""
+        PACKAGE_MANAGER=""
+
+        if command -v apt-get &> /dev/null; then
+            PACKAGE_MANAGER="apt-get"
+        elif command -v dnf &> /dev/null; then
+            PACKAGE_MANAGER="dnf"
+        elif command -v yum &> /dev/null; then
+            PACKAGE_MANAGER="yum"
+        elif command -v zypper &> /dev/null; then
+            PACKAGE_MANAGER="zypper"
+        else
+            error_exit "No supported package manager found (apt-get, dnf, yum, zypper). Please install Python3 manually."
+        fi
+
+        case "$PACKAGE_MANAGER" in
+            apt-get)
+                log "INFO" "Using apt-get to install Python and dependencies."
+                sudo apt-get update
+                sudo apt-get install -y python3-full
+                SELECTED_PYTHON=$(command -v python3)
+                ;;
+            dnf|yum)
+                log "INFO" "Using $PACKAGE_MANAGER to install Python and dependencies."
+                sudo "$PACKAGE_MANAGER" install -y python3 python3-venv python3-pip
+                SELECTED_PYTHON=$(command -v python3)
+                ;;
+            zypper)
+                log "INFO" "Using zypper to install Python and dependencies."
+                sudo zypper refresh
+                sudo zypper install -y python3 python3-venv python3-pip
+                SELECTED_PYTHON=$(command -v python3)
+                ;;
+        esac
+
+        if [ -z "$SELECTED_PYTHON" ]; then
+            error_exit "Failed to install Python using $PACKAGE_MANAGER."
+        fi
+    }
+
+    # Function to install Python3 and necessary packages on macOS
+    install_python_on_macos() {
+        if ! command -v brew &> /dev/null; then
+            log "INFO" "Homebrew is not installed. Installing Homebrew..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            # Add Homebrew to PATH
+            eval "$(/opt/homebrew/bin/brew shellenv)" || eval "$(/usr/local/bin/brew shellenv)"
+        fi
+
+        if ! brew list "python@3" &> /dev/null; then
+            log "INFO" "Installing Python 3 via Homebrew."
+            brew install python@3
+        else
+            log "INFO" "Python 3 is already installed via Homebrew."
+        fi
+
+        SELECTED_PYTHON=$(brew --prefix python@3)/bin/python3
+
+        if [ -z "$SELECTED_PYTHON" ]; then
+            error_exit "Failed to install Python on macOS."
+        fi
+    }
+
+    # Detect OS type and install Python accordingly
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        log "INFO" "Detected macOS. Proceeding with macOS-specific installation."
+        install_python_on_macos
+    elif [[ "$OSTYPE" == "linux"* ]]; then
+        log "INFO" "Detected Linux. Proceeding with Linux-specific installation."
+        if ! command -v python3 &> /dev/null; then
+            log "INFO" "Python3 is not installed. Installing Python3..."
+            install_python_on_linux
+        else
+            SELECTED_PYTHON=$(command -v python3)
+            PYTHON_VERSION=$("$SELECTED_PYTHON" --version 2>&1 | awk '{print $2}')
+            log "INFO" "Detected python3 version: $PYTHON_VERSION"
+
+            if version_ge "$PYTHON_VERSION" "3.8"; then
+                log "INFO" "Python3 version is sufficient: $PYTHON_VERSION"
+                # Ensure venv and pip are available
+                if ! "$SELECTED_PYTHON" -m venv -h &> /dev/null || ! "$SELECTED_PYTHON" -m pip -V &> /dev/null; then
+                    log "INFO" "Required Python modules not available. Installing..."
+                    install_python_on_linux
+                else
+                    log "INFO" "venv and pip modules are available."
+                fi
+            else
+                log "INFO" "Python3 version is below 3.8 ($PYTHON_VERSION). Installing a newer version..."
+                install_python_on_linux
+            fi
+        fi
+    else
+        error_exit "Unsupported operating system: $OSTYPE"
+    fi
+
+    # Verify Python installation
+    if [ -z "${SELECTED_PYTHON:-}" ]; then
+        error_exit "Python installation failed."
+    fi
+
+    # Print Python version for verification
+    "$SELECTED_PYTHON" --version
+}
+
+install_python_and_modules
+
+# Remove existing virtual environment if it exists
+if [ -d "venv" ]; then
+    log "INFO" "Removing existing virtual environment..."
+    rm -rf venv
+fi
+
+# Create virtual environment using the selected Python version
+log "INFO" "Creating virtual environment..."
+if "$SELECTED_PYTHON" -m venv venv; then
+    log "INFO" "Virtual environment created successfully."
+else
+    error_exit "Failed to create virtual environment with ${SELECTED_PYTHON}."
+fi
+
+# Activate virtual environment
+log "INFO" "Activating virtual environment..."
+# shellcheck disable=SC1091
+source venv/bin/activate || source venv/Scripts/activate
+
+# Verify activation
+if [ -z "$VIRTUAL_ENV" ]; then
+    error_exit "Failed to activate virtual environment."
+fi
+
+# Upgrade pip within the virtual environment
+log "INFO" "Upgrading pip in virtual environment..."
+pip install --upgrade pip
+if [ $? -ne 0 ]; then
+    error_exit "Failed to upgrade pip in virtual environment."
+fi
+
 # Clone the GitHub repository
 REPO_URL="https://github.com/securityspectrum/ss-install-scripts.git"
 REPO_DIR="ss-install-scripts"
@@ -147,223 +287,11 @@ if [ ! -f requirements.txt ]; then
     error_exit "requirements.txt not found."
 fi
 
-# Check if install_agents.py exists
-if [ ! -f install_agents.py ]; then
-    error_exit "install_agents.py not found."
-fi
-
-# Function to install Python3 and necessary packages on Linux
-install_python_on_linux() {
-    SELECTED_PYTHON=""
-    if command -v apt-get &> /dev/null; then
-        log "INFO" "Using apt-get to install Python and dependencies."
-        sudo apt-get update
-        sudo apt-get install -y software-properties-common python3-apt
-        sudo add-apt-repository ppa:deadsnakes/ppa -y
-        sudo apt-get update
-        for version in "${PREFERRED_PYTHON_VERSIONS[@]}"; do
-            log "INFO" "Attempting to install Python $version."
-            if sudo apt-get install -y "python${version}" "python${version}-venv" "python${version}-distutils" "python${version}-dev"; then
-                SELECTED_PYTHON="/usr/bin/python${version}"
-                log "INFO" "Successfully installed Python ${version}."
-                break
-            else
-                log "WARN" "Python ${version} not available via apt-get."
-            fi
-        done
-        if [ -z "$SELECTED_PYTHON" ]; then
-            error_exit "Failed to install a suitable Python version."
-        fi
-        # Install pip for the selected Python version if not already installed
-        if ! "${SELECTED_PYTHON}" -m pip --version &> /dev/null; then
-            log "INFO" "Installing pip for ${SELECTED_PYTHON}."
-            curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-            sudo "${SELECTED_PYTHON}" get-pip.py
-            rm get-pip.py
-        fi
-        # Install additional necessary packages
-        sudo apt-get install -y perl-modules libterm-readline-gnu-perl iproute2
-    elif command -v dnf &> /dev/null; then
-        log "INFO" "DNF package manager detected. Installing support is not implemented."
-        error_exit "DNF package manager support not implemented in this script."
-    elif command -v yum &> /dev/null; then
-        log "INFO" "YUM package manager detected. Installing support is not implemented."
-        error_exit "YUM package manager support not implemented in this script."
-    elif command -v zypper &> /dev/null; then
-        log "INFO" "Zypper package manager detected. Installing support is not implemented."
-        error_exit "Zypper package manager support not implemented in this script."
-    else
-        error_exit "Unsupported Linux distribution or package manager. Please install Python3 manually."
-    fi
-
-    # Verify the selected Python version
-    PYTHON_VERSION_INSTALLED=$("${SELECTED_PYTHON}" --version 2>&1 | awk '{print $2}')
-    log "INFO" "Installed Python version: ${PYTHON_VERSION_INSTALLED}"
-
-    if ! version_ge "$PYTHON_VERSION_INSTALLED" "3.8"; then
-        error_exit "Selected Python version is below 3.8. Installed version: $PYTHON_VERSION_INSTALLED"
-    fi
-}
-
-# Function to install Python3 and necessary packages on macOS
-install_python_on_macos() {
-    if ! command -v brew &> /dev/null; then
-        log "INFO" "Homebrew is not installed. Installing Homebrew..."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        # Add Homebrew to PATH
-        eval "$(/opt/homebrew/bin/brew shellenv)" || eval "$(/usr/local/bin/brew shellenv)"
-    fi
-
-    SELECTED_PYTHON=""
-    for version in "${PREFERRED_PYTHON_VERSIONS[@]}"; do
-        if brew list "python@${version}" &> /dev/null; then
-            SELECTED_PYTHON="$(brew --prefix "python@${version}")/bin/python${version}"
-            log "INFO" "Found Python ${version} installed via Homebrew."
-            break
-        fi
-    done
-
-    if [ -z "$SELECTED_PYTHON" ]; then
-        log "INFO" "Installing Python via Homebrew."
-        for version in "${PREFERRED_PYTHON_VERSIONS[@]}"; do
-            if brew install "python@${version}"; then
-                SELECTED_PYTHON="$(brew --prefix "python@${version}")/bin/python${version}"
-                log "INFO" "Successfully installed Python ${version} via Homebrew."
-                break
-            else
-                log "WARN" "Python ${version} not available via Homebrew."
-            fi
-        done
-    else
-        log "INFO" "Python is already installed via Homebrew."
-    fi
-
-    if [ -z "$SELECTED_PYTHON" ]; then
-        error_exit "Failed to install Python on macOS."
-    fi
-
-    # Verify the selected Python version
-    PYTHON_VERSION_INSTALLED=$("${SELECTED_PYTHON}" --version 2>&1 | awk '{print $2}')
-    log "INFO" "Installed Python version: ${PYTHON_VERSION_INSTALLED}"
-
-    if ! version_ge "$PYTHON_VERSION_INSTALLED" "3.8"; then
-        error_exit "Selected Python version is below 3.8. Installed version: $PYTHON_VERSION_INSTALLED"
-    fi
-
-    # Install pip if necessary
-    if ! "${SELECTED_PYTHON}" -m pip --version &> /dev/null; then
-        log "INFO" "Installing pip for ${SELECTED_PYTHON}."
-        curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-        "${SELECTED_PYTHON}" get-pip.py
-        rm get-pip.py
-    fi
-}
-
-# Detect OS type and install Python accordingly
-case "$OSTYPE" in
-    darwin*)
-        log "INFO" "Detected macOS. Proceeding with macOS-specific installation."
-        install_python_on_macos
-        ;;
-    linux*)
-        log "INFO" "Detected Linux. Proceeding with Linux-specific installation."
-        # Check if python3 is installed
-        if ! command -v python3 &> /dev/null; then
-            log "INFO" "Python3 is not installed. Installing Python3..."
-            install_python_on_linux
-            SELECTED_PYTHON=$(command -v python3)  # May not be accurate, needs to set in install_python_on_linux
-        else
-            # Check python3 version
-            PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-            log "INFO" "Detected python3 version: $PYTHON_VERSION"
-
-            if version_ge "$PYTHON_VERSION" "3.8"; then
-                log "INFO" "Python3 version is sufficient: $PYTHON_VERSION"
-                SELECTED_PYTHON=$(command -v python3)
-            else
-                log "INFO" "Python3 version is below 3.8 ($PYTHON_VERSION). Installing a newer version..."
-                install_python_on_linux
-                SELECTED_PYTHON=$(command -v python3)
-            fi
-        fi
-        ;;
-    *)
-        error_exit "Unsupported operating system: $OSTYPE"
-        ;;
-esac
-
-# Verify Python installation
-if [ -z "${SELECTED_PYTHON:-}" ]; then
-    error_exit "Python installation failed."
-fi
-
-# Print Python version for verification
-"${SELECTED_PYTHON}" --version
-
-# Check if venv module is available
-if ! "${SELECTED_PYTHON}" -c "import venv" &> /dev/null; then
-    log "INFO" "venv module is not available in ${SELECTED_PYTHON}. Installing necessary packages..."
-    if command -v apt-get &> /dev/null; then
-        PYTHON_VERSION_SHORT=$(echo "${PYTHON_VERSION_INSTALLED}" | cut -d'.' -f1,2)
-        sudo apt-get install -y "python${PYTHON_VERSION_SHORT}-venv"
-    elif command -v brew &> /dev/null; then
-        # Typically venv comes with Python on macOS via Homebrew
-        log "INFO" "venv module should be available via Homebrew Python."
-    else
-        log "WARN" "Cannot install venv module automatically. Please install it manually."
-    fi
-fi
-
-# Re-verify venv module
-if ! "${SELECTED_PYTHON}" -c "import venv" &> /dev/null; then
-    error_exit "venv module is still not available after installation."
-fi
-
-# Remove existing virtual environment if it exists
-if [ -d "venv" ]; then
-    log "INFO" "Removing existing virtual environment..."
-    rm -rf venv
-fi
-
-# Create virtual environment using the selected Python version
-log "INFO" "Creating virtual environment..."
-if "${SELECTED_PYTHON}" -m venv venv; then
-    log "INFO" "Virtual environment created successfully."
-else
-    error_exit "Failed to create virtual environment with ${SELECTED_PYTHON}."
-fi
-
-# Check if virtual environment was created
-if [ ! -f venv/bin/python ] && [ ! -f venv/Scripts/python.exe ]; then
-    error_exit "Virtual environment creation did not include python."
-fi
-
-# Activate virtual environment
-log "INFO" "Activating virtual environment..."
-# shellcheck disable=SC1091
-source venv/bin/activate || source venv/Scripts/activate
-
-# Verify activation
-if [ -z "$VIRTUAL_ENV" ]; then
-    error_exit "Failed to activate virtual environment."
-fi
-
-# Upgrade pip
-log "INFO" "Upgrading pip..."
-pip install --upgrade pip
-if [ $? -ne 0 ]; then
-    error_exit "Failed to upgrade pip."
-fi
-
 # Install requirements
-if [ -f "requirements.txt" ]; then
-    log "INFO" "Installing Python dependencies..."
-    pip install -r requirements.txt
-    if [ $? -ne 0 ]; then
-        error_exit "Failed to install dependencies."
-    fi
-else
-    log "WARN" "requirements.txt not found."
+log "INFO" "Installing Python dependencies..."
+pip install -r requirements.txt
+if [ $? -ne 0 ]; then
+    error_exit "Failed to install dependencies."
 fi
 
 # Run the Python script with the selected action
