@@ -109,6 +109,18 @@ class FluentBitInstaller:
 
         self.logger.debug("Installation complete.")
 
+        # Attempt to delete the file
+        try:
+            if dest_path.exists():
+                os.remove(dest_path)
+                self.logger.debug(f"File {dest_path} deleted successfully.")
+            else:
+                self.logger.debug(f"File {dest_path} does not exist, no need to delete.")
+        except Exception as e:
+            self.logger.error(f"Failed to delete the file {dest_path}: {e}")
+        else:
+            self.logger.debug("Installation complete.")
+
     def download_binary(self, download_url, dest_path=None):
         # Use a temporary directory if no dest_path is provided
         if dest_path is None:
