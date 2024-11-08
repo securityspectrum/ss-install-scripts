@@ -1,5 +1,6 @@
 import os
 import platform
+import re
 import shutil
 import sys
 import requests
@@ -34,6 +35,26 @@ class FluentBitInstaller:
         self.repo = FLUENT_BIT_REPO
         self.logger = logging.getLogger(__name__)
 
+
+    def parse_asset_name(self, asset_name):
+        # Check for macOS and Windows first
+        if 'intel.pkg' in asset_name:
+            return {'distro': 'macos', 'distro_version': '', 'arch': '', 'extension': 'pkg'}
+        elif 'win64.exe' in asset_name or 'win64.zip' in asset_name:
+            extension = 'exe' if 'exe' in asset_name else 'zip'
+            return {'distro': 'windows', 'distro_version': '', 'arch': '', 'extension': extension}
+        else:
+            # Expected format: fluent-bit-<version>.<distro>-<distro_version>.<arch>.<extension>
+            match = re.match(
+                r"fluent-bit-\d+\.\d+\.\d+\.(?P<distro>[^.-]+)-(?P<distro_version>[^.-]+)\.(?P<arch>[^.]+)\.(?P<extension>.+)",
+                asset_name
+            )
+            if match:
+                return match.groupdict()
+            else:
+                self.logger.debug(f"Unrecognized asset format: {asset_name}")
+                return None
+
     def get_latest_release_url(self):
         url = f"https://api.github.com/repos/{self.repo}/releases"
         response = requests.get(url)
@@ -44,14 +65,14 @@ class FluentBitInstaller:
         return {asset["name"]: asset["browser_download_url"] for asset in assets}
 
     def categorize_assets(self, assets):
-        categorized = {key: [] for key in FLUENT_BIT_ASSET_PATTERNS}
-
+        categorized = {}
         for asset_name, url in assets.items():
-            for key, pattern in FLUENT_BIT_ASSET_PATTERNS.items():
-                if pattern in asset_name:
-                    categorized[key].append((asset_name, url))
-
+            parsed = self.parse_asset_name(asset_name)
+            if parsed:
+                key = (parsed['distro'], parsed['distro_version'])
+                categorized.setdefault(key, []).append((asset_name, url))
         return categorized
+
 
     def select_asset(self, categorized_assets):
         system = platform.system().lower()
@@ -60,66 +81,117 @@ class FluentBitInstaller:
             distro_name = distro.id().lower()
             version = distro.major_version()
             self.logger.debug(f"Detected distro: {distro_name} {version}")
+
+            assets = None
+
             if "centos" in distro_name:
                 if version == "8":
-                    return categorized_assets.get("centos8")
+                    assets = categorized_assets.get(("centos", "8"))
                 elif version == "9":
-                    return categorized_assets.get("centos9")
+                    assets = categorized_assets.get(("centos", "9"))
             elif "fedora" in distro_name:
-                version = int(version)
-                if 28 <= version <= 33:
-                    return categorized_assets.get("centos8")
-                elif version >= 34:
-                    return categorized_assets.get("centos9")
+                try:
+                    version_num = int(version)
+                except ValueError:
+                    self.logger.error(f"Invalid Fedora version: {version}")
+                    return None
+                if 28 <= version_num <= 33:
+                    # Use CentOS 8 package for older Fedora versions
+                    assets = categorized_assets.get(("centos", "8"))
+                elif version_num >= 34:
+                    # Use CentOS 9 package for newer Fedora versions
+                    assets = categorized_assets.get(("centos", "9"))
             elif "debian" in distro_name:
-                return categorized_assets.get("debian")
+                # Map Debian versions to available packages
+                debian_versions = {
+                    '10': 'buster',
+                    '11': 'bullseye',
+                    '12': 'bookworm',
+                }
+                debian_codename = debian_versions.get(version)
+                if debian_codename:
+                    assets = categorized_assets.get(("debian", debian_codename))
             elif "ubuntu" in distro_name:
-                if version == "18":
-                    return categorized_assets.get("ubuntu_18.04")
-                elif version == "22":
-                    return categorized_assets.get("ubuntu_22.04")
+                ubuntu_versions = {
+                    '18': '18',
+                    '20': '20',
+                    '22': '22',
+                }
+                ubuntu_version = ubuntu_versions.get(version)
+                if ubuntu_version:
+                    assets = categorized_assets.get(("ubuntu", ubuntu_version))
+            else:
+                self.logger.error(f"No matching asset found for distro {distro_name} {version}")
+                return None
+
+            if assets:
+                self.logger.debug(f"Selected assets for {distro_name} {version}: {assets}")
+                return assets[0]  # Return the first matching asset
+            else:
+                self.logger.error(f"No assets found for key corresponding to {distro_name} {version}")
+                return None
+
         elif system == "darwin":
-            return categorized_assets.get("macos")
+            key = ('macos', '')
+            assets = categorized_assets.get(key)
+            if assets:
+                self.logger.debug(f"Selected assets for macOS: {assets}")
+                return assets[0]
+            else:
+                self.logger.error("No assets found for macOS.")
+                return None
+
         elif system == "windows":
-            return categorized_assets.get("windows")
+            key = ('windows', '')
+            assets = categorized_assets.get(key)
+            if assets:
+                self.logger.debug(f"Selected assets for Windows: {assets}")
+                return assets[0]
+            else:
+                self.logger.error("No assets found for Windows.")
+                return None
+
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
     def install(self):
-        release_urls = self.get_latest_release_url()
-        categorized_assets = self.categorize_assets(release_urls)
-        selected_asset = self.select_asset(categorized_assets)
-
-        if not selected_asset:
-            raise ValueError("No suitable asset found for your OS/distribution.")
-
-        asset_name, download_url = selected_asset[0]  # Get the first matching asset
-
-        dest_path = get_temp_file_path(asset_name)
-
-        # Check if file already exists
-        if dest_path.exists():
-            self.logger.debug(f"File {asset_name} already exists at {dest_path}. Skipping download.")
-        else:
-            self.logger.debug(f"Downloading {asset_name} from {download_url} to temporary directory...")
-            self.download_binary(download_url, dest_path)
-
-        self.logger.debug(f"Installing {asset_name}...")
-        self.run_installation_command(dest_path)
-
-        self.logger.debug("Installation complete.")
-
-        # Attempt to delete the file
         try:
-            if dest_path.exists():
-                os.remove(dest_path)
-                self.logger.debug(f"File {dest_path} deleted successfully.")
+            release_urls = self.get_latest_release_url()
+            categorized_assets = self.categorize_assets(release_urls)
+            selected_asset = self.select_asset(categorized_assets)
+
+            if not selected_asset:
+                raise ValueError("No suitable asset found for your OS/distribution.")
+
+            asset_name, download_url = selected_asset
+            self.logger.debug(f"Selected asset: {asset_name} from {download_url}")
+
+            dest_path = get_temp_file_path(asset_name)
+
+            # Check if file already exists
+            if os.path.exists(dest_path):
+                self.logger.debug(f"File {asset_name} already exists at {dest_path}. Skipping download.")
             else:
-                self.logger.debug(f"File {dest_path} does not exist, no need to delete.")
-        except Exception as e:
-            self.logger.error(f"Failed to delete the file {dest_path}: {e}")
-        else:
+                self.logger.debug(f"Downloading {asset_name} from {download_url} to temporary directory...")
+                self.download_binary(download_url, dest_path)
+
+            self.logger.debug(f"Installing {asset_name}...")
+            self.run_installation_command(dest_path)
+
             self.logger.debug("Installation complete.")
+
+            # Attempt to delete the file
+            try:
+                if os.path.exists(dest_path):
+                    os.remove(dest_path)
+                    self.logger.debug(f"File {dest_path} deleted successfully.")
+                else:
+                    self.logger.debug(f"File {dest_path} does not exist, no need to delete.")
+            except Exception as e:
+                self.logger.error(f"Failed to delete the file {dest_path}: {e}")
+        except Exception as e:
+            self.logger.error(f"An error occurred during the installation process: {e}")
+            raise
 
     def download_binary(self, download_url, dest_path=None):
         # Use a temporary directory if no dest_path is provided
