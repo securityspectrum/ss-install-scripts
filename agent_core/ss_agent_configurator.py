@@ -5,6 +5,7 @@ from pathlib import Path
 import logging
 from string import Template
 from agent_core.platform_context import PlatformContext
+from agent_core.secrets_manager import ContextName
 from agent_core.system_utils import SystemUtility
 from agent_core.constants import API_URL_DOMAIN, API_VERSION_PATH, SS_AGENT_TEMPLATE
 
@@ -18,7 +19,7 @@ class SSAgentConfigurator:
         self.cert_dir = Path(cert_dir)
         self.platform_context = PlatformContext()
 
-    def configure_ss_agent(self, secrets: dict, template_path: Path):
+    def configure_ss_agent(self, context: dict, template_path: Path):
         """
         Configures the ss-agent by generating a config.json from a template.
         """
@@ -33,12 +34,12 @@ class SSAgentConfigurator:
 
         # Use as_posix() to ensure paths are JSON-compatible
         config = template.substitute(api_url=f"{self.api_url_domain}/api/v1",
-            organization_key=secrets.get("organization_key", ""),
-            api_access_key=secrets.get("api_access_key", ""),
-            api_secret_key=secrets.get("api_secret_key", ""),
-            cert_file=(self.cert_dir / "client.crt").as_posix(),
-            key_file=(self.cert_dir / "client.key").as_posix(),
-            ca_file=(self.cert_dir / "cacert.crt").as_posix())
+                                     organization_key=context.get(ContextName.ORG_KEY, ""),
+                                     api_access_key=context.get(ContextName.API_ACCESS_KEY, ""),
+                                     api_secret_key=context.get(ContextName.API_SECRET_KEY, ""),
+                                     cert_file=(self.cert_dir / "client.crt").as_posix(),
+                                     key_file=(self.cert_dir / "client.key").as_posix(),
+                                     ca_file=(self.cert_dir / "cacert.crt").as_posix())
 
         logger.debug(f"Generated ss-agent configuration: {config}")
 

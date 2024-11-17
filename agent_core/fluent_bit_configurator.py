@@ -15,6 +15,7 @@ from agent_core.constants import FLUENT_BIT_CONFIG_DIR_LINUX, FLUENT_BIT_SSL_DIR
     ZEEK_LOG_PATH_MACOS, ZEEK_LOG_PATH_WINDOWS, FLUENT_BIT_SSL_DIR_WINDOWS, SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS, \
     FLUENT_BIT_DIR_WINDOWS, SS_NETWORK_ANALYZER_LOG_FILES_MATCH
 from agent_core.platform_context import PlatformContext
+from agent_core.secrets_manager import ContextName
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +60,11 @@ class FluentBitConfigurator:
         logger.debug(f"Successfully fetched Fluent Bit configuration from {api_url}/configurations/agents")
         return response.json()
 
-    def configure_fluent_bit(self, api_url, secrets, organization_slug):
+    def configure_fluent_bit(self, api_url, context):
         self.logger.debug(f"Configuring Fluent Bit...")
         hostname = platform.node()
         try:
-            config_data = self.fetch_fluent_bit_config(api_url, secrets["jwt_token"])
+            config_data = self.fetch_fluent_bit_config(api_url, context[ContextName.JWT_TOKEN])
             self.logger.debug(f"Config data fetched: {config_data}")
         except Exception as e:
             self.logger.error(f"Error fetching Fluent Bit configuration: {e}")
@@ -81,11 +82,11 @@ class FluentBitConfigurator:
 
         try:
             config = template.substitute(
-                client_id=organization_slug,
+                client_id=context[ContextName.ORG_SLUG],
                 hostname=hostname,
-                organization_key=secrets["organization_key"],
-                api_access_key=secrets["api_access_key"],
-                api_secret_key=secrets["api_secret_key"],
+                organization_key=context[ContextName.ORG_KEY],
+                api_access_key=context[ContextName.API_ACCESS_KEY],
+                api_secret_key=context[ContextName.API_SECRET_KEY],
                 sasl_username=config_data["certificates"][0]["principal"],
                 sasl_password=config_data["certificates"][0]["sasl_password"],
                 kafka_brokers=config_data["kafka"]["brokers"],
@@ -94,7 +95,7 @@ class FluentBitConfigurator:
                 key_server_port=config_data["key_server"]["port"],
                 key_server_path=config_data["key_server"]["path"],
                 backend_server_path=config_data["backend_server"]["path"],
-                master_key=secrets["master_key"],
+                master_key=context[ContextName.MASTER_KEY],
                 zeek_log_path=self.zeek_log_path,
                 ssl_ca_location=self.ssl_ca_location
             )
@@ -122,11 +123,11 @@ class FluentBitConfigurator:
         except Exception as e:
             self.logger.error(f"Error moving Fluent Bit config file to {self.fluent_bit_config_path}: {e}")
 
-        self.download_and_extract_fluent_bit_certificates(api_url, secrets, organization_slug, config_data, self.fluent_bit_ssl_path)
+        self.download_and_extract_fluent_bit_certificates(api_url, context, context[ContextName.ORG_SLUG], config_data, self.fluent_bit_ssl_path)
         self.create_fluent_bit_parser_config(self.fluent_bit_config_path.with_name(FLUENT_BIT_PARSER_CONFIG_FILENAME))
 
 
-    def download_and_extract_fluent_bit_certificates(self, api_url, secrets, organization_slug, config_data, certs_path: Path):
+    def download_and_extract_fluent_bit_certificates(self, api_url, context, organization_slug, config_data, certs_path: Path):
         temp_certs_path = Path(tempfile.mkdtemp())
         try:
             self.platform_context.create_directory(certs_path)
@@ -137,7 +138,7 @@ class FluentBitConfigurator:
         certificate_uuid = config_data["certificates"][0]["certificate_uuid"]
         cert_url = f"{api_url}/kafka/pki-certs/{certificate_uuid}/"
         self.logger.debug(f"Downloading Fluent Bit certificates ZIP file from URL: {cert_url}")
-        response = requests.get(cert_url, headers={"Authorization": f"Bearer {secrets['jwt_token']}"}, stream=True, verify=False)
+        response = requests.get(cert_url, headers={"Authorization": f"Bearer {context[ContextName.ORG_SLUG]}"}, stream=True, verify=False)
         self.logger.debug(f"Response Status Code: {response.status_code}")
         self.logger.debug(f"Response Content Length: {len(response.content)} bytes")
 

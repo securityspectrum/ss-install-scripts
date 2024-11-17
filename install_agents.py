@@ -94,7 +94,7 @@ def install(args):
         ss_agent_installer.stop_ss_agent()
 
         secrets_manager = SecretsManager()
-        secrets = secrets_manager.load_secrets_from_var_envs()
+        context = secrets_manager.load_secrets_from_var_envs()
         organization_slug = secrets_manager.get_organization_slug()
 
         api_url = f"{API_URL_DOMAIN}{API_VERSION_PATH}/r/{organization_slug}"
@@ -102,7 +102,7 @@ def install(args):
         fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path = get_platform_specific_paths()
 
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
-        cert_manager.download_and_extract_certificates(secrets["jwt_token"])
+        cert_manager.download_and_extract_certificates(context["jwt_token"])
         logger.debug("Certificate downloaded and extracted successfully.")
 
         if current_os == "windows":
@@ -115,10 +115,10 @@ def install(args):
         fluent_bit_installer.enable_and_start()
 
         fluent_bit_configurator = FluentBitConfigurator(API_URL_DOMAIN, fluent_bit_config_dir, ss_agent_ssl_dir, organization_slug)
-        fluent_bit_configurator.configure_fluent_bit(api_url, secrets, organization_slug)
+        fluent_bit_configurator.configure_fluent_bit(api_url, context)
 
         ss_agent_configurator = SSAgentConfigurator(API_URL_DOMAIN, ss_agent_config_dir, ss_agent_ssl_dir)
-        ss_agent_configurator.configure_ss_agent(secrets, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
+        ss_agent_configurator.configure_ss_agent(context, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
 
         ss_agent_installer.install()
 
