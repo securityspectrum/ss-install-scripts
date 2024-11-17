@@ -20,6 +20,7 @@ class ContextName(Enum):
 
 class SecretsManager:
     def __init__(self):
+        self.context = None
         self.organization_slug = None
 
     def load_secrets_from_var_envs(self):
@@ -33,8 +34,6 @@ class SecretsManager:
 
         if not all([org_key, api_access_key, api_secret_key, jwt_token, master_key]):
             raise EnvironmentError("One or more required environment variables are missing for secrets.")
-
-        self.jwt_token = self.decode_jwt(jwt_token)
 
         self.context = {
             ContextName.ORG_SLUG: org_slug,

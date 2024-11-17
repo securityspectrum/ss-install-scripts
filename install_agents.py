@@ -10,7 +10,7 @@ from agent_core.fluent_bit_installer import FluentBitInstaller
 from agent_core.npcap_installer import NpcapInstaller
 from agent_core.ss_agent_installer import SSAgentInstaller
 from agent_core.system_utils import SystemUtility
-from agent_core.secrets_manager import SecretsManager
+from agent_core.secrets_manager import SecretsManager, ContextName
 from agent_core.ss_agent_configurator import SSAgentConfigurator
 from agent_core.fluent_bit_configurator import FluentBitConfigurator
 from agent_core.constants import *
@@ -102,7 +102,7 @@ def install(args):
         fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path = get_platform_specific_paths()
 
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
-        cert_manager.download_and_extract_certificates(context["jwt_token"])
+        cert_manager.download_and_extract_certificates(context[ContextName.JWT_TOKEN])
         logger.debug("Certificate downloaded and extracted successfully.")
 
         if current_os == "windows":
