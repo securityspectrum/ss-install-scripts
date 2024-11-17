@@ -123,11 +123,11 @@ class FluentBitConfigurator:
         except Exception as e:
             self.logger.error(f"Error moving Fluent Bit config file to {self.fluent_bit_config_path}: {e}")
 
-        self.download_and_extract_fluent_bit_certificates(api_url, context, context[ContextName.ORG_SLUG], config_data, self.fluent_bit_ssl_path)
+        self.download_and_extract_fluent_bit_certificates(api_url, context, config_data, self.fluent_bit_ssl_path)
         self.create_fluent_bit_parser_config(self.fluent_bit_config_path.with_name(FLUENT_BIT_PARSER_CONFIG_FILENAME))
 
 
-    def download_and_extract_fluent_bit_certificates(self, api_url, context, organization_slug, config_data, certs_path: Path):
+    def download_and_extract_fluent_bit_certificates(self, api_url, context, config_data, certs_path: Path):
         temp_certs_path = Path(tempfile.mkdtemp())
         try:
             self.platform_context.create_directory(certs_path)
@@ -138,14 +138,14 @@ class FluentBitConfigurator:
         certificate_uuid = config_data["certificates"][0]["certificate_uuid"]
         cert_url = f"{api_url}/kafka/pki-certs/{certificate_uuid}/"
         self.logger.debug(f"Downloading Fluent Bit certificates ZIP file from URL: {cert_url}")
-        response = requests.get(cert_url, headers={"Authorization": f"Bearer {context[ContextName.ORG_SLUG]}"}, stream=True, verify=False)
+        response = requests.get(cert_url, headers={"Authorization": f"Bearer {context[ContextName.JWT_TOKEN]}"}, stream=True, verify=False)
         self.logger.debug(f"Response Status Code: {response.status_code}")
         self.logger.debug(f"Response Content Length: {len(response.content)} bytes")
 
         response.raise_for_status()
         self.logger.debug(f"Successfully downloaded Fluent Bit certificates ZIP file from URL: {cert_url}")
 
-        zip_path = temp_certs_path / f"fluent-bit-certificates-{organization_slug}.zip"
+        zip_path = temp_certs_path / f"fluent-bit-certificates-{context[ContextName.ORG_SLUG]}.zip"
         try:
             with zip_path.open("wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
