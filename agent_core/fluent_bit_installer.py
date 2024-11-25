@@ -158,6 +158,8 @@ class FluentBitInstaller:
         try:
             release_urls = self.get_latest_release_url()
             categorized_assets = self.categorize_assets(release_urls)
+            if not categorized_assets:
+                raise ValueError("No assets found in the github releases.")
             selected_asset = self.select_asset(categorized_assets)
 
             if not selected_asset:
