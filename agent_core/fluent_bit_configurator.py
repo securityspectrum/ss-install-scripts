@@ -61,8 +61,10 @@ class FluentBitConfigurator:
         return response.json()
 
     def configure_fluent_bit(self, api_url, context):
-        self.logger.debug(f"Configuring Fluent Bit...")
+        self.logger.debug("Configuring Fluent Bit...")
         hostname = platform.node()
+
+        # Fetch configuration data
         try:
             config_data = self.fetch_fluent_bit_config(api_url, context[ContextName.JWT_TOKEN])
             self.logger.debug(f"Config data fetched: {config_data}")
@@ -70,45 +72,98 @@ class FluentBitConfigurator:
             self.logger.error(f"Error fetching Fluent Bit configuration: {e}")
             return
 
-        self.logger.info(f"Generating Fluent Bit configuration...")
+        # Validate config_data structure
+        required_keys = {"certificates": list, "kafka": dict, "key_server": dict, "backend_server": dict}
+
+        for key, expected_type in required_keys.items():
+            if key not in config_data:
+                self.logger.error(f"Missing required key in config_data: '{key}'")
+                return
+            if not isinstance(config_data[key], expected_type):
+                self.logger.error(f"Incorrect type for key '{key}': Expected {expected_type.__name__}, got {type(config_data[key]).__name__}")
+                return
+
+        # Check for required sub-keys in 'certificates'
+        if len(config_data["certificates"]) == 0:
+            self.logger.error("The 'certificates' list in config_data is empty.")
+            return
+
+        certificate = config_data["certificates"][0]
+        required_cert_keys = ["principal", "sasl_password"]
+        for cert_key in required_cert_keys:
+            if cert_key not in certificate:
+                self.logger.error(f"Missing required key in certificates[0]: '{cert_key}'")
+                return
+
+        # Validate Kafka configuration
+        kafka_required_keys = ["brokers", "topics"]
+        for kafka_key in kafka_required_keys:
+            if kafka_key not in config_data["kafka"]:
+                self.logger.error(f"Missing required key in kafka config: '{kafka_key}'")
+                return
+
+        # Validate key_server configuration
+        key_server_required_keys = ["host", "port", "path"]
+        for ks_key in key_server_required_keys:
+            if ks_key not in config_data["key_server"]:
+                self.logger.error(f"Missing required key in key_server config: '{ks_key}'")
+                return
+
+        # Validate backend_server configuration
+        if "path" not in config_data["backend_server"]:
+            self.logger.error("Missing required key in backend_server config: 'path'")
+            return
+
+        # Load Fluent Bit template
+        self.logger.info("Generating Fluent Bit configuration...")
         fluent_bit_template_file = Path(CONFIG_DIR_PATH) / FLUENT_BIT_CONF_TEMPLATE
         try:
             with open(fluent_bit_template_file) as f:
-                template = Template(f.read())
+                template_content = f.read()
+            template = Template(template_content)
             self.logger.debug(f"Fluent Bit template file loaded: {fluent_bit_template_file}")
         except Exception as e:
             self.logger.error(f"Error loading Fluent Bit template file: {e}")
             return
 
+        # Prepare substitution dictionary
+        substitution_dict = {}
         try:
-            config = template.substitute(
-                client_id=context[ContextName.ORG_SLUG],
-                hostname=hostname,
-                organization_key=context[ContextName.ORG_KEY],
-                api_access_key=context[ContextName.API_ACCESS_KEY],
-                api_secret_key=context[ContextName.API_SECRET_KEY],
-                sasl_username=config_data["certificates"][0]["principal"],
-                sasl_password=config_data["certificates"][0]["sasl_password"],
-                kafka_brokers=config_data["kafka"]["brokers"],
-                kafka_topics=config_data["kafka"]["topics"],
-                key_server_host=config_data["key_server"]["host"],
-                key_server_port=config_data["key_server"]["port"],
-                key_server_path=config_data["key_server"]["path"],
-                backend_server_path=config_data["backend_server"]["path"],
-                master_key=context[ContextName.MASTER_KEY],
-                zeek_log_path=self.zeek_log_path,
-                ssl_ca_location=self.ssl_ca_location
-            )
+            substitution_dict = {"client_id": context[ContextName.ORG_SLUG], "hostname": hostname,
+                                 "organization_key": context[ContextName.ORG_KEY],
+                                 "api_access_key": context[ContextName.API_ACCESS_KEY],
+                                 "api_secret_key": context[ContextName.API_SECRET_KEY],
+                                 "sasl_username": certificate["principal"],
+                                 "sasl_password": certificate["sasl_password"],
+                                 "kafka_brokers": config_data["kafka"]["brokers"],
+                                 "kafka_topics": config_data["kafka"]["topics"],
+                                 "key_server_host": config_data["key_server"]["host"],
+                                 "key_server_port": config_data["key_server"]["port"],
+                                 "key_server_path": config_data["key_server"]["path"],
+                                 "backend_server_path": config_data["backend_server"]["path"],
+                                 "master_key": context[ContextName.MASTER_KEY], "zeek_log_path": self.zeek_log_path,
+                                 "ssl_ca_location": self.ssl_ca_location}
+        except KeyError as e:
+            self.logger.error(f"Missing required context key: {e}")
+            return
+
+        # Perform template substitution
+        try:
+            config = template.substitute(substitution_dict)
             self.logger.debug(f"Generated Fluent Bit config: {config}")
         except KeyError as e:
             self.logger.error(f"Key error in template substitution: {e}")
+            return
+        except IndexError as e:
+            self.logger.error(f"Index error in template substitution: {e}")
             return
         except Exception as e:
             self.logger.error(f"Error in template substitution: {e}")
             return
 
-        temp_config_fd, temp_config_path = tempfile.mkstemp(suffix=".conf")
+        # Write configuration to a temporary file
         try:
+            temp_config_fd, temp_config_path = tempfile.mkstemp(suffix=".conf")
             with os.fdopen(temp_config_fd, 'w') as f:
                 f.write(config)
             self.logger.debug(f"Created Fluent Bit config file: {temp_config_path}")
@@ -116,16 +171,24 @@ class FluentBitConfigurator:
             self.logger.error(f"Error creating Fluent Bit config file: {e}")
             return
 
+        # Move the temporary config file to the desired location
         try:
             self.platform_context.create_directory(self.fluent_bit_config_path.parent)
             self.platform_context.move_file(Path(temp_config_path), self.fluent_bit_config_path)
             self.logger.debug(f"Moved Fluent Bit config file to {self.fluent_bit_config_path}")
         except Exception as e:
             self.logger.error(f"Error moving Fluent Bit config file to {self.fluent_bit_config_path}: {e}")
+            return
 
-        self.download_and_extract_fluent_bit_certificates(api_url, context, config_data, self.fluent_bit_ssl_path)
-        self.create_fluent_bit_parser_config(self.fluent_bit_config_path.with_name(FLUENT_BIT_PARSER_CONFIG_FILENAME))
+        # Proceed with downloading certificates and creating parser config
+        try:
+            self.download_and_extract_fluent_bit_certificates(api_url, context, config_data, self.fluent_bit_ssl_path)
+            self.create_fluent_bit_parser_config(self.fluent_bit_config_path.with_name(FLUENT_BIT_PARSER_CONFIG_FILENAME))
+        except Exception as e:
+            self.logger.error(f"Error during post-configuration steps: {e}")
+            return
 
+        self.logger.info("Fluent Bit configuration successfully generated and applied.")
 
     def download_and_extract_fluent_bit_certificates(self, api_url, context, config_data, certs_path: Path):
         temp_certs_path = Path(tempfile.mkdtemp())
