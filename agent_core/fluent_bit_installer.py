@@ -9,10 +9,11 @@ import subprocess
 from pathlib import Path
 
 from agent_core import SystemUtility
-from agent_core.constants import (FLUENT_BIT_REPO, FLUENT_BIT_ASSET_PATTERNS, FLUENT_BIT_SERVICE_NAME,
-                                  FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS, FLUENT_BIT_EXE_WINDOWS, FLUENT_BIT_SERVICE_MACOS)
+from agent_core.constants import (
+    FLUENT_BIT_REPO, FLUENT_BIT_ASSET_PATTERNS, FLUENT_BIT_SERVICE_NAME,
+    FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS, FLUENT_BIT_EXE_WINDOWS, FLUENT_BIT_SERVICE_MACOS
+)
 
-import os
 import tempfile
 import hashlib
 import distro
@@ -34,7 +35,6 @@ class FluentBitInstaller:
     def __init__(self):
         self.repo = FLUENT_BIT_REPO
         self.logger = logging.getLogger(__name__)
-
 
     def parse_asset_name(self, asset_name):
         # Check for macOS and Windows first
@@ -72,7 +72,6 @@ class FluentBitInstaller:
                 key = (parsed['distro'], parsed['distro_version'])
                 categorized.setdefault(key, []).append((asset_name, url))
         return categorized
-
 
     def select_asset(self, categorized_assets):
         system = platform.system().lower()
@@ -224,14 +223,14 @@ class FluentBitInstaller:
                 package_name = "fluent-bit"
                 rpm_version = self.extract_rpm_version(dest_path)
 
-                if self.is_package_installed(package_name, rpm_version):
+                if self.is_package_installed(package_name, rpm_version, package_type='rpm'):
                     self.logger.debug(f"{package_name} version {rpm_version} is already installed. Skipping installation.")
                     return
-                elif self.is_newer_version_installed(package_name, rpm_version):
+                elif self.is_newer_version_installed(package_name, rpm_version, package_type='rpm'):
                     self.logger.debug(f"A newer version of {package_name} is installed. Skipping downgrade to version {rpm_version}.")
                     return
                 else:
-                    self.logger.debug(f"A different version of {package_name} is installed. Updating to version {rpm_version}.")
+                    self.logger.debug(f"A different version or no version of {package_name} is installed. Updating to version {rpm_version}.")
                     try:
                         subprocess.run(["sudo", "rpm", "-Uvh", str(dest_path)], check=True)
                     except subprocess.CalledProcessError as e:
@@ -241,14 +240,14 @@ class FluentBitInstaller:
                 package_name = "fluent-bit"
                 deb_version = self.extract_deb_version(dest_path)
 
-                if self.is_package_installed(package_name, deb_version):
+                if self.is_package_installed(package_name, deb_version, package_type='deb'):
                     self.logger.debug(f"{package_name} version {deb_version} is already installed. Skipping installation.")
                     return
-                elif self.is_newer_version_installed(package_name, deb_version):
+                elif self.is_newer_version_installed(package_name, deb_version, package_type='deb'):
                     self.logger.debug(f"A newer version of {package_name} is installed. Skipping downgrade to version {deb_version}.")
                     return
                 else:
-                    self.logger.debug(f"A different version of {package_name} is installed. Updating to version {deb_version}.")
+                    self.logger.debug(f"A different version or no version of {package_name} is installed. Updating to version {deb_version}.")
                     try:
                         subprocess.run(["sudo", "dpkg", "-i", str(dest_path)], check=True)
                     except subprocess.CalledProcessError as e:
@@ -274,62 +273,150 @@ class FluentBitInstaller:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
     def extract_rpm_version(self, dest_path):
-        """Extract the version from the RPM filename."""
-        # Assuming the version is in the filename like fluent-bit-3.1.6-1.centos9.x86_64.rpm
-        return dest_path.stem.split('-')[2]  # Extracts '3.1.6' from 'fluent-bit-3.1.6-1.centos9.x86_64'
+        # Try the original underscore-based logic first
+        parts = dest_path.stem.split('_')
+        if len(parts) > 1:
+            # This handles the case of filenames like fluent-bit-1.8.6-1.x86_64.rpm
+            return parts[1]
+        else:
+            # Fallback: handle filenames like fluent-bit-1.8.6-1.el7.x86_64.rpm
+            # We know the version should appear after 'fluent-bit-' and before the release number.
+            # For example: fluent-bit-1.8.6-1.el7.x86_64 -> version is 1.8.6
+            match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)-\d+\..*", dest_path.stem)
+            if match:
+                return match.group(1)
+            else:
+                # If we still cannot parse, raise a more informative
+                # error message
+                raise ValueError(f"Could not extract version from RPM filename: {dest_path.stem}")
 
     def extract_deb_version(self, dest_path):
-        """Extract the version from the DEB filename."""
-        # Assuming the version is in the filename like fluent-bit_3.1.6-1_amd64.deb
-        return dest_path.stem.split('_')[1]  # Extracts '3.1.6-1' from 'fluent-bit_3.1.6-1_amd64'
+        # Try the original underscore-based logic first
+        parts = dest_path.stem.split('_')
+        if len(parts) > 1:
+            # This handles the case of filenames like fluent-bit_3.1.6-1_amd64.deb
+            return parts[1]
+        else:
+            # Fallback: handle filenames like fluent-bit-3.1.6.ubuntu-22.04.amd64.deb
+            # We know the version should appear after 'fluent-bit-' and before the distro name.
+            # For example: fluent-bit-3.1.6.ubuntu-22.04.amd64 -> version is 3.1.6
+            match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)\..*", dest_path.stem)
+            if match:
+                return match.group(1)
+            else:
+                # If we still cannot parse, raise a more informative error
+                raise ValueError(f"Cannot parse the version from DEB filename: {dest_path.name}")
 
-    def is_package_installed(self, package_name, version):
+    def is_rpm_based_system(self):
+        distro_id = distro.id().lower()
+        # RPM-based distributions commonly include: fedora, centos, rhel, rocky, almalinux
+        return distro_id in ["fedora", "centos", "rhel", "rocky", "almalinux"]
+
+    def is_deb_based_system(self):
+        distro_id = distro.id().lower()
+        # DEB-based distributions: ubuntu, debian
+        return distro_id in ["ubuntu", "debian"]
+
+    def is_package_installed(self, package_name, version, package_type='rpm'):
         """Check if the specific version of a package is already installed."""
         try:
-            result = subprocess.run(
-                ["rpm", "-q", f"{package_name}-{version}"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            return result.returncode == 0
-        except Exception as e:
-            self.logger.error(f"Failed to check installed package version: {e}")
-            return False
-
-    def is_different_version_installed(self, package_name, version):
-        """Check if a different version of the package is installed."""
-        try:
-            result = subprocess.run(
-                ["rpm", "-q", package_name],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            if result.returncode == 0:
-                installed_version = result.stdout.strip().split('-')[-2]
-                self.logger.debug(f"Installed version of {package_name}: {installed_version}")
-                return installed_version != version
+            if package_type == 'rpm':
+                # For RPM: Check exact version
+                result = subprocess.run(
+                    ["rpm", "-q", f"{package_name}-{version}"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                return result.returncode == 0
             else:
+                # For DEB: We have the package_name and version. Check dpkg -s
+                result = subprocess.run(
+                    ["dpkg", "-s", package_name],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                if result.returncode == 0 and "Status: install ok installed" in result.stdout:
+                    for line in result.stdout.split('\n'):
+                        if line.startswith("Version:"):
+                            installed_ver = line.split(':', 1)[1].strip()
+                            return installed_ver == version
                 return False
         except Exception as e:
             self.logger.error(f"Failed to check installed package version: {e}")
             return False
 
-    def is_newer_version_installed(self, package_name, version):
+    def is_different_version_installed(self, package_name, version, package_type='rpm'):
+        """Check if a different version of the package is installed."""
+        try:
+            if package_type == 'rpm':
+                result = subprocess.run(
+                    ["rpm", "-q", package_name],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                if result.returncode == 0:
+                    # rpm -q fluent-bit -> fluent-bit-3.1.6-1.centos9.x86_64
+                    parts = result.stdout.strip().split('-')
+                    if len(parts) > 2:
+                        installed_version = parts[2]  # Extract the version
+                        return installed_version != version
+                return False
+            else:
+                # DEB-based
+                result = subprocess.run(
+                    ["dpkg", "-s", package_name],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                if result.returncode == 0 and "Status: install ok installed" in result.stdout:
+                    for line in result.stdout.split('\n'):
+                        if line.startswith("Version:"):
+                            installed_ver = line.split(':', 1)[1].strip()
+                            return installed_ver != version
+                return False
+        except Exception as e:
+            self.logger.error(f"Failed to check installed package version: {e}")
+            return False
+
+    def is_newer_version_installed(self, package_name, version, package_type='rpm'):
         """Check if a newer version of the package is installed."""
         try:
-            result = subprocess.run(
-                ["rpm", "-q", package_name],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            if result.returncode == 0:
-                installed_version = result.stdout.strip().split('-')[-2]
-                self.logger.debug(f"Installed version of {package_name}: {installed_version}")
-                return installed_version > version
+            if package_type == 'rpm':
+                result = subprocess.run(
+                    ["rpm", "-q", package_name],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                if result.returncode == 0:
+                    # Extract installed version
+                    parts = result.stdout.strip().split('-')
+                    if len(parts) > 2:
+                        installed_version = parts[2]
+                        # Compare versions lexicographically (simple approach)
+                        # If installed_version is '3.1.7' and version is '3.1.6', '3.1.7' > '3.1.6' works lexicographically
+                        return installed_version > version
+                return False
             else:
+                # DEB-based
+                result = subprocess.run(
+                    ["dpkg", "-s", package_name],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                if result.returncode == 0 and "Status: install ok installed" in result.stdout:
+                    installed_ver = None
+                    for line in result.stdout.split('\n'):
+                        if line.startswith("Version:"):
+                            installed_ver = line.split(':', 1)[1].strip()
+                            break
+                    if installed_ver:
+                        return installed_ver > version
                 return False
         except Exception as e:
             self.logger.error(f"Failed to check installed package version: {e}")
@@ -337,7 +424,7 @@ class FluentBitInstaller:
 
     def enable_and_start(self):
         """
-        Configures osquery based on the operating system.
+        Configures Fluent Bit based on the operating system and enables/starts the service.
         """
         os_system = platform.system().lower()
         self.logger.debug(f"Detected operating system: {os_system}")
@@ -361,7 +448,7 @@ class FluentBitInstaller:
             self.logger.error(f"An unexpected error occurred: {ex}")
             raise
 
-        self.logger.debug("osquery configuration and service start completed.")
+        self.logger.debug("Fluent Bit configuration and service start completed.")
 
     def configure_linux(self):
         try:
@@ -490,7 +577,6 @@ class FluentBitInstaller:
                 self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' started successfully.")
 
         except subprocess.CalledProcessError as e:
-            # Log detailed output to help with troubleshooting
             if e.returncode == 1056:
                 self.logger.warning(f"Service '{FLUENT_BIT_SERVICE_NAME}' is already running. Skipping start.")
             else:
@@ -512,7 +598,6 @@ class FluentBitInstaller:
         SystemUtility.request_admin_access()
 
         try:
-            # Step 1: Check if the service exists
             self.logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists before stopping and deleting...")
             result = subprocess.run(['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
                 stdout=subprocess.PIPE,
@@ -524,7 +609,7 @@ class FluentBitInstaller:
                 self.logger.warning(f"Service '{FLUENT_BIT_SERVICE_NAME}' not found. Nothing to stop or delete.")
                 return
 
-            # Step 2: Stop the service if it's running
+            # Stop the service if it's running
             self.logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service is running...")
             if "RUNNING" in result.stdout:
                 self.logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' is running. Attempting to stop it...")
@@ -538,7 +623,7 @@ class FluentBitInstaller:
             else:
                 self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' is not running.")
 
-            # Step 3: Delete the service
+            # Delete the service
             self.logger.debug(f"Deleting service '{FLUENT_BIT_SERVICE_NAME}'...")
             delete_command = ['sc.exe', 'delete', FLUENT_BIT_SERVICE_NAME]
             delete_result = subprocess.run(delete_command,
@@ -559,19 +644,12 @@ class FluentBitInstaller:
 
     def verify_permissions(self, path):
         """
-        Verifies that SYSTEM has full control over the provided path.
-        If not, it attempts to fix the permissions.
-
-        Parameters:
-        - path: The file or directory to check permissions for.
-
-        Raises:
-        - PermissionError: If SYSTEM cannot be granted full control over the path.
+        Verifies that SYSTEM has full control over the provided path (Windows only).
+        If not, attempts to fix the permissions.
         """
         self.logger.debug(f"Verifying permissions for SYSTEM on {path}...")
 
         try:
-            # Run the icacls command to check permissions for the specified path
             result = subprocess.run(
                 ['icacls', path],
                 stdout=subprocess.PIPE,
@@ -580,11 +658,9 @@ class FluentBitInstaller:
                 check=True
             )
 
-            # Check if SYSTEM has full control
             if 'SYSTEM:(F)' not in result.stdout:
                 self.logger.error(f"SYSTEM does not have full control on {path}. Attempting to fix permissions...")
 
-                # Attempt to grant SYSTEM full control using icacls
                 fix_permissions_command = ['icacls', path, '/grant', 'SYSTEM:F']
                 fix_result = subprocess.run(fix_permissions_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                             text=True, check=True)
@@ -874,7 +950,6 @@ class FluentBitInstaller:
                 else:
                     # Assume it's an EXE with silent uninstall flags
                     uninstall_cmd = uninstall_command.split()
-                    # Append silent flags if not already present
                     if not any(flag in uninstall_cmd for flag in ["/S", "/silent", "/quiet"]):
                         uninstall_cmd.append("/S")
                     self.logger.debug(f"Running EXE uninstall command: {' '.join(uninstall_cmd)}")
@@ -926,6 +1001,7 @@ class FluentBitInstaller:
         system = platform.system().lower()
         try:
             if system == "linux":
+                # Check DEB first
                 if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
                     result = subprocess.run(
                         ["dpkg", "-s", package_name],
@@ -937,6 +1013,7 @@ class FluentBitInstaller:
                         for line in result.stdout.split('\n'):
                             if line.startswith("Version:"):
                                 return line.split(':')[1].strip()
+                # Check RPM if not DEB-based
                 elif Path('/usr/bin/rpm').exists() or Path('/bin/rpm').exists():
                     result = subprocess.run(
                         ["rpm", "-q", package_name],
@@ -946,7 +1023,10 @@ class FluentBitInstaller:
                     )
                     if result.returncode == 0:
                         # Output like 'fluent-bit-1.7.4-2.el8.x86_64'
-                        return '-'.join(result.stdout.strip().split('-')[1:3])
+                        parts = result.stdout.strip().split('-')
+                        if len(parts) > 2:
+                            # version is parts[2]
+                            return parts[2]
             elif system == "darwin":
                 # Implement version retrieval for macOS if needed
                 pass
