@@ -528,11 +528,13 @@ class SSAgentInstaller:
             try:
                 system = platform.system().lower()
                 if system == 'linux' or system == 'darwin':
-                    stop_cmd = ['sudo', 'ss-agent', 'service', 'start', 'all']
+                    cmd = ['sudo', 'ss-agent', 'service', 'restart', 'all']
                 elif system == 'windows':
-                    stop_cmd = [SS_AGENT_SERVICE_BINARY_WINDOWS, 'service', 'start', 'all']
-
-                subprocess.run(stop_cmd, check=True)
+                    cmd = [SS_AGENT_SERVICE_BINARY_WINDOWS, 'service', 'restart', 'all']
+                else:
+                    self.logger.error(f"Unsupported OS: {system}")
+                    return
+                subprocess.run(cmd, check=True)
                 self.logger.debug("All services started successfully.")
             except subprocess.CalledProcessError as e:
                 self.logger.error(f"Failed to started services: {e}")
