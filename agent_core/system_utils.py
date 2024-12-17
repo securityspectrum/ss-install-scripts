@@ -25,15 +25,20 @@ class SystemUtility:
             if not SystemUtility.is_admin():
                 logger.info("Requesting admin privileges on Windows...")
                 try:
-                    # Prepare the current environment variables to be passed to the elevated process
-                    env_vars = ' '.join([f'{key}="{value}"' for key, value in os.environ.items()])
+                    # Absolute path to the script
+                    script = os.path.abspath(sys.argv[0])
 
-                    # Re-run the script as administrator with current environment variables
-                    command = f'cmd.exe /c {env_vars} && "{sys.executable}" ' + ' '.join(sys.argv)
+                    # Prepare arguments: ensure each argument is quoted
+                    args = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
 
-                    ctypes.windll.shell32.ShellExecuteW(
-                        None, "runas", "cmd.exe", f'/C {command}', None, 1
-                    )
+                    # Command to execute: Python executable, script path, and arguments
+                    command = f'"{sys.executable}" "{script}" {args}'
+
+                    # Log the command for debugging
+                    logger.debug(f"Elevation command: {command}")
+
+                    # Execute the command with admin privileges
+                    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script}" {args}', None, 1)
                     sys.exit(0)  # Exit the non-admin instance of the script
                 except Exception as e:
                     logger.error(f"Failed to elevate privileges on Windows: {e}")
@@ -67,7 +72,7 @@ class SystemUtility:
             try:
                 return ctypes.windll.shell32.IsUserAnAdmin() == 1
             except Exception as e:
-                print(f"Error checking admin privileges on Windows: {e}")
+                logger.error(f"Error checking admin privileges on Windows: {e}")
                 return False
         elif system in ["linux", "darwin"]:
             return os.geteuid() == 0
@@ -131,16 +136,55 @@ class SystemUtility:
     @staticmethod
     def move_with_sudo(src, dest, logger=None):
         logger = logger or logging.getLogger(__name__)
-        command = ['sudo', 'mv', src, dest]
-        if SystemUtility.run_command_with_retries(command, logger):
-            logger.debug(f"Successfully moved {src} to {dest} with sudo.")
-            # Set permissions
-            chmod_command = ['sudo', 'chmod', '644', dest]
-            if SystemUtility.run_command_with_retries(chmod_command, logger):
+        try:
+            if not os.path.exists(src):
+                logger.error(f"Source file does not exist: {src}")
+                return False
+
+            # Determine the operating system
+            if sys.platform.startswith('linux') or sys.platform.startswith('darwin'):
+                # Unix-like systems: Use sudo if necessary
+                # Check if the current user has write permissions to the destination
+                dest_dir = os.path.dirname(dest)
+                if not os.access(dest_dir, os.W_OK):
+                    command = ['sudo', 'mv', src, dest]
+                    result = SystemUtility.run_command_with_retries(command, logger)
+                    if result.returncode != 0:
+                        logger.error(f"Failed to move {src} to {dest} with sudo.")
+                        return False
+                    logger.debug(f"Successfully moved {src} to {dest} with sudo.")
+
+                    # Set permissions
+                    chmod_command = ['sudo', 'chmod', '644', dest]
+                    chmod_result = SystemUtility.run_command_with_retries(chmod_command, logger)
+                    if chmod_result.returncode != 0:
+                        logger.error(f"Failed to set permissions for {dest}.")
+                        return False
+                    logger.debug(f"Permissions set for {dest}.")
+                else:
+                    # User has write permissions; no need for sudo
+                    shutil.move(src, dest)
+                    logger.debug(f"Successfully moved {src} to {dest}.")
+                    os.chmod(dest, 0o644)
+                    logger.debug(f"Permissions set for {dest}.")
+            elif sys.platform.startswith('win'):
+                # Windows systems: Use shutil.move and handle permissions if necessary
+                shutil.move(src, dest)
+                logger.debug(f"Successfully moved {src} to {dest}.")
+
+                # Set permissions (Windows permissions are different; os.chmod can set read-only attribute
+                # For more advanced permission handling, use the `pywin32` library or similar
+                os.chmod(dest, 0o644)  # This sets read/write permissions; adjust as needed
                 logger.debug(f"Permissions set for {dest}.")
-                return True
-        logger.error(f"Failed to move {src} to {dest} or set permissions.")
-        return False
+            else:
+                logger.error(f"Unsupported platform: {sys.platform}")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Exception occurred while moving file: {e}")
+            return False
 
     @staticmethod
     def create_directories(dirs):

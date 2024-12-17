@@ -196,13 +196,30 @@ class CertificateManager:
 
     def move_certificates(self, temp_cert_dir):
         try:
-            # Create the directory with sudo
+            # Create the directory with sudo for Unix-like systems
             if platform.system() != "Windows":
+                self.logger.info(f"Creating directory {self.cert_dir} with sudo")
                 SystemUtility.run_command(["sudo", "mkdir", "-p", str(self.cert_dir)])
             else:
+                self.logger.info(f"Creating directory {self.cert_dir} on Windows")
                 self.cert_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             self.logger.error(f"Error creating directory {self.cert_dir}: {e}")
+            raise
+
+        for item in temp_cert_dir.iterdir():
+            try:
+                dest_path = self.cert_dir / item.name
+                if platform.system() != "Windows":
+                    self.logger.info(f"Moving {item} to {dest_path} with sudo")
+                    SystemUtility.move_with_sudo(str(item), str(dest_path))
+                else:
+                    self.logger.info(f"Moving {item} to {dest_path} without sudo")
+                    shutil.move(str(item), str(dest_path))
+                self.logger.info(f"Moved {item} to {dest_path}")
+            except Exception as e:
+                self.logger.error(f"Error moving {item} to {dest_path}: {e}")
+                raise
 
         for item in temp_cert_dir.iterdir():
             try:
