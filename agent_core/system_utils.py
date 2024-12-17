@@ -5,6 +5,7 @@ import shutil
 import ctypes
 import sys
 import logging
+import time
 
 logger = logging.getLogger('InstallationLogger')
 
@@ -73,6 +74,48 @@ class SystemUtility:
         else:
             raise NotImplementedError(f"Unsupported operating system: {system}")
 
+    @staticmethod
+    def run_command_with_retries(command, logger, retries=3, delay=5, backoff=2):
+        """
+        Executes a shell command with retries and exponential backoff.
+
+        Args:
+            command (list): The command to execute as a list (e.g., ['sudo', 'systemctl', 'start', 'ss-agent']).
+            logger (logging.Logger): Logger instance for logging messages.
+            retries (int): Number of retry attempts.
+            delay (int): Initial delay between retries in seconds.
+            backoff (int): Multiplier for delay after each retry.
+
+        Returns:
+            subprocess.CompletedProcess: The result of the subprocess.run execution.
+        """
+        attempt = 0
+        current_delay = delay
+
+        while attempt <= retries:
+            try:
+                logger.debug(f"Executing command: {' '.join(command)} (Attempt {attempt + 1})")
+                result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+                if result.returncode == 0:
+                    logger.debug(f"Command succeeded: {' '.join(command)}")
+                    return result
+                else:
+                    logger.warning(f"Command failed with return code {result.returncode}: {' '.join(command)}")
+                    logger.warning(f"stderr: {result.stderr.strip()}")
+
+            except Exception as e:
+                logger.error(f"Exception occurred while executing command {' '.join(command)}: {e}")
+
+            attempt += 1
+            if attempt > retries:
+                break
+            logger.debug(f"Retrying after {current_delay} seconds...")
+            time.sleep(current_delay)
+            current_delay *= backoff  # Exponential backoff
+
+        logger.error(f"All {retries} attempts failed for command: {' '.join(command)}")
+        return None
 
     @staticmethod
     def run_command(command, check=True, shell=False):
@@ -86,12 +129,18 @@ class SystemUtility:
                 sys.exit(1)
 
     @staticmethod
-    def move_with_sudo(src, dest):
-        logger.info(f"Moving {src} to {dest} with sudo")
-        if platform.system() == "Windows":
-            shutil.move(src, dest)
-        else:
-            SystemUtility.run_command(["sudo", "mv", src, dest])
+    def move_with_sudo(src, dest, logger=None):
+        logger = logger or logging.getLogger(__name__)
+        command = ['sudo', 'mv', src, dest]
+        if SystemUtility.run_command_with_retries(command, logger):
+            logger.debug(f"Successfully moved {src} to {dest} with sudo.")
+            # Set permissions
+            chmod_command = ['sudo', 'chmod', '644', dest]
+            if SystemUtility.run_command_with_retries(chmod_command, logger):
+                logger.debug(f"Permissions set for {dest}.")
+                return True
+        logger.error(f"Failed to move {src} to {dest} or set permissions.")
+        return False
 
     @staticmethod
     def create_directories(dirs):

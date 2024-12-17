@@ -331,46 +331,81 @@ class ZeekInstaller:
 
     def install_zeek_ubuntu(self):
         """
-        Installs Zeek on Ubuntu.
+        Installs Zeek on Ubuntu reliably with minimal system-wide updates.
         """
-        self.logger.debug("Detected Ubuntu. Proceeding with installation...")
+        self.logger.debug("Detected Ubuntu. Proceeding with Zeek installation...")
         self.install_utilities()
+
+        # Detect Ubuntu release version
         distro_version = self.run_command(['lsb_release', '-rs'], capture_output=True).strip()
+        self.logger.debug(f"Ubuntu version detected: {distro_version}")
 
-        self.logger.debug("Configuring repository for Ubuntu...")
+        # Ensure universe repository is enabled (needed for some dependencies, such as libmaxminddb-dev)
+        # self.logger.debug("Enabling universe repository...")
+        # self.run_command(['add-apt-repository', '-y', 'universe'])
+
+        # Update package lists after enabling universe
+        self.logger.debug("Updating package lists after enabling universe repository...")
+        self.run_command(['apt', 'update'])
+
+        # Prepare to add Zeek repository
+        gpg_key_url = f"https://download.opensuse.org/repositories/security:zeek/xUbuntu_{distro_version}/Release.key"
+        keyring_path = "/usr/share/keyrings/zeek-archive-keyring.gpg"
+
+        # Remove old keyring if exists to avoid prompt
+        self.logger.debug("Ensuring clean state for Zeek keyring...")
+        self.run_command(['rm', '-f', keyring_path])
+
+        # Download the GPG key
+        self.logger.debug(f"Downloading Zeek GPG key from {gpg_key_url}")
+        gpg_key_data = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
+
+        # Write key to a temporary file
+        with open('/tmp/Release.key', 'wb') as key_file:
+            key_file.write(gpg_key_data.encode('utf-8'))
+
+        # Dearmor and store the GPG key
+        self.logger.debug("Storing the GPG key...")
+        self.run_command(['gpg', '--batch', '--yes', '--dearmor', '-o', keyring_path, '/tmp/Release.key'])
+
+        # Add the Zeek repository
+        repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/xUbuntu_{distro_version}/ /"
+        self.logger.debug(f"Adding Zeek repository: {repo_entry}")
+        self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'])
+
+        # Option 1: Update all package lists (safer, ensures all dependencies can be found)
+        # self.logger.debug("Updating package lists with new Zeek repository...")
+        # self.run_command(['apt', 'update'])
+
+        # Option 2 (Older approach): Update only the Zeek repository
+        # This tries to update only the repository mentioned in /etc/apt/sources.list.d/zeek.list
+        # Useful if you don't want to refresh all package indices system-wide
+        self.logger.debug("Updating only the Zeek repository lists...")
+        self.run_command(['apt', 'update', '-o', 'Dir::Etc::sourcelist="sources.list.d/zeek.list"', '-o',
+            'APT::Get::List-Cleanup="0"'])
+
+        # Fix any broken dependencies if present
+        self.logger.debug("Attempting to fix any broken dependencies before installation...")
+        self.run_command(['apt', '--fix-broken', 'install', '-y'])
+
+        # Attempt to install Zeek and Zeekctl
+        self.logger.debug("Installing Zeek and Zeekctl...")
         try:
-            # Add Zeek GPG key
-            gpg_key_url = f"https://download.opensuse.org/repositories/security:zeek/xUbuntu_{distro_version}/Release.key"
-            keyring_path = "/usr/share/keyrings/zeek-archive-keyring.gpg"
-
-            # Download and store the GPG key
-            self.logger.debug(f"Downloading GPG key from {gpg_key_url}")
-            gpg_key_data = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
-
-            with open('/tmp/Release.key', 'wb') as key_file:
-                key_file.write(gpg_key_data.encode('utf-8'))
-
-            # Store the key using gpg
-            self.run_command(['gpg', '--dearmor', '-o', keyring_path, '/tmp/Release.key'])
-
-            # Add Zeek repository
-            repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/xUbuntu_{distro_version}/ /"
-            self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'])
-
-            # Update only the Zeek repository
-            self.logger.debug("Updating the Zeek repository...")
-            self.run_command(['apt', 'update', '-o', f'Dir::Etc::sourcelist="sources.list.d/zeek.list"', '-o',
-                              'APT::Get::List-Cleanup="0"'])
-
-            # Install Zeek and Zeekctl without updating other packages
-            self.logger.debug("Installing Zeek and Zeekctl...")
             self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
-
             self.logger.debug("Zeek installed successfully via apt.")
         except Exception as e:
-            self.logger.error(f"Package installation failed: {e}. Attempting to install from source...")
-            self.install_zeek_from_source()
-            return
+            self.logger.error(f"Package installation failed: {e}. Attempting to fix broken packages and retry...")
+
+            # Fix broken packages if any
+            self.run_command(['apt', '--fix-broken', 'install', '-y'])
+
+            # Retry installation once
+            try:
+                self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
+                self.logger.debug("Zeek installed successfully on retry.")
+            except Exception as e2:
+                self.logger.error(f"Second attempt to install Zeek failed: {e2}. Falling back to source installation.")
+                self.install_zeek_from_source()
 
         # Proceed with Zeek configuration
         self.configure_zeek()

@@ -1,4 +1,5 @@
 import sys
+import textwrap
 import zipfile
 import time
 import distro
@@ -196,56 +197,151 @@ class SSAgentInstaller:
 
     def service_exists(self, service_name):
         system = platform.system().lower()
-        if system == 'windows':
-            result = subprocess.run(['sc.exe', 'query', service_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            return 'The specified service does not exist' not in result.stdout
-        elif system == 'linux':
-            result = subprocess.run(['systemctl', 'status', service_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            return 'could not be found' not in result.stdout
-        elif system == 'darwin':
-            result = subprocess.run(['launchctl', 'list', service_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            return service_name in result.stdout
-        else:
-            raise NotImplementedError(f"Unsupported OS: {system}")
+        self.logger.debug(f"Operating System detected: {system}")
+
+        try:
+            if system == 'windows':
+                return self._service_exists_windows(service_name)
+            elif system == 'linux':
+                return self._service_exists_linux(service_name)
+            elif system == 'darwin':
+                return self._service_exists_macos(service_name)
+            else:
+                raise NotImplementedError(f"Unsupported OS: {system}")
+        except Exception as e:
+            self.logger.error(f"Error checking service existence: {e}")
+            return False
+
+    def _service_exists_windows(self, service_name):
+        self.logger.debug(f"Checking existence of Windows service: {service_name}")
+        try:
+            # 'sc.exe query' returns 0 if the service exists, non-zero otherwise
+            result = subprocess.run(['sc.exe', 'query', service_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True)
+            if result.returncode == 0:
+                self.logger.debug(f"Service '{service_name}' exists on Windows.")
+                return True
+            else:
+                self.logger.debug(f"Service '{service_name}' does not exist on Windows.")
+                return False
+        except FileNotFoundError:
+            self.logger.error("sc.exe not found. Ensure you are running this on a Windows system.")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error while checking Windows service: {e}")
+            return False
+
+    def _service_exists_linux(self, service_name):
+        self.logger.debug(f"Checking existence of Linux service: {service_name}")
+        try:
+            # 'systemctl list-unit-files' lists all service unit files
+            result = subprocess.run(['systemctl', 'list-unit-files', service_name + '.service'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True)
+            if result.returncode == 0 and service_name + '.service' in result.stdout:
+                self.logger.debug(f"Service '{service_name}' exists on Linux.")
+                return True
+            else:
+                self.logger.debug(f"Service '{service_name}' does not exist on Linux.")
+                return False
+        except FileNotFoundError:
+            self.logger.error("systemctl not found. Ensure you are running this on a Linux system with systemd.")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error while checking Linux service: {e}")
+            return False
+
+    def _service_exists_macos(self, service_name):
+        self.logger.debug(f"Checking existence of macOS service: {service_name}")
+        try:
+            # 'launchctl list' returns 0 if the service is loaded
+            result = subprocess.run(['launchctl', 'list', service_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True)
+            if result.returncode == 0:
+                self.logger.debug(f"Service '{service_name}' exists on macOS.")
+                return True
+            else:
+                self.logger.debug(f"Service '{service_name}' does not exist on macOS.")
+                return False
+        except FileNotFoundError:
+            self.logger.error("launchctl not found. Ensure you are running this on a macOS system.")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error while checking macOS service: {e}")
+            return False
 
     def setup_systemd_service(self, executable_path):
         """
         Sets up a systemd service for the SS Agent on Linux.
         The service uses the 'ss-agent --debug start' command to start.
         """
+        SS_AGENT_SERVICE_LINUX = "/etc/systemd/system/ss-agent.service"
         service_name = SS_AGENT_SERVICE_NAME
         if self.service_exists(service_name):
             self.logger.debug(f"Service {service_name} already exists. Skipping creation.")
         else:
             self.logger.debug("Setting up systemd service for SS Agent..")
-            service_content = f"""[Unit]
-        Description=SS Agent Service
-        After=network.target
+            service_content = textwrap.dedent(f"""\
+                [Unit]
+                Description=SS Agent Service
+                After=network.target
 
-        [Service]
-        Type=simple
-        ExecStart={executable_path} --debug start
-        Restart=always
-        User=root
+                [Service]
+                Type=simple
+                ExecStart={executable_path} --debug start
+                Restart=always
+                User=root
 
-        [Install]
-        WantedBy=multi-user.target
-        """
+                [Install]
+                WantedBy=multi-user.target
+                """)
+
             try:
                 # Write service file to a temporary location
                 temp_service_path = '/tmp/ss-agent.service'
                 with open(temp_service_path, 'w') as f:
                     f.write(service_content)
 
+                self.logger.debug(f"Service file written to {temp_service_path}.")
+
                 # Move the service file to the system directory with proper permissions
                 SystemUtility.move_with_sudo(temp_service_path, SS_AGENT_SERVICE_LINUX)
+                self.logger.debug(f"Service file moved to {SS_AGENT_SERVICE_LINUX}.")
 
-                # Reload systemd, enable and start the service
-                subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
-                subprocess.run(['sudo', 'systemctl', 'enable', 'ss-agent'], check=True)
-                subprocess.run(['sudo', 'systemctl', 'start', 'ss-agent'], check=True)
-                self.logger.debug("SS Agent service installed and started (systemd).")
+                # Set correct permissions (optional but recommended)
+                subprocess.run(['sudo', 'chmod', '644', SS_AGENT_SERVICE_LINUX], check=True)
+                self.logger.debug(f"Permissions set for {SS_AGENT_SERVICE_LINUX}.")
 
+                # Reload systemd to recognize the new service
+                daemon_reload_command = ['sudo', 'systemctl', 'daemon-reload']
+                if SystemUtility.run_command_with_retries(daemon_reload_command, self.logger):
+                    self.logger.debug("systemd daemon reloaded.")
+                else:
+                    self.logger.error("Failed to reload systemd daemon.")
+
+                # Enable the service to start on boot
+                enable_command = ['sudo', 'systemctl', 'enable', service_name]
+                if SystemUtility.run_command_with_retries(enable_command, self.logger):
+                    self.logger.debug(f"Service '{service_name}' enabled to start on boot.")
+                else:
+                    self.logger.error(f"Failed to enable service '{service_name}'.")
+                    return
+
+                # Start the service immediately
+                start_command = ['sudo', 'systemctl', 'start', service_name]
+                if SystemUtility.run_command_with_retries(start_command, self.logger):
+                    self.logger.debug(f"Service '{service_name}' started successfully.")
+                else:
+                    self.logger.error(f"Failed to start service '{service_name}'. Check the service logs for details.")
+
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Command '{e.cmd}' failed with exit code {e.returncode}.")
+                raise
             except Exception as e:
                 self.logger.error(f"Failed to set up systemd service: {e}")
                 raise
@@ -481,43 +577,65 @@ class SSAgentInstaller:
             self.logger.error(f"An unexpected error occurred: {ex}")
             raise
 
-
-    def is_service_running(self, service_name):
+    def is_service_running(self, service_name, fix_command=None):
         """
         Check if the service is installed and running on the system.
+        Optionally attempt to fix the service state using fix_command.
+
+        Args:
+            service_name (str): The name of the service to check.
+            fix_command (list, optional): The command to execute to fix the service state.
+
+        Returns:
+            bool: True if the service is running, False otherwise.
         """
         system = platform.system().lower()
+        self.logger.debug(f"Operating System detected: {system}")
+
         try:
             if system == 'linux':
                 # Check status with systemctl for Linux
                 status_cmd = ['systemctl', 'is-active', service_name]
-                result = subprocess.run(status_cmd, text=True, capture_output=True, check=False)
-                if result.returncode == 0 and 'active' in result.stdout:
+                result = SystemUtility.run_command_with_retries(status_cmd, self.logger, retries=1)
+
+                # Strip any leading/trailing whitespace and perform exact match
+                if result and result.stdout.strip() == 'active':
+                    self.logger.debug(f"Service '{service_name}' is active on Linux.")
                     return True
+
+                self.logger.debug(f"Service '{service_name}' is not active on Linux.")
                 return False
 
             elif system == 'darwin':
                 # Check status with launchctl for macOS
                 status_cmd = ['launchctl', 'list', service_name]
-                result = subprocess.run(status_cmd, text=True, capture_output=True, check=False)
-                if result.returncode == 0 and service_name in result.stdout:
+                result = SystemUtility.run_command_with_retries(
+                    status_cmd, self.logger, retries=1)
+                if result and service_name in result.stdout:
+                    self.logger.debug(f"Service '{service_name}' is running on macOS.")
                     return True
+                self.logger.debug(f"Service '{service_name}' is not running on macOS.")
                 return False
 
             elif system == 'windows':
                 # Use sc query on Windows to check service status
-                result = subprocess.run(['sc', 'query', service_name], text=True, capture_output=True, check=False)
-                if result.returncode == 0 and 'RUNNING' in result.stdout:
+                status_cmd = ['sc', 'query', service_name]
+                result = SystemUtility.run_command_with_retries(
+                    status_cmd, self.logger, retries=1)
+                if result and 'RUNNING' in result.stdout:
+                    self.logger.debug(f"Service '{service_name}' is running on Windows.")
                     return True
+                self.logger.debug(f"Service '{service_name}' is not running on Windows.")
                 return False
 
             else:
                 self.logger.error(f"Unsupported OS: {system}")
                 return False
 
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             self.logger.error(f"Error checking service status on {system}: {e}")
             return False
+
 
     def start_all_services_ss_agent(self):
         """

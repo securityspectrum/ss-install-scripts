@@ -273,39 +273,54 @@ class FluentBitInstaller:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
     def extract_rpm_version(self, dest_path):
-        # Try the original underscore-based logic first
-        parts = dest_path.stem.split('_')
-        if len(parts) > 1:
-            # This handles the case of filenames like fluent-bit-1.8.6-1.x86_64.rpm
-            return parts[1]
+        """
+        Extracts the version number from the RPM filename.
+
+        Expected Filename Format: fluent-bit-<version>.<distro>-<distro_version>.<arch>.rpm
+        Example: fluent-bit-3.1.6.centos-9.x86_64.rpm
+        """
+        stem = dest_path.stem  # e.g., fluent-bit-3.1.6.centos-9.x86_64
+        match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)\.[^.]+-\d+\..*", stem)
+        if match:
+            return match.group(1)
         else:
-            # Fallback: handle filenames like fluent-bit-1.8.6-1.el7.x86_64.rpm
-            # We know the version should appear after 'fluent-bit-' and before the release number.
-            # For example: fluent-bit-1.8.6-1.el7.x86_64 -> version is 1.8.6
-            match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)-\d+\..*", dest_path.stem)
-            if match:
-                return match.group(1)
-            else:
-                # If we still cannot parse, raise a more informative
-                # error message
-                raise ValueError(f"Could not extract version from RPM filename: {dest_path.stem}")
+            self.logger.error(f"Could not extract version from RPM filename: {stem}")
+            raise ValueError(f"Could not extract version from RPM filename: {stem}")
 
     def extract_deb_version(self, dest_path):
         # Try the original underscore-based logic first
-        parts = dest_path.stem.split('_')
+        stem = dest_path.stem  # e.g., fluent-bit_3.1.6-1_amd64 or fluent-bit-3.1.6.ubuntu-22.04.amd64
+        # Attempt underscore-based parsing
+        parts = stem.split('_')
         if len(parts) > 1:
-            # This handles the case of filenames like fluent-bit_3.1.6-1_amd64.deb
-            return parts[1]
-        else:
-            # Fallback: handle filenames like fluent-bit-3.1.6.ubuntu-22.04.amd64.deb
-            # We know the version should appear after 'fluent-bit-' and before the distro name.
-            # For example: fluent-bit-3.1.6.ubuntu-22.04.amd64 -> version is 3.1.6
-            match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)\..*", dest_path.stem)
+            # Example: fluent-bit_3.1.6-1_amd64
+            ver_release = parts[1]  # '3.1.6-1'
+            # Validate the version format using regex
+            match = re.match(r"(\d+\.\d+\.\d+(-\d+)?)", ver_release)
             if match:
-                return match.group(1)
+                extracted_version = match.group(1)
+                self.logger.debug(f"Extracted version from underscore format: {extracted_version}")
+                return extracted_version
             else:
-                # If we still cannot parse, raise a more informative error
-                raise ValueError(f"Cannot parse the version from DEB filename: {dest_path.name}")
+                self.logger.warning(f"Unexpected version format in DEB filename: {ver_release}")
+
+        # Fallback: dash-based parsing
+        match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)(?:\.[^.]+)?-\d+\..*", stem)
+        if match:
+            extracted_version = match.group(1)
+            self.logger.debug(f"Extracted version from dash format: {extracted_version}")
+            return extracted_version
+        else:
+            # Fallback to extracting version before first dot after 'fluent-bit-'
+            match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)", stem)
+            if match:
+                extracted_version = match.group(1)
+                self.logger.debug(f"Extracted version from fallback regex: {extracted_version}")
+                return extracted_version
+
+        # If all parsing attempts fail, raise an error
+        self.logger.error(f"Cannot parse the version from DEB filename: {dest_path.name}")
+        raise ValueError(f"Cannot parse the version from DEB filename: {dest_path.name}")
 
     def is_rpm_based_system(self):
         distro_id = distro.id().lower()
