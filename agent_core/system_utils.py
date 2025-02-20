@@ -80,19 +80,10 @@ class SystemUtility:
             raise NotImplementedError(f"Unsupported operating system: {system}")
 
     @staticmethod
-    def run_command_with_retries(command, logger, retries=3, delay=5, backoff=2):
+    def run_command_with_retries(command, logger, retries=3, delay=5, backoff=2, success_predicate=None):
         """
         Executes a shell command with retries and exponential backoff.
-
-        Args:
-            command (list): The command to execute as a list (e.g., ['sudo', 'systemctl', 'start', 'ss-agent']).
-            logger (logging.Logger): Logger instance for logging messages.
-            retries (int): Number of retry attempts.
-            delay (int): Initial delay between retries in seconds.
-            backoff (int): Multiplier for delay after each retry.
-
-        Returns:
-            subprocess.CompletedProcess: The result of the subprocess.run execution.
+        Optionally accepts a success_predicate function that returns True for acceptable results.
         """
         attempt = 0
         current_delay = delay
@@ -102,7 +93,14 @@ class SystemUtility:
                 logger.debug(f"Executing command: {' '.join(command)} (Attempt {attempt + 1})")
                 result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-                if result.returncode == 0:
+                # Use the provided success predicate if available,
+                # otherwise default to returncode 0 being a success.
+                if success_predicate:
+                    is_success = success_predicate(result)
+                else:
+                    is_success = result.returncode == 0
+
+                if is_success:
                     logger.debug(f"Command succeeded: {' '.join(command)}")
                     return result
                 else:
@@ -149,7 +147,7 @@ class SystemUtility:
                 if not os.access(dest_dir, os.W_OK):
                     command = ['sudo', 'mv', src, dest]
                     result = SystemUtility.run_command_with_retries(command, logger)
-                    if result.returncode != 0:
+                    if result and result.returncode != 0:
                         logger.error(f"Failed to move {src} to {dest} with sudo.")
                         return False
                     logger.debug(f"Successfully moved {src} to {dest} with sudo.")
@@ -157,7 +155,7 @@ class SystemUtility:
                     # Set permissions
                     chmod_command = ['sudo', 'chmod', '644', dest]
                     chmod_result = SystemUtility.run_command_with_retries(chmod_command, logger)
-                    if chmod_result.returncode != 0:
+                    if chmod_result and chmod_result.returncode != 0:
                         logger.error(f"Failed to set permissions for {dest}.")
                         return False
                     logger.debug(f"Permissions set for {dest}.")
@@ -246,8 +244,10 @@ class SystemUtility:
             logger.error("winreg module is not available. Cannot access the Windows Registry.")
             return None
 
-        uninstall_subkeys = [r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
-            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"]
+        uninstall_subkeys = [
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+        ]
 
         for root in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
             for subkey in uninstall_subkeys:

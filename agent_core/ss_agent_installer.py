@@ -25,7 +25,6 @@ except ImportError:
     winreg = None  # Not available on non-Windows systems
 # Setup logger
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 SS_AGENT_ASSET_PATTERNS = {"linux": "ss-agent-linux", "darwin": "ss-agent-darwin", "windows": "ss-agent-win.exe", }
 
@@ -594,23 +593,35 @@ class SSAgentInstaller:
 
         try:
             if system == 'linux':
-                # Check status with systemctl for Linux
                 status_cmd = ['systemctl', 'is-active', service_name]
-                result = SystemUtility.run_command_with_retries(status_cmd, self.logger, retries=1)
 
-                # Strip any leading/trailing whitespace and perform exact match
-                if result and result.stdout.strip() == 'active':
-                    self.logger.debug(f"Service '{service_name}' is active on Linux.")
-                    return True
+                # Define a custom predicate: treat return code 0 as active,
+                # and return code 3 as acceptable (meaning inactive, which is not a failure of the check).
+                def is_active_predicate(result):
+                    return result.returncode in (0, 3)
 
-                self.logger.debug(f"Service '{service_name}' is not active on Linux.")
-                return False
+                result = SystemUtility.run_command_with_retries(status_cmd,
+                    self.logger,
+                    retries=1,
+                    success_predicate=is_active_predicate)
+
+                if result is not None:
+                    if result.returncode == 0 and result.stdout.strip() == 'active':
+                        self.logger.debug(f"Service '{service_name}' is active on Linux.")
+                        return True
+                    if result.returncode == 3:
+                        self.logger.debug(f"Service '{service_name}' is not active (return code 3).")
+                        return False
+                    self.logger.warning(f"Service '{service_name}' returned unexpected code {result.returncode}. stdout: '{result.stdout.strip()}'")
+                    return False
+                else:
+                    self.logger.warning(f"Failed to determine the status of '{service_name}' after 1 attempt.")
+                    return False
 
             elif system == 'darwin':
                 # Check status with launchctl for macOS
                 status_cmd = ['launchctl', 'list', service_name]
-                result = SystemUtility.run_command_with_retries(
-                    status_cmd, self.logger, retries=1)
+                result = SystemUtility.run_command_with_retries(status_cmd, self.logger, retries=1)
                 if result and service_name in result.stdout:
                     self.logger.debug(f"Service '{service_name}' is running on macOS.")
                     return True
@@ -620,8 +631,7 @@ class SSAgentInstaller:
             elif system == 'windows':
                 # Use sc query on Windows to check service status
                 status_cmd = ['sc', 'query', service_name]
-                result = SystemUtility.run_command_with_retries(
-                    status_cmd, self.logger, retries=1)
+                result = SystemUtility.run_command_with_retries(status_cmd, self.logger, retries=1)
                 if result and 'RUNNING' in result.stdout:
                     self.logger.debug(f"Service '{service_name}' is running on Windows.")
                     return True

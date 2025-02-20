@@ -13,7 +13,6 @@ from agent_core.constants import (
 )
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 # Asset patterns
 SS_NETWORK_ANALYZER_ASSET_PATTERNS = {

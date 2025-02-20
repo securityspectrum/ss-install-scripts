@@ -1,6 +1,7 @@
 # -------------------- Parameter Definitions -------------------- #
 param (
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [switch]$Verbose
 )
 
 # Enable strict mode for better error handling
@@ -40,14 +41,16 @@ function Install-Prerequisites {
     $programs = @("git", "curl")
     foreach ($program in $programs) {
         if (-not (Get-Command $program -ErrorAction SilentlyContinue)) {
-            Write-Host "$program is not installed. Installing $program..."
+            Write-Host "$program is not installed. Installing $program..." -ForegroundColor Yellow
             if ($program -eq "git") {
                 choco install git -y
             } elseif ($program -eq "curl") {
                 choco install curl -y
             }
         } else {
-            Write-Host "$program is already installed."
+            if ($Verbose) {
+                Write-Host "$program is already installed." -ForegroundColor Green
+            }
         }
     }
 }
@@ -55,22 +58,26 @@ function Install-Prerequisites {
 # Function to install Chocolatey if not present
 function Install-Chocolatey {
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-        Write-Host "Chocolatey is not installed. Installing Chocolatey..."
+        Write-Host "Chocolatey is not installed. Installing Chocolatey..." -ForegroundColor Yellow
         Set-ExecutionPolicy Bypass -Scope Process -Force
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
         Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
     } else {
-        Write-Host "Chocolatey is already installed."
+        if ($Verbose) {
+            Write-Host "Chocolatey is already installed." -ForegroundColor Green
+        }
     }
 }
 
 # Function to install Python if not present
 function Install-Python {
     if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-        Write-Host "Python is not installed. Installing Python via Chocolatey..."
+        Write-Host "Python is not installed. Installing Python via Chocolatey..." -ForegroundColor Yellow
         choco install python -y
     } else {
-        Write-Host "Python is already installed."
+        if ($Verbose) {
+            Write-Host "Python is already installed." -ForegroundColor Green
+        }
     }
 }
 
@@ -88,12 +95,11 @@ if ($Uninstall) {
     Write-Host "Action selected: INSTALL" -ForegroundColor Cyan
 }
 
-# Debug: Output the current Action before any further processing
-Write-Host "DEBUG: Action before prerequisites: --$Action" -ForegroundColor DarkGray
+Write-Verbose "Action before prerequisites: --$Action"
 
 # Install prerequisites if installing
 if ($Action -eq "install") {
-    Write-Host "Checking and installing prerequisites..." -ForegroundColor Yellow
+    Write-Host "Installing prerequisites..." -ForegroundColor Yellow
     Install-Chocolatey
     Install-Prerequisites
     Install-Python
@@ -135,7 +141,9 @@ if (-not (Test-Path "venv")) {
         Error-Exit "Failed to create virtual environment."
     }
 } else {
-    Write-Host "Virtual environment already exists." -ForegroundColor Green
+    if ($Verbose) {
+        Write-Host "Virtual environment already exists." -ForegroundColor Green
+    }
 }
 
 # Define the path to the virtual environment's Python executable
@@ -147,7 +155,9 @@ Write-Host "Upgrading pip..." -ForegroundColor Yellow
 if (-not $?) {
     Error-Exit "Failed to upgrade pip."
 } else {
-    Write-Host "Pip upgraded successfully." -ForegroundColor Green
+    if ($Verbose) {
+        Write-Host "Pip upgraded successfully." -ForegroundColor Green
+    }
 }
 
 # Install requirements using the virtual environment's Python
@@ -156,12 +166,14 @@ Write-Host "Installing Python dependencies..." -ForegroundColor Yellow
 if (-not $?) {
     Error-Exit "Failed to install dependencies."
 } else {
-    Write-Host "Python dependencies installed successfully." -ForegroundColor Green
+    if ($Verbose) {
+        Write-Host "Python dependencies installed successfully." -ForegroundColor Green
+    }
 }
 
 # Only check for environment variables if the action is 'install'
 if ($Action -eq "install") {
-    Write-Host "Validating environment variables for INSTALL action..." -ForegroundColor Yellow
+    Write-Host "Validating environment variables..." -ForegroundColor Yellow
     $requiredVars = @("ORG_KEY", "API_ACCESS_KEY", "API_SECRET_KEY", "JWT_TOKEN", "MASTER_KEY")
     foreach ($var in $requiredVars) {
         # Get the value of the environment variable dynamically
@@ -170,14 +182,16 @@ if ($Action -eq "install") {
         if (-not $envValue) {
             Error-Exit "Environment variable $var is not set."
         } else {
-            # Define the number of characters to show from the start and end
-            $numChars = 4
-            if ($envValue.Length -gt ($numChars * 2)) {
-                $startPart = $envValue.Substring(0, $numChars)
-                $endPart = $envValue.Substring($envValue.Length - $numChars, $numChars)
-                Write-Host "$var is set: $startPart***$endPart"
-            } else {
-                Write-Host "$var is set: $envValue"
+            # Only output detailed variable info if verbose is enabled
+            if ($Verbose) {
+                $numChars = 4
+                if ($envValue.Length -gt ($numChars * 2)) {
+                    $startPart = $envValue.Substring(0, $numChars)
+                    $endPart = $envValue.Substring($envValue.Length - $numChars, $numChars)
+                    Write-Host "$var is set: $startPart***$endPart"
+                } else {
+                    Write-Host "$var is set: $envValue"
+                }
             }
         }
     }
@@ -185,12 +199,11 @@ if ($Action -eq "install") {
     Write-Host "Skipping environment variable validation for UNINSTALL action." -ForegroundColor Yellow
 }
 
-# Debug: Output the current Action before running Python script
-Write-Host "DEBUG: Action before running Python script: --$Action" -ForegroundColor DarkGray
+Write-Verbose "Action before running Python script: --$Action"
 
 # Run the Python script with the selected action using the virtual environment's Python
 Write-Host "Running install_agents.py with --$Action..." -ForegroundColor Magenta
-Write-Host "DEBUG: Executing command: & $venvPython install_agents.py --log-level INFO --$Action" -ForegroundColor DarkGray
+Write-Verbose "Executing command: & $venvPython install_agents.py --log-level INFO --$Action"
 & $venvPython install_agents.py --log-level INFO --$Action
 if (-not $?) {
     Error-Exit "Failed to run install_agents.py."

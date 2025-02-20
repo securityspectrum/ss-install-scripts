@@ -27,14 +27,14 @@ except ImportError:
 from utils.files import get_temp_file_path
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-
 
 class FluentBitInstaller:
 
-    def __init__(self):
+    def __init__(self, logger=None, quiet_install=False):
         self.repo = FLUENT_BIT_REPO
         self.logger = logging.getLogger(__name__)
+        self.logger = logger or logging.getLogger(__name__)
+        self.quiet_install = quiet_install
 
     def parse_asset_name(self, asset_name):
         # Check for macOS and Windows first
@@ -232,7 +232,7 @@ class FluentBitInstaller:
                 else:
                     self.logger.debug(f"A different version or no version of {package_name} is installed. Updating to version {rpm_version}.")
                     try:
-                        subprocess.run(["sudo", "rpm", "-Uvh", str(dest_path)], check=True)
+                        subprocess.run(["sudo", "rpm", "--quiet", "-Uvh", str(dest_path)], check=True)
                     except subprocess.CalledProcessError as e:
                         self.logger.error(f"RPM installation failed: {e}")
                         raise

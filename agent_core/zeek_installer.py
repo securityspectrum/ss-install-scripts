@@ -41,8 +41,13 @@ from agent_core.network_analyzer_installer import SS_NETWORK_ANALYZER_ASSET_PATT
 
 
 class ZeekInstaller:
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, logger=None, quiet_install=False):
+        """
+        :param logger: a configured logger
+        :param quiet_install: if True, pass -q or -qq flags to package managers
+        """
+        self.logger = logger or logging.getLogger(__name__)
+        self.quiet_install = quiet_install
 
         # Fetch distribution info as a dictionary
         self.os_info = distro.info()
@@ -69,17 +74,26 @@ class ZeekInstaller:
                 self.logger.error("Failed to import Windows-specific modules: {}".format(e))
                 sys.exit(1)
 
+    def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None, require_root=False, quiet=None):
+        """
+        Executes a system command with optional quiet behavior and root privileges.
+        """
+        # If quiet param is None, fall back to self.quiet
+        if quiet is None:
+            quiet = self.quiet_install
 
-    def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None, require_root=False):
-        """
-        Executes a system command, optionally with root privileges.
-        """
         if require_root and os.geteuid() != 0:
+            # Prepend 'sudo' if not already root
             command = ['sudo'] + (command if isinstance(command, list) else command.split())
+
+        # If shell=True but command is a list, join it
         if shell and isinstance(command, list):
-            # If shell=True and command is a list, join it into a string
             command = ' '.join(command)
-        self.logger.debug(f"Executing command: {' '.join(command) if isinstance(command, list) else command}")
+
+        # Only log the full command if not quiet
+        if not quiet:
+            self.logger.debug("Executing command: %s", command if isinstance(command, str) else ' '.join(command))
+
         try:
             result = subprocess.run(command,
                                     check=check,
@@ -87,17 +101,20 @@ class ZeekInstaller:
                                     text=True,
                                     shell=shell,
                                     input=input_data)
-            if capture_output:
-                self.logger.debug(f"Command output: {result.stdout.strip()}")
-                return result.stdout.strip()
-            return True
+            # If capturing output, log it only when not quiet
+            if capture_output and not quiet:
+                self.logger.debug("Command output: %s", result.stdout.strip())
+            return result.stdout.strip() if capture_output else True
+
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command failed: {' '.join(command) if isinstance(command, list) else command}")
-            self.logger.error(f"Return code: {e.returncode}")
-            if e.stdout:
-                self.logger.error(f"Output: {e.stdout}")
-            if e.stderr:
-                self.logger.error(f"Error Output: {e.stderr}")
+            # Log minimal or verbose message depending on quiet
+            if not quiet:
+                self.logger.error("Command failed: %s", command if isinstance(command, str) else ' '.join(command))
+                self.logger.error("Return code: %s", e.returncode)
+                if e.stdout:
+                    self.logger.error("Output: %s", e.stdout)
+                if e.stderr:
+                    self.logger.error("Error Output: %s", e.stderr)
             raise
 
     def check_privileges(self):
@@ -468,12 +485,19 @@ class ZeekInstaller:
         self.install_utilities()
 
         try:
-            # Only refresh the metadata, avoiding full system update
-            self.run_command(['dnf', 'makecache', '--refresh'], check=True)
 
-            # Try to install Zeek directly
-            self.run_command(['dnf', 'install', '-y', 'zeek', 'zeekctl', 'zeek-core'])
-            self.logger.debug("Zeek installed successfully via dnf.")
+            makecache_cmd = ['dnf', 'makecache', '--refresh']
+            install_cmd = ['dnf', 'install', '-y', 'zeek', 'zeekctl', 'zeek-core']
+            # Only refresh the metadata, avoiding full system update
+            if self.quiet_install:
+                makecache_cmd.insert(1, '-q')  # => dnf -q makecache --refresh
+                install_cmd.insert(1, '-q')  # => dnf -q install -y zeek ...
+
+            self.logger.debug("Installing Zeek with command: " + ' '.join(install_cmd))
+            self.run_command(makecache_cmd)
+            self.run_command(install_cmd)
+
+            self.logger.info("Zeek installed successfully on Fedora.")
         except Exception as e:
             self.logger.debug("Zeek package not found in default repositories. Adding Zeek OBS repository...")
             try:

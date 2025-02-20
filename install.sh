@@ -1,5 +1,6 @@
 #!/bin/bash
-set -euxo pipefail
+# We remove -x from here so it's not always on:
+set -euo pipefail
 
 # Function to print error and exit
 error_exit() {
@@ -17,11 +18,12 @@ log() {
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [--install | --uninstall | --help]"
+    echo "Usage: $0 [--install | --uninstall | --verbose | --help]"
     echo
     echo "Options:"
     echo "  --install       Install the agents."
     echo "  --uninstall     Uninstall the agents."
+    echo "  --verbose       Enable verbose mode (disables quiet mode for apt/pip and turns on xtrace)."
     echo "  --help, -h      Display this help message."
     exit 1
 }
@@ -42,6 +44,9 @@ PREFERRED_PYTHON_VERSIONS=("3.12" "3.11" "3.10" "3.9" "3.8")
 # Default action is to install
 ACTION="install"
 
+# Default verbose flag is off
+VERBOSE=false
+
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -53,6 +58,10 @@ while [[ $# -gt 0 ]]; do
             ACTION="uninstall"
             shift
             ;;
+        --verbose)
+            VERBOSE=true
+            shift
+            ;;
         --help|-h)
             usage
             ;;
@@ -62,6 +71,22 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# If --verbose is enabled, turn on xtrace
+if [ "$VERBOSE" = true ]; then
+    set -x
+fi
+
+# Determine apt/pip verbosity based on --verbose
+if [ "$VERBOSE" = true ]; then
+    APT_QUIET=""
+    PIP_QUIET=""
+    LOG_LEVEL="DEBUG"
+else
+    APT_QUIET="-qq"
+    PIP_QUIET="-q"
+    LOG_LEVEL="ERROR"
+fi
 
 # Load environment variables from .env file if it exists
 if [ -f ".env" ]; then
@@ -75,8 +100,8 @@ fi
 install_prerequisites() {
     if command -v apt-get &> /dev/null; then
         log "INFO" "Using apt-get to install prerequisites."
-        sudo apt-get update
-        sudo apt-get install -y git curl sudo
+        sudo apt-get update $APT_QUIET
+        sudo apt-get install $APT_QUIET -y git curl sudo
     elif command -v dnf &> /dev/null; then
         log "INFO" "Using dnf to install prerequisites."
         sudo dnf install -y git curl sudo
@@ -142,8 +167,8 @@ install_python_and_modules() {
         case "$PACKAGE_MANAGER" in
             apt-get)
                 log "INFO" "Using apt-get to install Python and dependencies."
-                sudo apt-get update
-                sudo apt-get install -y python3-full
+                sudo apt-get update $APT_QUIET
+                sudo apt-get install $APT_QUIET -y python3-full
                 SELECTED_PYTHON=$(command -v python3)
                 ;;
             dnf|yum)
@@ -254,9 +279,9 @@ if [ -z "$VIRTUAL_ENV" ]; then
     error_exit "Failed to activate virtual environment."
 fi
 
-# Upgrade pip within the virtual environment
+# Upgrade pip within the virtual environment (use $PIP_QUIET)
 log "INFO" "Upgrading pip in virtual environment..."
-pip install --upgrade pip
+pip install $PIP_QUIET --upgrade pip
 if [ $? -ne 0 ]; then
     error_exit "Failed to upgrade pip in virtual environment."
 fi
@@ -287,9 +312,9 @@ if [ ! -f requirements.txt ]; then
     error_exit "requirements.txt not found."
 fi
 
-# Install requirements
+# Install requirements (use $PIP_QUIET)
 log "INFO" "Installing Python dependencies..."
-pip install -r requirements.txt
+pip install $PIP_QUIET -r requirements.txt
 if [ $? -ne 0 ]; then
     error_exit "Failed to install dependencies."
 fi
@@ -307,13 +332,16 @@ if [ -f "install_agents.py" ]; then
                 log "ERROR" "Environment variable $var is not set."
                 exit 1
             else
-                log "INFO" "$var is set."
+                # Only show "var is set" if VERBOSE=true (i.e. LOG_LEVEL=DEBUG)
+                if [ "$VERBOSE" = true ]; then
+                    log "INFO" "$var is set."
+                fi
             fi
         done
     fi
 
-    # Run the install_agents.py script with the selected action
-    python install_agents.py --log-level INFO --"$ACTION"
+    # Use the determined LOG_LEVEL for the Python script
+    python install_agents.py --log-level "$LOG_LEVEL" --"$ACTION"
     if [ $? -ne 0 ]; then
         error_exit "Failed to run install_agents.py."
     fi
