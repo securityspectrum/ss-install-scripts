@@ -8,7 +8,7 @@ if ($Verbose) {
     $LOG_LEVEL = "DEBUG"
     $PIP_QUIET = ""
 } else {
-    $LOG_LEVEL = "ERROR"
+    $LOG_LEVEL = "INFO"
     $PIP_QUIET = "-q"
 }
 

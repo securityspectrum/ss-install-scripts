@@ -24,17 +24,17 @@ try:
 except ImportError:
     winreg = None  # Not available on non-Windows systems
 # Setup logger
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger("InstallationLogger")
+quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
 
 SS_AGENT_ASSET_PATTERNS = {"linux": "ss-agent-linux", "darwin": "ss-agent-darwin", "windows": "ss-agent-win.exe", }
 
 
 class SSAgentInstaller:
 
-    def __init__(self, logger=None, quiet_install=False):
+    def __init__(self):
         self.repo = SS_AGENT_REPO
-        self.logger = logger or logging.getLogger(__name__)
-        self.quiet_install = quiet_install
 
     def get_latest_release_url(self):
         url = f"https://api.github.com/repos/{self.repo}/releases"
@@ -57,7 +57,7 @@ class SSAgentInstaller:
 
     def select_asset(self, categorized_assets):
         system = platform.system().lower()
-        self.logger.debug(f"Detected system: {system}")
+        logger.debug(f"Detected system: {system}")
         if system == "linux":
             return categorized_assets.get("linux")
         elif system == "darwin":
@@ -89,17 +89,17 @@ class SSAgentInstaller:
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
-        self.logger.debug(f"Downloading {asset_name} from {download_url}..")
+        logger.debug(f"Downloading {asset_name} from {download_url}..")
         self.download_binary(download_url, dest_path)
 
-        self.logger.debug(f"Installing {asset_name}..")
+        logger.debug(f"Installing {asset_name}..")
 
         final_executable_path = self.determine_executable_installation_path()
         self.install_and_verify_binary(dest_path, final_executable_path)
 
         #self.setup_systemd_service(final_executable_path)
 
-        self.logger.debug("Installation complete.")
+        logger.debug("Installation complete.")
 
     def download_binary(self, download_url, dest_path=None):
         # Expand the ~ to the user's home directory
@@ -114,7 +114,7 @@ class SSAgentInstaller:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
 
-        self.logger.debug(f"Downloaded file saved to: {dest_path}")
+        logger.debug(f"Downloaded file saved to: {dest_path}")
         return dest_path
 
     def determine_executable_installation_path(self):
@@ -159,29 +159,29 @@ class SSAgentInstaller:
 
         # Move the binary to the final location
         try:
-            self.logger.debug(f"Moving {source_binary_path} to {final_executable_path}..")
+            logger.debug(f"Moving {source_binary_path} to {final_executable_path}..")
             shutil.move(str(source_binary_path), str(final_executable_path))
-            self.logger.debug(f"{final_executable_path} has been installed successfully.")
+            logger.debug(f"{final_executable_path} has been installed successfully.")
         except Exception as e:
-            self.logger.error(f"Failed to move the file to {final_executable_path}: {e}")
+            logger.error(f"Failed to move the file to {final_executable_path}: {e}")
             raise
 
         # Make the binary executable on Linux and macOS
         if current_os in ["linux", "darwin"]:  # Case-insensitive OS comparison
             try:
                 final_executable_path.chmod(0o755)
-                self.logger.debug(f"{final_executable_path} is now executable.")
+                logger.debug(f"{final_executable_path} is now executable.")
             except Exception as e:
-                self.logger.error(f"Failed to change permissions for {final_executable_path}: {e}")
+                logger.error(f"Failed to change permissions for {final_executable_path}: {e}")
                 raise
 
         # Run the binary to verify installation
         try:
-            self.logger.debug(f"Running {final_executable_path} to verify installation..")
+            logger.debug(f"Running {final_executable_path} to verify installation..")
             result = subprocess.run([str(final_executable_path), "version"], check=True, capture_output=True, text=True)
-            self.logger.debug(f"Installed binary version: {result.stdout.strip()}")
+            logger.debug(f"Installed binary version: {result.stdout.strip()}")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Running {final_executable_path} failed: {e}")
+            logger.error(f"Running {final_executable_path} failed: {e}")
             raise
 
     def enable_and_start(self, executable_path):
@@ -197,7 +197,7 @@ class SSAgentInstaller:
 
     def service_exists(self, service_name):
         system = platform.system().lower()
-        self.logger.debug(f"Operating System detected: {system}")
+        logger.debug(f"Operating System detected: {system}")
 
         try:
             if system == 'windows':
@@ -209,11 +209,11 @@ class SSAgentInstaller:
             else:
                 raise NotImplementedError(f"Unsupported OS: {system}")
         except Exception as e:
-            self.logger.error(f"Error checking service existence: {e}")
+            logger.error(f"Error checking service existence: {e}")
             return False
 
     def _service_exists_windows(self, service_name):
-        self.logger.debug(f"Checking existence of Windows service: {service_name}")
+        logger.debug(f"Checking existence of Windows service: {service_name}")
         try:
             # 'sc.exe query' returns 0 if the service exists, non-zero otherwise
             result = subprocess.run(['sc.exe', 'query', service_name],
@@ -221,20 +221,20 @@ class SSAgentInstaller:
                 stderr=subprocess.PIPE,
                 text=True)
             if result.returncode == 0:
-                self.logger.debug(f"Service '{service_name}' exists on Windows.")
+                logger.debug(f"Service '{service_name}' exists on Windows.")
                 return True
             else:
-                self.logger.debug(f"Service '{service_name}' does not exist on Windows.")
+                logger.debug(f"Service '{service_name}' does not exist on Windows.")
                 return False
         except FileNotFoundError:
-            self.logger.error("sc.exe not found. Ensure you are running this on a Windows system.")
+            logger.error("sc.exe not found. Ensure you are running this on a Windows system.")
             return False
         except Exception as e:
-            self.logger.error(f"Unexpected error while checking Windows service: {e}")
+            logger.error(f"Unexpected error while checking Windows service: {e}")
             return False
 
     def _service_exists_linux(self, service_name):
-        self.logger.debug(f"Checking existence of Linux service: {service_name}")
+        logger.debug(f"Checking existence of Linux service: {service_name}")
         try:
             # 'systemctl list-unit-files' lists all service unit files
             result = subprocess.run(['systemctl', 'list-unit-files', service_name + '.service'],
@@ -242,20 +242,20 @@ class SSAgentInstaller:
                 stderr=subprocess.PIPE,
                 text=True)
             if result.returncode == 0 and service_name + '.service' in result.stdout:
-                self.logger.debug(f"Service '{service_name}' exists on Linux.")
+                logger.debug(f"Service '{service_name}' exists on Linux.")
                 return True
             else:
-                self.logger.debug(f"Service '{service_name}' does not exist on Linux.")
+                logger.debug(f"Service '{service_name}' does not exist on Linux.")
                 return False
         except FileNotFoundError:
-            self.logger.error("systemctl not found. Ensure you are running this on a Linux system with systemd.")
+            logger.error("systemctl not found. Ensure you are running this on a Linux system with systemd.")
             return False
         except Exception as e:
-            self.logger.error(f"Unexpected error while checking Linux service: {e}")
+            logger.error(f"Unexpected error while checking Linux service: {e}")
             return False
 
     def _service_exists_macos(self, service_name):
-        self.logger.debug(f"Checking existence of macOS service: {service_name}")
+        logger.debug(f"Checking existence of macOS service: {service_name}")
         try:
             # 'launchctl list' returns 0 if the service is loaded
             result = subprocess.run(['launchctl', 'list', service_name],
@@ -263,16 +263,16 @@ class SSAgentInstaller:
                 stderr=subprocess.PIPE,
                 text=True)
             if result.returncode == 0:
-                self.logger.debug(f"Service '{service_name}' exists on macOS.")
+                logger.debug(f"Service '{service_name}' exists on macOS.")
                 return True
             else:
-                self.logger.debug(f"Service '{service_name}' does not exist on macOS.")
+                logger.debug(f"Service '{service_name}' does not exist on macOS.")
                 return False
         except FileNotFoundError:
-            self.logger.error("launchctl not found. Ensure you are running this on a macOS system.")
+            logger.error("launchctl not found. Ensure you are running this on a macOS system.")
             return False
         except Exception as e:
-            self.logger.error(f"Unexpected error while checking macOS service: {e}")
+            logger.error(f"Unexpected error while checking macOS service: {e}")
             return False
 
     def setup_systemd_service(self, executable_path):
@@ -283,9 +283,9 @@ class SSAgentInstaller:
         SS_AGENT_SERVICE_LINUX = "/etc/systemd/system/ss-agent.service"
         service_name = SS_AGENT_SERVICE_NAME
         if self.service_exists(service_name):
-            self.logger.debug(f"Service {service_name} already exists. Skipping creation.")
+            logger.debug(f"Service {service_name} already exists. Skipping creation.")
         else:
-            self.logger.debug("Setting up systemd service for SS Agent..")
+            logger.debug("Setting up systemd service for SS Agent..")
             service_content = textwrap.dedent(f"""\
                 [Unit]
                 Description=SS Agent Service
@@ -307,43 +307,43 @@ class SSAgentInstaller:
                 with open(temp_service_path, 'w') as f:
                     f.write(service_content)
 
-                self.logger.debug(f"Service file written to {temp_service_path}.")
+                logger.debug(f"Service file written to {temp_service_path}.")
 
                 # Move the service file to the system directory with proper permissions
                 SystemUtility.move_with_sudo(temp_service_path, SS_AGENT_SERVICE_LINUX)
-                self.logger.debug(f"Service file moved to {SS_AGENT_SERVICE_LINUX}.")
+                logger.debug(f"Service file moved to {SS_AGENT_SERVICE_LINUX}.")
 
                 # Set correct permissions (optional but recommended)
                 subprocess.run(['sudo', 'chmod', '644', SS_AGENT_SERVICE_LINUX], check=True)
-                self.logger.debug(f"Permissions set for {SS_AGENT_SERVICE_LINUX}.")
+                logger.debug(f"Permissions set for {SS_AGENT_SERVICE_LINUX}.")
 
                 # Reload systemd to recognize the new service
                 daemon_reload_command = ['sudo', 'systemctl', 'daemon-reload']
                 if SystemUtility.run_command_with_retries(daemon_reload_command, self.logger):
-                    self.logger.debug("systemd daemon reloaded.")
+                    logger.debug("systemd daemon reloaded.")
                 else:
-                    self.logger.error("Failed to reload systemd daemon.")
+                    logger.error("Failed to reload systemd daemon.")
 
                 # Enable the service to start on boot
                 enable_command = ['sudo', 'systemctl', 'enable', service_name]
                 if SystemUtility.run_command_with_retries(enable_command, self.logger):
-                    self.logger.debug(f"Service '{service_name}' enabled to start on boot.")
+                    logger.debug(f"Service '{service_name}' enabled to start on boot.")
                 else:
-                    self.logger.error(f"Failed to enable service '{service_name}'.")
+                    logger.error(f"Failed to enable service '{service_name}'.")
                     return
 
                 # Start the service immediately
                 start_command = ['sudo', 'systemctl', 'start', service_name]
                 if SystemUtility.run_command_with_retries(start_command, self.logger):
-                    self.logger.debug(f"Service '{service_name}' started successfully.")
+                    logger.debug(f"Service '{service_name}' started successfully.")
                 else:
-                    self.logger.error(f"Failed to start service '{service_name}'. Check the service logs for details.")
+                    logger.error(f"Failed to start service '{service_name}'. Check the service logs for details.")
 
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Command '{e.cmd}' failed with exit code {e.returncode}.")
+                logger.error(f"Command '{e.cmd}' failed with exit code {e.returncode}.")
                 raise
             except Exception as e:
-                self.logger.error(f"Failed to set up systemd service: {e}")
+                logger.error(f"Failed to set up systemd service: {e}")
                 raise
 
     def setup_launchd_service(self, executable_path):
@@ -353,9 +353,9 @@ class SSAgentInstaller:
         """
         service_name = "com.ss-agent"
         if self.service_exists(service_name):
-            self.logger.debug(f"Service {service_name} already exists. Skipping creation.")
+            logger.debug(f"Service {service_name} already exists. Skipping creation.")
         else:
-            self.logger.debug("Setting up launchd service for SS Agent..")
+            logger.debug("Setting up launchd service for SS Agent..")
             plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple Inc//DTD PLIST 1.0//EN" \
         "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -392,10 +392,10 @@ class SSAgentInstaller:
                 # Load and enable the launchd service
                 subprocess.run(['sudo', 'launchctl', 'load', SS_AGENT_SERVICE_MACOS], check=True)
                 subprocess.run(['sudo', 'launchctl', 'enable', 'system/com.ss-agent'], check=True)
-                self.logger.debug("SS Agent service installed and started (launchd).")
+                logger.debug("SS Agent service installed and started (launchd).")
 
             except Exception as e:
-                self.logger.error(f"Failed to set up launchd service: {e}")
+                logger.error(f"Failed to set up launchd service: {e}")
                 raise
 
     def setup_windows_service(self, executable_path):
@@ -405,30 +405,30 @@ class SSAgentInstaller:
         """
         service_name = SS_AGENT_SERVICE_NAME
         if self.service_exists(service_name):
-            self.logger.debug(f"Service {service_name} already exists. Skipping creation.")
+            logger.debug(f"Service {service_name} already exists. Skipping creation.")
         else:
-            self.logger.debug("Setting up Windows service for ss-agent.")
+            logger.debug("Setting up Windows service for ss-agent.")
             try:
                 # Install the service using sc.exe with the '--debug start' command
                 install_cmd = f'sc create {service_name} binPath= "{executable_path} --debug start" start= auto'
-                self.logger.debug(f"Running command: {install_cmd}")
+                logger.debug(f"Running command: {install_cmd}")
                 subprocess.run(install_cmd, shell=True, check=True)
-                self.logger.debug(f"Service {service_name} created successfully.")
+                logger.debug(f"Service {service_name} created successfully.")
 
                 # Configure the service to restart automatically on failure
                 failure_cmd = f'sc failure {service_name} reset= 60 actions= restart/6000/restart/6000/restart/6000'
-                self.logger.debug(f"Setting up automatic restart: {failure_cmd}")
+                logger.debug(f"Setting up automatic restart: {failure_cmd}")
                 subprocess.run(failure_cmd, shell=True, check=True)
-                self.logger.debug(f"Service {service_name} configured for automatic restarts.")
+                logger.debug(f"Service {service_name} configured for automatic restarts.")
 
                 # Start the service
                 start_cmd = f'sc start {service_name}'
-                self.logger.debug(f"Starting service: {start_cmd}")
+                logger.debug(f"Starting service: {start_cmd}")
                 subprocess.run(start_cmd, shell=True, check=True)
-                self.logger.debug(f"Service {service_name} started successfully.")
+                logger.debug(f"Service {service_name} started successfully.")
 
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to set up Windows service for SS Agent: {e}")
+                logger.error(f"Failed to set up Windows service for SS Agent: {e}")
                 raise
 
     def stop_and_delete_windows_service(self):
@@ -436,40 +436,40 @@ class SSAgentInstaller:
 
         os_system = platform.system().lower()
         if os_system != 'windows':
-            self.logger.warning("The stop_and_delete_windows_service method is intended for Windows platforms.")
+            logger.warning("The stop_and_delete_windows_service method is intended for Windows platforms.")
             return
 
         try:
             # Step 1: Check if the service exists
-            self.logger.debug(f"Checking if the '{service_name}' service exists before stopping and deleting...")
+            logger.debug(f"Checking if the '{service_name}' service exists before stopping and deleting...")
             result = subprocess.run(['sc.exe', 'query', service_name],
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE,
                                     text=True)
             if result.returncode == 1060:
-                self.logger.debug(f"Service '{service_name}' not found (error 1060). Nothing to stop or delete.")
+                logger.debug(f"Service '{service_name}' not found (error 1060). Nothing to stop or delete.")
                 return
             service_exists = f"SERVICE_NAME: {service_name}" in result.stdout
             if not service_exists:
-                self.logger.debug(f"Service '{service_name}' not found. Nothing to stop or delete.")
+                logger.debug(f"Service '{service_name}' not found. Nothing to stop or delete.")
                 return
 
             # Step 2: Stop the service if it's running
-            self.logger.debug(f"Checking if the '{service_name}' service is running...")
+            logger.debug(f"Checking if the '{service_name}' service is running...")
             if "RUNNING" in result.stdout:
-                self.logger.debug(f"Service '{service_name}' is running. Attempting to stop it...")
+                logger.debug(f"Service '{service_name}' is running. Attempting to stop it...")
                 stop_command = ['sc.exe', 'stop', service_name]
                 stop_result = subprocess.run(stop_command,
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
                                              text=True,
                                              check=True)
-                self.logger.info(f"Service '{service_name}' stopped successfully.")
+                logger.info(f"Service '{service_name}' stopped successfully.")
             else:
-                self.logger.info(f"Service '{service_name}' is not running.")
+                logger.info(f"Service '{service_name}' is not running.")
 
             # Step 3: Delete the service
-            self.logger.debug(f"Attempting to delete service '{service_name}'...")
+            logger.debug(f"Attempting to delete service '{service_name}'...")
             delete_command = ['sc.exe', 'delete', service_name]
             delete_result = subprocess.run(delete_command,
                                            stdout=subprocess.PIPE,
@@ -478,13 +478,13 @@ class SSAgentInstaller:
                                            check=False)  # Set check=False to handle errors manually
 
             if delete_result.returncode == 0:
-                self.logger.info(f"Service '{service_name}' deleted successfully.")
+                logger.info(f"Service '{service_name}' deleted successfully.")
             elif delete_result.returncode == 1072:
-                self.logger.warning(f"Service '{service_name}' is already marked for deletion.")
+                logger.warning(f"Service '{service_name}' is already marked for deletion.")
                 # Optionally, implement a retry mechanism
                 retry_attempts = 3
                 for attempt in range(1, retry_attempts + 1):
-                    self.logger.debug(f"Retrying deletion attempt {attempt} after waiting for 2 seconds...")
+                    logger.debug(f"Retrying deletion attempt {attempt} after waiting for 2 seconds...")
 
                     time.sleep(2)  # Wait for 2 seconds before retrying
                     retry_result = subprocess.run(delete_command,
@@ -493,53 +493,53 @@ class SSAgentInstaller:
                                                  text=True,
                                                  check=False)
                     if retry_result.returncode == 0:
-                        self.logger.info(f"Service '{service_name}' deleted successfully on retry attempt {attempt}.")
+                        logger.info(f"Service '{service_name}' deleted successfully on retry attempt {attempt}.")
                         break
                     elif retry_result.returncode == 1072:
-                        self.logger.warning(f"Service '{service_name}' is still marked for deletion on retry attempt {attempt}.")
+                        logger.warning(f"Service '{service_name}' is still marked for deletion on retry attempt {attempt}.")
                     else:
-                        self.logger.error(f"Failed to delete service '{service_name}' on retry attempt {attempt}.")
-                        self.logger.error(f"stdout: {retry_result.stdout.strip()}")
-                        self.logger.error(f"stderr: {retry_result.stderr.strip() if retry_result.stderr else 'No error output'}")
+                        logger.error(f"Failed to delete service '{service_name}' on retry attempt {attempt}.")
+                        logger.error(f"stdout: {retry_result.stdout.strip()}")
+                        logger.error(f"stderr: {retry_result.stderr.strip() if retry_result.stderr else 'No error output'}")
                         break
                 else:
-                    self.logger.warning(f"Service '{service_name}' is still marked for deletion after {retry_attempts} attempts.")
+                    logger.warning(f"Service '{service_name}' is still marked for deletion after {retry_attempts} attempts.")
             else:
-                self.logger.error(f"Failed to delete service '{service_name}'.")
-                self.logger.error(f"stdout: {delete_result.stdout.strip()}")
-                self.logger.error(f"stderr: {delete_result.stderr.strip() if delete_result.stderr else 'No error output'}")
+                logger.error(f"Failed to delete service '{service_name}'.")
+                logger.error(f"stdout: {delete_result.stdout.strip()}")
+                logger.error(f"stderr: {delete_result.stderr.strip() if delete_result.stderr else 'No error output'}")
                 # Decide whether to raise an exception or continue
                 # Here, we'll continue without raising to make the process more resilient
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
-            self.logger.error(f"stdout: {e.stdout.strip()}")
-            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+            logger.error(f"stdout: {e.stdout.strip()}")
+            logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
             # Optionally, decide to raise or continue
             # Here, we'll continue without raising to make the process more resilient
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            logger.error(f"An unexpected error occurred: {ex}")
             # Optionally, decide to raise or continue
             # Here, we'll continue without raising to make the process more resilient
 
 
     def stop_linux_service(self, service_name):
         stop_cmd = ['systemctl', 'stop', service_name]
-        self.logger.debug(f"Stopping service: {stop_cmd}")
+        logger.debug(f"Stopping service: {stop_cmd}")
         try:
             SystemUtility.run_command(stop_cmd, check=True)
-            self.logger.debug(f"Service {service_name} stopped successfully.")
+            logger.debug(f"Service {service_name} stopped successfully.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to stop the service {service_name}: {e}")
+            logger.error(f"Failed to stop the service {service_name}: {e}")
             raise
 
     def stop_macos_service(self, service_name):
         stop_cmd = ['sudo', 'launchctl', 'unload', SS_AGENT_SERVICE_MACOS]
-        self.logger.debug(f"Stopping service: {service_name}")
+        logger.debug(f"Stopping service: {service_name}")
         try:
             subprocess.run(stop_cmd, shell=True, check=True)
-            self.logger.debug(f"Service {service_name} stopped successfully.")
+            logger.debug(f"Service {service_name} stopped successfully.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to stop the service {service_name}: {e}")
+            logger.error(f"Failed to stop the service {service_name}: {e}")
             raise
 
     def stop_windows_service(self, service_name):
@@ -550,34 +550,34 @@ class SSAgentInstaller:
                                     stderr=subprocess.PIPE,
                                     text=True)
             if result.returncode == 1060:
-                self.logger.debug(f"Service '{service_name}' not found (error 1060). Nothing to stop or delete.")
+                logger.debug(f"Service '{service_name}' not found (error 1060). Nothing to stop or delete.")
                 return
             service_exists = 'SERVICE_NAME: ' + service_name in result.stdout
             if not service_exists:
-                self.logger.debug(f"Service '{service_name}' not found. Nothing to stop or delete.")
+                logger.debug(f"Service '{service_name}' not found. Nothing to stop or delete.")
                 return
 
             # Step 2: Stop the service if it's running
-            self.logger.debug(f"Checking if the '{service_name}' service is running...")
+            logger.debug(f"Checking if the '{service_name}' service is running...")
             if "RUNNING" in result.stdout:
-                self.logger.debug(f"Service '{service_name}' is running. Attempting to stop it...")
+                logger.debug(f"Service '{service_name}' is running. Attempting to stop it...")
                 stop_command = ['sc.exe', 'stop', service_name]
                 stop_result = subprocess.run(stop_command,
                                              check=True,
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
                                              text=True)
-                self.logger.info(f"Service '{service_name}' stopped successfully.")
+                logger.info(f"Service '{service_name}' stopped successfully.")
             else:
-                self.logger.info(f"Service '{service_name}' is not running.")
+                logger.info(f"Service '{service_name}' is not running.")
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
-            self.logger.error(f"stdout: {e.stdout.strip()}")
-            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+            logger.error(f"stdout: {e.stdout.strip()}")
+            logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
             raise
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            logger.error(f"An unexpected error occurred: {ex}")
             raise
 
     def is_service_running(self, service_name, fix_command=None):
@@ -593,7 +593,7 @@ class SSAgentInstaller:
             bool: True if the service is running, False otherwise.
         """
         system = platform.system().lower()
-        self.logger.debug(f"Operating System detected: {system}")
+        logger.debug(f"Operating System detected: {system}")
 
         try:
             if system == 'linux':
@@ -605,49 +605,49 @@ class SSAgentInstaller:
                     return result.returncode in (0, 3)
 
                 result = SystemUtility.run_command_with_retries(status_cmd,
-                    self.logger,
+                    logger,
                     retries=1,
                     success_predicate=is_active_predicate)
 
                 if result is not None:
                     if result.returncode == 0 and result.stdout.strip() == 'active':
-                        self.logger.debug(f"Service '{service_name}' is active on Linux.")
+                        logger.debug(f"Service '{service_name}' is active on Linux.")
                         return True
                     if result.returncode == 3:
-                        self.logger.debug(f"Service '{service_name}' is not active (return code 3).")
+                        logger.debug(f"Service '{service_name}' is not active (return code 3).")
                         return False
-                    self.logger.warning(f"Service '{service_name}' returned unexpected code {result.returncode}. stdout: '{result.stdout.strip()}'")
+                    logger.warning(f"Service '{service_name}' returned unexpected code {result.returncode}. stdout: '{result.stdout.strip()}'")
                     return False
                 else:
-                    self.logger.warning(f"Failed to determine the status of '{service_name}' after 1 attempt.")
+                    logger.warning(f"Failed to determine the status of '{service_name}' after 1 attempt.")
                     return False
 
             elif system == 'darwin':
                 # Check status with launchctl for macOS
                 status_cmd = ['launchctl', 'list', service_name]
-                result = SystemUtility.run_command_with_retries(status_cmd, self.logger, retries=1)
+                result = SystemUtility.run_command_with_retries(status_cmd, logger, retries=1)
                 if result and service_name in result.stdout:
-                    self.logger.debug(f"Service '{service_name}' is running on macOS.")
+                    logger.debug(f"Service '{service_name}' is running on macOS.")
                     return True
-                self.logger.debug(f"Service '{service_name}' is not running on macOS.")
+                logger.debug(f"Service '{service_name}' is not running on macOS.")
                 return False
 
             elif system == 'windows':
                 # Use sc query on Windows to check service status
                 status_cmd = ['sc', 'query', service_name]
-                result = SystemUtility.run_command_with_retries(status_cmd, self.logger, retries=1)
+                result = SystemUtility.run_command_with_retries(status_cmd, logger, retries=1)
                 if result and 'RUNNING' in result.stdout:
-                    self.logger.debug(f"Service '{service_name}' is running on Windows.")
+                    logger.debug(f"Service '{service_name}' is running on Windows.")
                     return True
-                self.logger.debug(f"Service '{service_name}' is not running on Windows.")
+                logger.debug(f"Service '{service_name}' is not running on Windows.")
                 return False
 
             else:
-                self.logger.error(f"Unsupported OS: {system}")
+                logger.error(f"Unsupported OS: {system}")
                 return False
 
         except Exception as e:
-            self.logger.error(f"Error checking service status on {system}: {e}")
+            logger.error(f"Error checking service status on {system}: {e}")
             return False
 
 
@@ -656,7 +656,7 @@ class SSAgentInstaller:
         Stop all services using the ss-agent command if the service is running.
         """
         if self.is_service_running(SS_AGENT_SERVICE_NAME):
-            self.logger.debug(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop all services..")
+            logger.debug(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop all services..")
             try:
                 system = platform.system().lower()
                 if system == 'linux' or system == 'darwin':
@@ -664,21 +664,21 @@ class SSAgentInstaller:
                 elif system == 'windows':
                     cmd = [SS_AGENT_SERVICE_BINARY_WINDOWS, 'service', 'restart', 'all']
                 else:
-                    self.logger.error(f"Unsupported OS: {system}")
+                    logger.error(f"Unsupported OS: {system}")
                     return
                 subprocess.run(cmd, check=True)
-                self.logger.debug("All services started successfully.")
+                logger.debug("All services started successfully.")
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to started services: {e}")
+                logger.error(f"Failed to started services: {e}")
         else:
-            self.logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
+            logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
 
     def stop_all_services_ss_agent(self):
         """
         Stop all services using the ss-agent command if the service is running.
         """
         if self.is_service_running(SS_AGENT_SERVICE_NAME):
-            self.logger.debug(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop all services..")
+            logger.debug(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop all services..")
             try:
                 system = platform.system().lower()
                 if system == 'linux' or system == 'darwin':
@@ -691,29 +691,29 @@ class SSAgentInstaller:
 
                 # Log the output and verify if all services stopped successfully
                 if result.stdout:
-                    self.logger.debug(f"Command output: {result.stdout}")
+                    logger.debug(f"Command output: {result.stdout}")
                 if result.stderr:
-                    self.logger.error(f"Command error output: {result.stderr}")
+                    logger.error(f"Command error output: {result.stderr}")
 
                 # Verify the output to ensure all services have stopped
                 if "success" in result.stdout.lower() or "stopped" in result.stdout.lower():
-                    self.logger.debug("All services stopped successfully.")
+                    logger.debug("All services stopped successfully.")
                 else:
-                    self.logger.error("Failed to stop some or all services.")
+                    logger.error("Failed to stop some or all services.")
                     raise RuntimeError("Service stop verification failed.")
 
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to stop services: {e}")
+                logger.error(f"Failed to stop services: {e}")
                 raise
         else:
-            self.logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
+            logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
 
     def stop_ss_agent(self):
         """
         Stop the SS Agent service.
         """
         if self.is_service_running(SS_AGENT_SERVICE_NAME):
-            self.logger.info(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop the service..")
+            logger.info(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop the service..")
             try:
                 system = platform.system().lower()
                 if system == 'linux':
@@ -722,18 +722,18 @@ class SSAgentInstaller:
                     self.stop_macos_service(SS_AGENT_SERVICE_NAME)
                 elif system == 'windows':
                     self.stop_and_delete_windows_service()
-                self.logger.info("Service stopped successfully.")
+                logger.info("Service stopped successfully.")
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to stop service: {e}")
+                logger.error(f"Failed to stop service: {e}")
         else:
-            self.logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
+            logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
 
 
     def uninstall(self):
         """
         Orchestrates the uninstallation of the SS Agent based on the operating system.
         """
-        self.logger.info("Starting ss-agent uninstallation process...")
+        logger.info("Starting ss-agent uninstallation process...")
         system = platform.system().lower()
 
         if system == "linux":
@@ -746,7 +746,7 @@ class SSAgentInstaller:
             self.uninstall_windows()
             self.cleanup_windows()
         else:
-            self.logger.error(f"Unsupported OS for uninstallation: {system}")
+            logger.error(f"Unsupported OS for uninstallation: {system}")
             sys.exit(1)
 
     def uninstall_linux(self):
@@ -756,27 +756,27 @@ class SSAgentInstaller:
         try:
             result = subprocess.run(["sudo", "rm", "-f", SS_AGENT_EXECUTABLE_PATH_LINUX], check=True)
             if result.returncode == 0:
-                self.logger.info(f"Successfully removed {SS_AGENT_EXECUTABLE_PATH_LINUX}")
+                logger.info(f"Successfully removed {SS_AGENT_EXECUTABLE_PATH_LINUX}")
             else:
-                self.logger.info(f"No file to remove at {SS_AGENT_EXECUTABLE_PATH_LINUX}")
+                logger.info(f"No file to remove at {SS_AGENT_EXECUTABLE_PATH_LINUX}")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to remove {SS_AGENT_EXECUTABLE_PATH_LINUX}: {e}")
+            logger.error(f"Failed to remove {SS_AGENT_EXECUTABLE_PATH_LINUX}: {e}")
 
     def uninstall_with_apt(self, package_name):
         """
         Uninstalls the SS Agent using apt on Debian-based systems.
         """
-        self.logger.debug(f"Using apt to uninstall {package_name}...")
+        logger.debug(f"Using apt to uninstall {package_name}...")
         try:
             result_remove = subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
             result_autoremove = subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
 
             if result_remove.returncode == 0 and result_autoremove.returncode == 0:
-                self.logger.debug(f"{package_name} has been successfully uninstalled using apt.")
+                logger.debug(f"{package_name} has been successfully uninstalled using apt.")
             else:
-                self.logger.debug(f"{package_name} was not fully removed using apt. Some components may remain.")
+                logger.debug(f"{package_name} was not fully removed using apt. Some components may remain.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"apt failed to uninstall {package_name}: {e}")
+            logger.error(f"apt failed to uninstall {package_name}: {e}")
             raise
 
     def uninstall_with_dnf_yum(self, package_name, distro_id):
@@ -784,16 +784,16 @@ class SSAgentInstaller:
         Uninstalls the SS Agent using dnf or yum on Fedora-based systems.
         """
         package_manager = "dnf" if distro_id in ["fedora", "rocky", "almalinux"] else "yum"
-        self.logger.debug(f"Using {package_manager} to uninstall {package_name}...")
+        logger.debug(f"Using {package_manager} to uninstall {package_name}...")
         try:
             result = subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
 
             if result.returncode == 0:
-                self.logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
+                logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
             else:
-                self.logger.debug(f"{package_name} was not fully removed using {package_manager}. Some components may remain.")
+                logger.debug(f"{package_name} was not fully removed using {package_manager}. Some components may remain.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
+            logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
             raise
 
     def uninstall_with_rpm_or_dpkg(self, package_name):
@@ -802,20 +802,20 @@ class SSAgentInstaller:
         """
         try:
             if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
-                self.logger.debug(f"Using dpkg to purge {package_name}...")
+                logger.debug(f"Using dpkg to purge {package_name}...")
                 result = subprocess.run(["sudo", "dpkg", "--purge", package_name], check=True)
                 if result.returncode == 0:
-                    self.logger.debug(f"{package_name} has been successfully uninstalled using dpkg.")
+                    logger.debug(f"{package_name} has been successfully uninstalled using dpkg.")
             elif Path('/usr/bin/rpm').exists() or Path('/bin/rpm').exists():
-                self.logger.debug(f"Using rpm to erase {package_name}...")
+                logger.debug(f"Using rpm to erase {package_name}...")
                 result = subprocess.run(["sudo", "rpm", "-e", package_name], check=True)
                 if result.returncode == 0:
-                    self.logger.debug(f"{package_name} has been successfully uninstalled using rpm.")
+                    logger.debug(f"{package_name} has been successfully uninstalled using rpm.")
             else:
-                self.logger.error("Neither dpkg nor rpm package managers are available on this system.")
+                logger.error("Neither dpkg nor rpm package managers are available on this system.")
                 raise EnvironmentError("No suitable package manager found for uninstallation.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall {package_name}: {e}")
+            logger.error(f"Failed to uninstall {package_name}: {e}")
             raise
 
 
@@ -823,32 +823,32 @@ class SSAgentInstaller:
         """
         Uninstalls the SS Agent on macOS by removing package receipts, binaries, configuration files, and launch daemons.
         """
-        self.logger.debug("Attempting to uninstall SS Agent on macOS...")
+        logger.debug("Attempting to uninstall SS Agent on macOS...")
         try:
             # Step 1: Remove the package receipt using pkgutil
             package_id = self.get_macos_package_id()
             if package_id:
-                self.logger.debug(f"Found SS Agent package ID: {package_id}. Removing package receipt...")
+                logger.debug(f"Found SS Agent package ID: {package_id}. Removing package receipt...")
                 result_pkgutil = subprocess.run(["sudo", "pkgutil", "--forget", package_id], check=True)
                 if result_pkgutil.returncode == 0:
-                    self.logger.debug("Package receipt removed.")
+                    logger.debug("Package receipt removed.")
                 else:
-                    self.logger.warning(f"Failed to remove package receipt for {package_id}.")
+                    logger.warning(f"Failed to remove package receipt for {package_id}.")
             else:
-                self.logger.warning("SS Agent package ID not found. Skipping pkgutil --forget step.")
+                logger.warning("SS Agent package ID not found. Skipping pkgutil --forget step.")
 
             # Step 2: Stop and remove LaunchDaemon
             launch_daemon = SS_AGENT_SERVICE_MACOS
             if Path(launch_daemon).exists():
                 try:
-                    self.logger.debug(f"Unloading LaunchDaemon: {launch_daemon}")
+                    logger.debug(f"Unloading LaunchDaemon: {launch_daemon}")
                     result_launchctl = subprocess.run(["sudo", "launchctl", "unload", launch_daemon], check=True)
                     if result_launchctl.returncode == 0:
-                        self.logger.debug(f"Removed LaunchDaemon: {launch_daemon}")
+                        logger.debug(f"Removed LaunchDaemon: {launch_daemon}")
                     else:
-                        self.logger.warning(f"Failed to unload LaunchDaemon: {launch_daemon}")
+                        logger.warning(f"Failed to unload LaunchDaemon: {launch_daemon}")
                 except subprocess.CalledProcessError as e:
-                    self.logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e}")
+                    logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e}")
 
             # Step 3: Remove installed files and directories
             installed_paths = [SS_AGENT_EXECUTABLE_PATH_MACOS, SS_AGENT_SERVICE_MACOS, SS_AGENT_CONFIG_DIR_MACOS, ]
@@ -858,14 +858,14 @@ class SSAgentInstaller:
                 if path.exists():
                     self.remove_file(path)
                 else:
-                    self.logger.debug(f"Path does not exist, skipping: {path}")
+                    logger.debug(f"Path does not exist, skipping: {path}")
 
-            self.logger.debug("SS Agent has been successfully uninstalled from macOS.")
+            logger.debug("SS Agent has been successfully uninstalled from macOS.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall SS Agent on macOS: {e}")
+            logger.error(f"Failed to uninstall SS Agent on macOS: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred during SS Agent uninstallation on macOS: {e}")
+            logger.error(f"An unexpected error occurred during SS Agent uninstallation on macOS: {e}")
             raise
 
     def remove_file(self, path):
@@ -877,15 +877,15 @@ class SSAgentInstaller:
         try:
             if path.is_dir():
                 subprocess.run(["sudo", "rm", "-rf", str(path)], check=True)
-                self.logger.debug(f"Removed directory: {path}")
+                logger.debug(f"Removed directory: {path}")
             else:
                 subprocess.run(["sudo", "rm", "-f", str(path)], check=True)
-                self.logger.debug(f"Removed file: {path}")
+                logger.debug(f"Removed file: {path}")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to remove {path}: {e}")
+            logger.error(f"Failed to remove {path}: {e}")
             # Continue execution without halting the script
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred while removing {path}: {e}")
+            logger.error(f"An unexpected error occurred while removing {path}: {e}")
             # Continue execution without halting the script
 
 
@@ -893,15 +893,15 @@ class SSAgentInstaller:
         """
         Uninstalls the SS Agent on Windows by executing the uninstall command from the registry.
         """
-        self.logger.debug("Attempting to uninstall SS Agent on Windows...")
+        logger.debug("Attempting to uninstall SS Agent on Windows...")
         if not SystemUtility.has_winreg():
-            self.logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
+            logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
             return
 
         try:
             uninstall_command = self.get_windows_uninstall_command("SS Agent")
             if uninstall_command:
-                self.logger.debug(f"Found uninstall command: {uninstall_command}. Executing...")
+                logger.debug(f"Found uninstall command: {uninstall_command}. Executing...")
                 # Determine if it's an MSI or EXE installer
                 if "msiexec" in uninstall_command.lower():
                     # Extract the product code
@@ -913,10 +913,10 @@ class SSAgentInstaller:
                             break
                     if product_code:
                         uninstall_cmd = ["msiexec", "/x", product_code, "/quiet", "/norestart"]
-                        self.logger.debug(f"Running MSI uninstall command: {' '.join(uninstall_cmd)}")
+                        logger.debug(f"Running MSI uninstall command: {' '.join(uninstall_cmd)}")
                         subprocess.run(uninstall_cmd, check=True)
                     else:
-                        self.logger.error("Product code not found in uninstall command.")
+                        logger.error("Product code not found in uninstall command.")
                         return
                 else:
                     # Assume it's an EXE with silent uninstall flags
@@ -924,16 +924,16 @@ class SSAgentInstaller:
                     # Append silent flags if not already present
                     if not any(flag in uninstall_cmd for flag in ["/S", "/silent", "/quiet"]):
                         uninstall_cmd.append("/S")
-                    self.logger.debug(f"Running EXE uninstall command: {' '.join(uninstall_cmd)}")
+                    logger.debug(f"Running EXE uninstall command: {' '.join(uninstall_cmd)}")
                     subprocess.run(uninstall_cmd, check=True)
-                self.logger.debug("SS Agent has been successfully uninstalled from Windows.")
+                logger.debug("SS Agent has been successfully uninstalled from Windows.")
             else:
-                self.logger.warning("Uninstall command for SS Agent not found in the registry.")
+                logger.warning("Uninstall command for SS Agent not found in the registry.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall SS Agent on Windows: {e}")
+            logger.error(f"Failed to uninstall SS Agent on Windows: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred during SS Agent uninstallation on Windows: {e}")
+            logger.error(f"An unexpected error occurred during SS Agent uninstallation on Windows: {e}")
             raise
 
     def get_macos_package_id(self):
@@ -948,7 +948,7 @@ class SSAgentInstaller:
                 if "ss-agent" in pkg.lower():
                     return pkg
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to list packages with pkgutil: {e}")
+            logger.error(f"Failed to list packages with pkgutil: {e}")
         return None
 
     def get_windows_uninstall_command(self, product_name):
@@ -980,11 +980,11 @@ class SSAgentInstaller:
                         except FileNotFoundError:
                             continue
                         except Exception as e:
-                            self.logger.error(f"Error accessing registry key: {e}")
+                            logger.error(f"Error accessing registry key: {e}")
                             continue
             return None
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred while accessing the registry: {e}")
+            logger.error(f"An unexpected error occurred while accessing the registry: {e}")
             return None
 
     def cleanup_linux(self):
@@ -1003,24 +1003,24 @@ class SSAgentInstaller:
                 try:
                     if path.is_file() or path.is_symlink():
                         # Use subprocess to remove files with sudo
-                        self.logger.debug(f"Attempting to remove file: {path}")
+                        logger.debug(f"Attempting to remove file: {path}")
                         subprocess.run(['sudo', 'rm', '-f', str(path)], check=True)
-                        self.logger.debug(f"Removed file: {path}")
+                        logger.debug(f"Removed file: {path}")
                     elif path.is_dir():
                         # Use subprocess to remove directories with sudo
-                        self.logger.debug(f"Attempting to remove directory: {path}")
+                        logger.debug(f"Attempting to remove directory: {path}")
                         subprocess.run(['sudo', 'rm', '-rf', str(path)], check=True)
-                        self.logger.debug(f"Removed directory: {path}")
+                        logger.debug(f"Removed directory: {path}")
                 except subprocess.CalledProcessError as e:
-                    self.logger.error(f"Failed to remove {path}: {e}")
+                    logger.error(f"Failed to remove {path}: {e}")
             else:
-                self.logger.debug(f"Path does not exist, skipping: {path}")
+                logger.debug(f"Path does not exist, skipping: {path}")
 
     def cleanup_macos(self):
         """
         Cleans up macOS installation by removing binaries, configuration files, and LaunchDaemon plist.
         """
-        self.logger.debug("Cleaning up macOS installation...")
+        logger.debug("Cleaning up macOS installation...")
         self.cleanup_macos_files()
 
     def cleanup_macos_files(self):
@@ -1042,14 +1042,14 @@ class SSAgentInstaller:
                 try:
                     if path.is_file() or path.is_symlink():
                         path.unlink()
-                        self.logger.debug(f"Removed file: {path}")
+                        logger.debug(f"Removed file: {path}")
                     elif path.is_dir():
                         shutil.rmtree(path)
-                        self.logger.debug(f"Removed directory: {path}")
+                        logger.debug(f"Removed directory: {path}")
                 except Exception as e:
-                    self.logger.error(f"Failed to remove {path}: {e}")
+                    logger.error(f"Failed to remove {path}: {e}")
             else:
-                self.logger.debug(f"Path does not exist, skipping: {path}")
+                logger.debug(f"Path does not exist, skipping: {path}")
 
     def cleanup_windows(self):
         """
@@ -1068,34 +1068,34 @@ class SSAgentInstaller:
                 try:
                     if path.is_file() or path.is_symlink():
                         path.unlink()
-                        self.logger.debug(f"Removed file: {path}")
+                        logger.debug(f"Removed file: {path}")
                     elif path.is_dir():
                         shutil.rmtree(path)
-                        self.logger.debug(f"Removed directory: {path}")
+                        logger.debug(f"Removed directory: {path}")
                 except Exception as e:
-                    self.logger.error(f"Failed to remove {path}: {e}")
+                    logger.error(f"Failed to remove {path}: {e}")
             else:
-                self.logger.debug(f"Path does not exist, skipping: {path}")
+                logger.debug(f"Path does not exist, skipping: {path}")
 
     def uninstall_linux_cleanup(self):
         """
         Performs cleanup after uninstalling the SS Agent on Linux.
         """
-        self.logger.debug("Cleaning up Linux installation...")
+        logger.debug("Cleaning up Linux installation...")
         self.cleanup_linux()
 
     def uninstall_macos_cleanup(self):
         """
         Performs cleanup after uninstalling the SS Agent on macOS.
         """
-        self.logger.debug("Cleaning up macOS installation...")
+        logger.debug("Cleaning up macOS installation...")
         self.cleanup_macos()
 
     def uninstall_windows_cleanup(self):
         """
         Performs cleanup after uninstalling the SS Agent on Windows.
         """
-        self.logger.debug("Cleaning up Windows installation...")
+        logger.debug("Cleaning up Windows installation...")
         self.cleanup_windows()
 
     # -------------------- Service Management Methods -------------------- #
@@ -1112,5 +1112,5 @@ class SSAgentInstaller:
         elif system == 'windows':
             self.stop_windows_service(SS_AGENT_SERVICE_NAME)
         else:
-            self.logger.error(f"Unsupported OS for stopping service: {system}")
+            logger.error(f"Unsupported OS for stopping service: {system}")
             raise NotImplementedError(f"Unsupported OS: {system}")

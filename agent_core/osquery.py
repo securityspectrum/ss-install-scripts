@@ -28,13 +28,8 @@ except ImportError:
 
 
 # Configure logging
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("InstallationLogger")
+quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
 
 GITHUB_API_URL = "https://api.github.com"
 REPO_OWNER = "osquery"

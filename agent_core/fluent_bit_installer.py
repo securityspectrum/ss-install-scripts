@@ -26,14 +26,13 @@ except ImportError:
 # Setup logger
 from utils.files import get_temp_file_path
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("InstallationLogger")
+quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
 
 class FluentBitInstaller:
 
-    def __init__(self, logger=None, quiet_install=False):
+    def __init__(self):
         self.repo = FLUENT_BIT_REPO
-        self.logger = logger or logging.getLogger(__name__)
-        self.quiet_install = quiet_install
 
     def parse_asset_name(self, asset_name):
         # Check for macOS and Windows first

@@ -40,14 +40,13 @@ from agent_core.constants import SS_NETWORK_ANALYZER_REPO, SS_NETWORK_ANALYZER_S
 from agent_core.network_analyzer_installer import SS_NETWORK_ANALYZER_ASSET_PATTERNS
 
 
+logger = logging.getLogger("InstallationLogger")
+quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
+
 class ZeekInstaller:
-    def __init__(self, logger=None, quiet_install=False):
+    def __init__(self):
         """
-        :param logger: a configured logger
-        :param quiet_install: if True, pass -q or -qq flags to package managers
         """
-        self.logger = logger or logging.getLogger(__name__)
-        self.quiet_install = quiet_install
 
         # Fetch distribution info as a dictionary
         self.os_info = distro.info()
@@ -69,9 +68,9 @@ class ZeekInstaller:
                 self.win32security = win32security
                 self.win32con = win32con
                 self.win32api = win32api
-                self.logger.debug("Windows-specific modules imported successfully.")
+                logger.debug("Windows-specific modules imported successfully.")
             except ImportError as e:
-                self.logger.error("Failed to import Windows-specific modules: {}".format(e))
+                logger.error("Failed to import Windows-specific modules: {}".format(e))
                 sys.exit(1)
 
     def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None, require_root=False, quiet=None):
@@ -92,7 +91,7 @@ class ZeekInstaller:
 
         # Only log the full command if not quiet
         if not quiet:
-            self.logger.debug("Executing command: %s", command if isinstance(command, str) else ' '.join(command))
+            logger.debug("Executing command: %s", command if isinstance(command, str) else ' '.join(command))
 
         try:
             result = subprocess.run(command,
@@ -103,18 +102,18 @@ class ZeekInstaller:
                                     input=input_data)
             # If capturing output, log it only when not quiet
             if capture_output and not quiet:
-                self.logger.debug("Command output: %s", result.stdout.strip())
+                logger.debug("Command output: %s", result.stdout.strip())
             return result.stdout.strip() if capture_output else True
 
         except subprocess.CalledProcessError as e:
             # Log minimal or verbose message depending on quiet
             if not quiet:
-                self.logger.error("Command failed: %s", command if isinstance(command, str) else ' '.join(command))
-                self.logger.error("Return code: %s", e.returncode)
+                logger.error("Command failed: %s", command if isinstance(command, str) else ' '.join(command))
+                logger.error("Return code: %s", e.returncode)
                 if e.stdout:
-                    self.logger.error("Output: %s", e.stdout)
+                    logger.error("Output: %s", e.stdout)
                 if e.stderr:
-                    self.logger.error("Error Output: %s", e.stderr)
+                    logger.error("Error Output: %s", e.stderr)
             raise
 
     def check_privileges(self):
@@ -129,26 +128,26 @@ class ZeekInstaller:
             try:
                 is_admin = ctypes.windll.shell32.IsUserAnAdmin()
                 if not is_admin:
-                    self.logger.error("This script must be run as an administrator on Windows. Please run as an admin.")
+                    logger.error("This script must be run as an administrator on Windows. Please run as an admin.")
                     sys.exit(1)
-                self.logger.debug("Script is running with administrative privileges on Windows.")
+                logger.debug("Script is running with administrative privileges on Windows.")
             except Exception as e:
-                self.logger.error(f"Failed to check admin privileges: {e}")
+                logger.error(f"Failed to check admin privileges: {e}")
                 sys.exit(1)
 
         elif self.os_system == 'darwin':
             # For macOS, ensure the script is NOT run as root
             if os.geteuid() == 0:
-                self.logger.error("Do not run this script as root on macOS. Please run as a regular user.")
+                logger.error("Do not run this script as root on macOS. Please run as a regular user.")
                 self.downgrade_privileges()
-            self.logger.debug("Script is running as a regular user on macOS.")
+            logger.debug("Script is running as a regular user on macOS.")
 
         else:
             # For Linux systems, enforce running as root
             if os.geteuid() != 0:
-                self.logger.error("This script must be run as root. Please run again with 'sudo' or as the root user.")
+                logger.error("This script must be run as root. Please run again with 'sudo' or as the root user.")
                 sys.exit(1)
-            self.logger.debug("Script is running as root on Linux.")
+            logger.debug("Script is running as root on Linux.")
 
     def command_exists(self, command):
         """
@@ -161,29 +160,29 @@ class ZeekInstaller:
             # First, try using shutil.which
             command_path = shutil.which(command)
             if command_path:
-                self.logger.debug(f"Command '{command}' found at {command_path}")
+                logger.debug(f"Command '{command}' found at {command_path}")
                 # Add the directory to PATH if not already present
                 command_dir = os.path.dirname(command_path)
                 if command_dir not in os.environ.get("PATH", "").split(os.pathsep):
                     os.environ["PATH"] = command_dir + os.pathsep + os.environ["PATH"]
-                    self.logger.debug(f"Added '{command_dir}' to PATH.")
+                    logger.debug(f"Added '{command_dir}' to PATH.")
                 return command_path
         except Exception as e:
-            self.logger.warning(f"shutil.which() failed for command '{command}': {e}")
+            logger.warning(f"shutil.which() failed for command '{command}': {e}")
 
         # Fallback: manually check common directories
         common_paths = ['/usr/bin', '/usr/local/bin', '/bin', '/usr/sbin', '/sbin', '/opt/zeek/bin']
         for path in common_paths:
             command_path = os.path.join(path, command)
             if os.access(command_path, os.X_OK):
-                self.logger.debug(f"Command '{command}' found in {path}")
+                logger.debug(f"Command '{command}' found in {path}")
                 # Add the directory to PATH if not already present
                 if path not in os.environ.get("PATH", "").split(os.pathsep):
                     os.environ["PATH"] = path + os.pathsep + os.environ["PATH"]
-                    self.logger.debug(f"Added '{path}' to PATH.")
+                    logger.debug(f"Added '{path}' to PATH.")
                 return command_path
 
-        self.logger.debug(f"Command '{command}' not found in common paths.")
+        logger.debug(f"Command '{command}' not found in common paths.")
         return None
 
     def check_zeek_installed(self):
@@ -192,10 +191,10 @@ class ZeekInstaller:
         """
         if self.command_exists('zeek'):
             zeek_version = self.run_command(['zeek', '--version'], capture_output=True).splitlines()[0]
-            self.logger.debug(f"Zeek is already installed: {zeek_version}")
+            logger.debug(f"Zeek is already installed: {zeek_version}")
             return True
         else:
-            self.logger.debug("Zeek not found.")
+            logger.debug("Zeek not found.")
             return False
 
     def downgrade_privileges(self):
@@ -203,14 +202,14 @@ class ZeekInstaller:
         Downgrades privileges from root/administrator to the specified non-root/non-admin user.
         """
         current_platform = platform.system()
-        self.logger.debug(f"Operating System detected: {current_platform}")
+        logger.debug(f"Operating System detected: {current_platform}")
 
         if current_platform in ['Linux', 'Darwin']:  # Unix-like systems
             self._downgrade_privileges_unix()
         elif current_platform == 'Windows':
             self._downgrade_privileges_windows()
         else:
-            self.logger.error(f"Unsupported operating system: {current_platform}")
+            logger.error(f"Unsupported operating system: {current_platform}")
             sys.exit(1)
 
 
@@ -220,7 +219,7 @@ class ZeekInstaller:
         """
         sudo_user = os.getenv('SUDO_USER')
         if not sudo_user:
-            self.logger.error('Could not determine the original non-root user. Exiting.')
+            logger.error('Could not determine the original non-root user. Exiting.')
             sys.exit(1)
         try:
             import pwd  # Import locally to avoid issues on Windows
@@ -230,15 +229,15 @@ class ZeekInstaller:
 
             os.setgid(user_gid)
             os.setuid(user_uid)
-            self.logger.debug(f"Dropped privileges to user '{sudo_user}' (UID: {user_uid}, GID: {user_gid}).")
+            logger.debug(f"Dropped privileges to user '{sudo_user}' (UID: {user_uid}, GID: {user_gid}).")
         except KeyError:
-            self.logger.error(f"User '{sudo_user}' does not exist.")
+            logger.error(f"User '{sudo_user}' does not exist.")
             sys.exit(1)
         except PermissionError:
-            self.logger.error("Insufficient permissions to change user.")
+            logger.error("Insufficient permissions to change user.")
             sys.exit(1)
         except Exception as e:
-            self.logger.error(f"Failed to drop privileges: {e}")
+            logger.error(f"Failed to drop privileges: {e}")
             sys.exit(1)
 
     def _downgrade_privileges_windows(self):
@@ -250,10 +249,10 @@ class ZeekInstaller:
 
         username = os.getenv("USERNAME")
         if not username:
-            self.logger.error("Could not retrieve the current user. Exiting.")
+            logger.error("Could not retrieve the current user. Exiting.")
             sys.exit(1)
 
-        self.logger.debug(f"Attempting to downgrade privileges for user: {username}")
+        logger.debug(f"Attempting to downgrade privileges for user: {username}")
 
         try:
             # Prompt the user for the target username and password for impersonation
@@ -272,63 +271,63 @@ class ZeekInstaller:
 
             # Impersonate the logged-on user
             self.win32security.ImpersonateLoggedOnUser(handle)
-            self.logger.debug(f"Successfully downgraded privileges to user: {target_user}")
+            logger.debug(f"Successfully downgraded privileges to user: {target_user}")
 
             # Run your installation or other operations here under the impersonated user
 
         except Exception as e:
-            self.logger.error(f"Failed to downgrade privileges: {e}")
+            logger.error(f"Failed to downgrade privileges: {e}")
             sys.exit(1)
 
     def is_zeek_installed(self):
         """
         Returns True if Zeek is installed, whether from a package or source build.
         """
-        self.logger.debug("Checking if Zeek is installed...")
+        logger.debug("Checking if Zeek is installed...")
 
         # Check if the 'zeek' or 'zeek-config' command exists and get their paths
         zeek_path = self.command_exists('zeek')
         zeek_config_path = self.command_exists('zeek-config')
 
         if not zeek_path and not zeek_config_path:
-            self.logger.debug("Neither 'zeek' nor 'zeek-config' command found.")
+            logger.debug("Neither 'zeek' nor 'zeek-config' command found.")
             return False
 
         # Verify the version command works
         if not self.verify_zeek_version(zeek_path):
-            self.logger.debug("Zeek version check failed.")
+            logger.debug("Zeek version check failed.")
             return False
 
-        self.logger.debug("Zeek is installed and functioning.")
+        logger.debug("Zeek is installed and functioning.")
         return True
 
     def verify_zeek_version(self, zeek_path=None):
         try:
             if zeek_path:
-                self.logger.debug(f"Attempting to run '{zeek_path} --version'...")
+                logger.debug(f"Attempting to run '{zeek_path} --version'...")
                 cmd = [zeek_path, '--version']
             else:
-                self.logger.debug("Attempting to run 'zeek --version'...")
+                logger.debug("Attempting to run 'zeek --version'...")
                 cmd = ['zeek', '--version']
 
             result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            self.logger.debug(f"Zeek version: {result.stdout.strip()}")
+            logger.debug(f"Zeek version: {result.stdout.strip()}")
             return True
         except FileNotFoundError:
-            self.logger.error("Zeek binary not found in PATH.")
+            logger.error("Zeek binary not found in PATH.")
             return False
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Zeek version command failed: {e.stderr.strip()}")
+            logger.error(f"Zeek version command failed: {e.stderr.strip()}")
             return False
         except Exception as e:
-            self.logger.error(f"Unexpected error while verifying Zeek version: {e}")
+            logger.error(f"Unexpected error while verifying Zeek version: {e}")
             return False
 
     def install_utilities(self):
         """
         Installs required utilities based on the Linux distribution.
         """
-        self.logger.info("Installing required utilities...")
+        logger.info("Installing required utilities...")
         try:
             if self.os_id in ['ubuntu', 'debian'] or 'debian' in self.os_like:
                 self.run_command(['apt', 'install', '-y', 'apt-transport-https', 'curl', 'gnupg', 'lsb-release'])
@@ -339,30 +338,30 @@ class ZeekInstaller:
             elif self.os_id in ['opensuse', 'sles'] or 'suse' in self.os_like:
                 self.run_command(['zypper', 'install', '-y', 'curl', 'lsb-release', 'gnupg'])
             else:
-                self.logger.error("Unsupported distribution for installing utilities.")
+                logger.error("Unsupported distribution for installing utilities.")
                 sys.exit(1)
         except Exception as e:
-            self.logger.error("Failed to install required utilities.")
-            self.logger.error(e)
+            logger.error("Failed to install required utilities.")
+            logger.error(e)
             sys.exit(1)
 
     def install_zeek_ubuntu(self):
         """
         Installs Zeek on Ubuntu reliably with minimal system-wide updates.
         """
-        self.logger.debug("Detected Ubuntu. Proceeding with Zeek installation...")
+        logger.debug("Detected Ubuntu. Proceeding with Zeek installation...")
         self.install_utilities()
 
         # Detect Ubuntu release version
         distro_version = self.run_command(['lsb_release', '-rs'], capture_output=True).strip()
-        self.logger.debug(f"Ubuntu version detected: {distro_version}")
+        logger.debug(f"Ubuntu version detected: {distro_version}")
 
         # Ensure universe repository is enabled (needed for some dependencies, such as libmaxminddb-dev)
-        # self.logger.debug("Enabling universe repository...")
+        # logger.debug("Enabling universe repository...")
         # self.run_command(['add-apt-repository', '-y', 'universe'])
 
         # Update package lists after enabling universe
-        self.logger.debug("Updating package lists after enabling universe repository...")
+        logger.debug("Updating package lists after enabling universe repository...")
         self.run_command(['apt', 'update'])
 
         # Prepare to add Zeek repository
@@ -370,11 +369,11 @@ class ZeekInstaller:
         keyring_path = "/usr/share/keyrings/zeek-archive-keyring.gpg"
 
         # Remove old keyring if exists to avoid prompt
-        self.logger.debug("Ensuring clean state for Zeek keyring...")
+        logger.debug("Ensuring clean state for Zeek keyring...")
         self.run_command(['rm', '-f', keyring_path])
 
         # Download the GPG key
-        self.logger.debug(f"Downloading Zeek GPG key from {gpg_key_url}")
+        logger.debug(f"Downloading Zeek GPG key from {gpg_key_url}")
         gpg_key_data = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
 
         # Write key to a temporary file
@@ -382,36 +381,36 @@ class ZeekInstaller:
             key_file.write(gpg_key_data.encode('utf-8'))
 
         # Dearmor and store the GPG key
-        self.logger.debug("Storing the GPG key...")
+        logger.debug("Storing the GPG key...")
         self.run_command(['gpg', '--batch', '--yes', '--dearmor', '-o', keyring_path, '/tmp/Release.key'])
 
         # Add the Zeek repository
         repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/xUbuntu_{distro_version}/ /"
-        self.logger.debug(f"Adding Zeek repository: {repo_entry}")
+        logger.debug(f"Adding Zeek repository: {repo_entry}")
         self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'])
 
         # Option 1: Update all package lists (safer, ensures all dependencies can be found)
-        # self.logger.debug("Updating package lists with new Zeek repository...")
+        # logger.debug("Updating package lists with new Zeek repository...")
         # self.run_command(['apt', 'update'])
 
         # Option 2 (Older approach): Update only the Zeek repository
         # This tries to update only the repository mentioned in /etc/apt/sources.list.d/zeek.list
         # Useful if you don't want to refresh all package indices system-wide
-        self.logger.debug("Updating only the Zeek repository lists...")
+        logger.debug("Updating only the Zeek repository lists...")
         self.run_command(['apt', 'update', '-o', 'Dir::Etc::sourcelist="sources.list.d/zeek.list"', '-o',
             'APT::Get::List-Cleanup="0"'])
 
         # Fix any broken dependencies if present
-        self.logger.debug("Attempting to fix any broken dependencies before installation...")
+        logger.debug("Attempting to fix any broken dependencies before installation...")
         self.run_command(['apt', '--fix-broken', 'install', '-y'])
 
         # Attempt to install Zeek and Zeekctl
-        self.logger.debug("Installing Zeek and Zeekctl...")
+        logger.debug("Installing Zeek and Zeekctl...")
         try:
             self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
-            self.logger.debug("Zeek installed successfully via apt.")
+            logger.debug("Zeek installed successfully via apt.")
         except Exception as e:
-            self.logger.error(f"Package installation failed: {e}. Attempting to fix broken packages and retry...")
+            logger.error(f"Package installation failed: {e}. Attempting to fix broken packages and retry...")
 
             # Fix broken packages if any
             self.run_command(['apt', '--fix-broken', 'install', '-y'])
@@ -419,9 +418,9 @@ class ZeekInstaller:
             # Retry installation once
             try:
                 self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
-                self.logger.debug("Zeek installed successfully on retry.")
+                logger.debug("Zeek installed successfully on retry.")
             except Exception as e2:
-                self.logger.error(f"Second attempt to install Zeek failed: {e2}. Falling back to source installation.")
+                logger.error(f"Second attempt to install Zeek failed: {e2}. Falling back to source installation.")
                 self.install_zeek_from_source()
 
         # Proceed with Zeek configuration
@@ -431,12 +430,12 @@ class ZeekInstaller:
         """
         Installs Zeek on Debian.
         """
-        self.logger.debug("Detected Debian. Proceeding with installation...")
+        logger.debug("Detected Debian. Proceeding with installation...")
         self.install_utilities()
 
         # Clean up the distro version to avoid issues with minor version numbers
         distro_version = self.run_command(['lsb_release', '-rs'], capture_output=True).strip().split('.')[0]
-        self.logger.debug(f"Configuring repository for Debian {distro_version}...")
+        logger.debug(f"Configuring repository for Debian {distro_version}...")
 
         try:
             # Add Zeek GPG key
@@ -444,11 +443,11 @@ class ZeekInstaller:
             keyring_path = "/usr/share/keyrings/zeek-archive-keyring.gpg"
 
             # Download and store the GPG key
-            self.logger.debug(f"Downloading GPG key from {gpg_key_url}...")
+            logger.debug(f"Downloading GPG key from {gpg_key_url}...")
             gpg_key_data = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
 
             # Store the GPG key using gpg
-            self.logger.debug(f"Storing GPG key at {keyring_path}...")
+            logger.debug(f"Storing GPG key at {keyring_path}...")
             with open('/tmp/zeek_release.key', 'wb') as key_file:
                 key_file.write(gpg_key_data.encode('utf-8'))
 
@@ -456,21 +455,21 @@ class ZeekInstaller:
 
             # Add Zeek repository
             repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/Debian_{distro_version}/ /"
-            self.logger.debug(f"Adding Zeek repository to /etc/apt/sources.list.d/zeek.list...")
+            logger.debug(f"Adding Zeek repository to /etc/apt/sources.list.d/zeek.list...")
             self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'])
 
             # Update only the Zeek repository
-            self.logger.debug("Updating the Zeek repository...")
+            logger.debug("Updating the Zeek repository...")
             self.run_command(['apt', 'update', '-o', f'Dir::Etc::sourcelist="sources.list.d/zeek.list"', '-o',
                               'APT::Get::List-Cleanup="0"'])
 
             # Install Zeek and Zeekctl without updating other packages
-            self.logger.debug("Installing Zeek and Zeekctl...")
+            logger.debug("Installing Zeek and Zeekctl...")
             self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
-            self.logger.debug("Zeek installed successfully via apt.")
+            logger.debug("Zeek installed successfully via apt.")
 
         except Exception as e:
-            self.logger.error(f"Package installation failed: {e}. Attempting to install from source...")
+            logger.error(f"Package installation failed: {e}. Attempting to install from source...")
             self.install_zeek_from_source()
             return
 
@@ -481,7 +480,7 @@ class ZeekInstaller:
         """
         Installs Zeek on Fedora without a full system update.
         """
-        self.logger.debug("Detected Fedora. Proceeding with installation...")
+        logger.debug("Detected Fedora. Proceeding with installation...")
         self.install_utilities()
 
         try:
@@ -493,13 +492,13 @@ class ZeekInstaller:
                 makecache_cmd.insert(1, '-q')  # => dnf -q makecache --refresh
                 install_cmd.insert(1, '-q')  # => dnf -q install -y zeek ...
 
-            self.logger.debug("Installing Zeek with command: " + ' '.join(install_cmd))
+            logger.debug("Installing Zeek with command: " + ' '.join(install_cmd))
             self.run_command(makecache_cmd)
             self.run_command(install_cmd)
 
-            self.logger.info("Zeek installed successfully on Fedora.")
+            logger.info("Zeek installed successfully on Fedora.")
         except Exception as e:
-            self.logger.debug("Zeek package not found in default repositories. Adding Zeek OBS repository...")
+            logger.debug("Zeek package not found in default repositories. Adding Zeek OBS repository...")
             try:
                 fedora_version = self.run_command(['rpm', '-E', '%fedora'], capture_output=True)
                 gpg_key_url = f"https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/repodata/repomd.xml.key"
@@ -525,10 +524,10 @@ class ZeekInstaller:
                 self.run_command(['dnf', 'install', '-y', '--disablerepo="*"', '--enablerepo="zeek"', 'zeek',
                                   'zeekctl'])
 
-                self.logger.debug("Zeek installed successfully via added repository.")
+                logger.debug("Zeek installed successfully via added repository.")
 
             except Exception as e:
-                self.logger.error("Package installation failed, attempting to install from source...")
+                logger.error("Package installation failed, attempting to install from source...")
                 self.install_zeek_from_source()
                 return
         self.configure_zeek()
@@ -537,7 +536,7 @@ class ZeekInstaller:
         """
         Installs Zeek on RHEL 8 (Stream or Vault).
         """
-        self.logger.debug("Detected RHEL 8. Proceeding with installation...")
+        logger.debug("Detected RHEL 8. Proceeding with installation...")
         self.install_utilities()
         try:
             # Import Zeek GPG key for RHEL 8
@@ -549,9 +548,9 @@ class ZeekInstaller:
             # Update system and install Zeek
             self.run_command(['yum', 'update', '-y'])
             self.run_command(['yum', 'install', '-y', 'zeek', 'zeekctl'])
-            self.logger.debug("Zeek installed successfully via yum.")
+            logger.debug("Zeek installed successfully via yum.")
         except Exception as e:
-            self.logger.error("Package installation failed, attempting to install from source...")
+            logger.error("Package installation failed, attempting to install from source...")
             self.install_zeek_from_source()
             return
         self.configure_zeek()
@@ -560,25 +559,25 @@ class ZeekInstaller:
         """
         Determines CentOS/RHEL version and installs Zeek accordingly.
         """
-        self.logger.debug("Detected CentOS/RHEL. Proceeding with installation...")
+        logger.debug("Detected CentOS/RHEL. Proceeding with installation...")
         os_version = self.run_command(['rpm', '-E', '%rhel'], capture_output=True)
         if os_version == '8':
             self.install_zeek_rhel8()
         else:
-            self.logger.error(f"Unsupported CentOS/RHEL version: {os_version}")
+            logger.error(f"Unsupported CentOS/RHEL version: {os_version}")
             sys.exit(1)
 
     def install_zeek_centos8(self):
         """
         Installs Zeek on CentOS 8 (Stream or Vault).
         """
-        self.logger.debug("Detected CentOS 8. Proceeding with installation...")
+        logger.debug("Detected CentOS 8. Proceeding with installation...")
         self.install_utilities()
         # Determine if it's CentOS 8 Stream or CentOS 8
         try:
             centos_version_info = self.run_command(['centos-release'], capture_output=True)
             if 'Stream' in centos_version_info:
-                self.logger.debug("Installing Zeek on CentOS 8 Stream...")
+                logger.debug("Installing Zeek on CentOS 8 Stream...")
                 # Import Zeek GPG key for CentOS 8 Stream
                 gpg_key_url = "https://download.opensuse.org/repositories/security:zeek/CentOS_8_Stream/repodata/repomd.xml.key"
                 self.run_command(['rpm', '--import', gpg_key_url])
@@ -586,7 +585,7 @@ class ZeekInstaller:
                 zeek_repo_url = "https://download.opensuse.org/repositories/security:zeek/CentOS_8_Stream/security:zeek.repo"
                 self.run_command(['curl', '-fsSL', '-o', '/etc/yum.repos.d/zeek.repo', zeek_repo_url])
             else:
-                self.logger.debug("Installing Zeek on CentOS 8 (using Vault repository)...")
+                logger.debug("Installing Zeek on CentOS 8 (using Vault repository)...")
                 # Update the repository to use CentOS Vault since CentOS 8 has reached EOL
                 centos_repo_files = list(Path('/etc/yum.repos.d/').glob('CentOS-*.repo'))
                 for repo_file in centos_repo_files:
@@ -603,9 +602,9 @@ class ZeekInstaller:
             # Update system and install Zeek
             self.run_command(['yum', 'update', '-y'])
             self.run_command(['yum', 'install', '-y', 'zeek', 'zeekctl'])
-            self.logger.debug("Zeek installed successfully via yum.")
+            logger.debug("Zeek installed successfully via yum.")
         except Exception as e:
-            self.logger.error("Failed to detect CentOS version or install Zeek.")
+            logger.error("Failed to detect CentOS version or install Zeek.")
             sys.exit(1)
         self.configure_zeek()
 
@@ -614,7 +613,7 @@ class ZeekInstaller:
         Installs Zeek on openSUSE. If repository installation fails, it falls back to installing from source.
         """
         if self.is_zeek_installed():
-            self.logger.debug("Zeek is already installed.")
+            logger.debug("Zeek is already installed.")
             self.run_command(['zeek', '--version'])
             return
 
@@ -625,18 +624,18 @@ class ZeekInstaller:
         try:
             self.install_zeek_from_repo_opensuse(repo_urls)
         except Exception as e:
-            self.logger.error(f"Repository installation failed: {e}")
-            self.logger.debug("Falling back to building Zeek from source.")
+            logger.error(f"Repository installation failed: {e}")
+            logger.debug("Falling back to building Zeek from source.")
             self.install_zeek_from_source_opensuse()
 
         time.sleep(2)
         # Final verification
         if self.is_zeek_installed():
-            self.logger.debug("Zeek installed successfully.")
+            logger.debug("Zeek installed successfully.")
             self.run_command(['zeek', '--version'])
             self.configure_zeek()
         else:
-            self.logger.error("Zeek installation failed.")
+            logger.error("Zeek installation failed.")
             sys.exit(1)
 
     def get_opensuse_repo_urls(self):
@@ -660,7 +659,7 @@ class ZeekInstaller:
             return {"zeek": f"https://download.opensuse.org/repositories/security:zeek/{version_id}/",
                     "python": f"https://download.opensuse.org/repositories/devel:/languages:/python/{version_id}/"}
         else:
-            self.logger.error("Unsupported openSUSE version or distribution.")
+            logger.error("Unsupported openSUSE version or distribution.")
             sys.exit(1)
 
     def install_zeek_from_repo_opensuse(self, repo_urls):
@@ -668,14 +667,14 @@ class ZeekInstaller:
         Installs Zeek and necessary Python packages from the repository.
         """
         # Import GPG keys for the repositories
-        self.logger.debug("Importing GPG keys for repositories.")
+        logger.debug("Importing GPG keys for repositories.")
         self.run_command(['rpm', '--import',
                           'https://download.opensuse.org/repositories/devel:/languages:/python/openSUSE_Tumbleweed/repodata/repomd.xml.key'])
         self.run_command(['rpm', '--import',
                           'https://download.opensuse.org/repositories/security:/zeek/openSUSE_Tumbleweed/repodata/repomd.xml.key'])
 
         # Add Zeek and Python repositories
-        self.logger.debug("Adding the Zeek and Python repositories.")
+        logger.debug("Adding the Zeek and Python repositories.")
         self.run_command(['zypper', '--non-interactive', 'addrepo', '--check', '--refresh', '--name',
                           'Zeek Security Repository', repo_urls['zeek'], 'security_zeek'])
         self.run_command(['zypper', '--non-interactive', 'addrepo', '--check', '--refresh', '--name',
@@ -686,33 +685,33 @@ class ZeekInstaller:
                           'devel_languages_python'])
 
         # Install the required packages
-        self.logger.debug("Installing required packages via zypper.")
+        logger.debug("Installing required packages via zypper.")
         try:
             # Use the correct package name here
             self.run_command(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'install', '-y',
                               'python3-GitPython'])
-            self.logger.debug("python3-GitPython installed successfully.")
+            logger.debug("python3-GitPython installed successfully.")
             self.run_command(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'install', '--no-recommends',
                               '-y', 'zeek'])
-            self.logger.debug("Zeek installed successfully via zypper.")
+            logger.debug("Zeek installed successfully via zypper.")
         except Exception as e:
-            self.logger.error(f"Failed to install Zeek from repository: {e}")
+            logger.error(f"Failed to install Zeek from repository: {e}")
             raise e
 
     def install_zeek_from_source_opensuse(self):
         """
         Installs Zeek from source if the repository installation fails.
         """
-        self.logger.debug("Installing Zeek from source.")
+        logger.debug("Installing Zeek from source.")
 
         # Install build dependencies
-        self.logger.debug("Installing build dependencies...")
+        logger.debug("Installing build dependencies...")
         self.run_command(['zypper', '--non-interactive', 'install', '-y', 'make', 'cmake', 'flex', 'bison',
                           'libpcap-devel', 'libopenssl-devel', 'python3', 'python3-devel', 'swig', 'zlib-devel', 'wget',
                           'tar', 'gzip', 'gcc10', 'gcc10-c++'])
 
         # Set GCC to version 10
-        self.logger.debug("Setting GCC to version 10...")
+        logger.debug("Setting GCC to version 10...")
         self.run_command(['update-alternatives', '--install', '/usr/bin/gcc', 'gcc', '/usr/bin/gcc-10', '100'])
         self.run_command(['update-alternatives', '--install', '/usr/bin/g++', 'g++', '/usr/bin/g++-10', '100'])
 
@@ -725,17 +724,17 @@ class ZeekInstaller:
         zeek_dir = src_dir / f"zeek-{zeek_version}"
 
         if not zeek_tar.is_file():
-            self.logger.debug(f"Downloading Zeek source code version {zeek_version}...")
+            logger.debug(f"Downloading Zeek source code version {zeek_version}...")
             self.run_command(['wget', f"https://download.zeek.org/zeek-{zeek_version}.tar.gz"], cwd=src_dir)
 
         if not zeek_dir.is_dir():
-            self.logger.debug("Extracting Zeek source code...")
+            logger.debug("Extracting Zeek source code...")
             self.run_command(['tar', '-xzf', zeek_tar], cwd=src_dir)
 
         build_dir = zeek_dir / 'build'
         build_dir.mkdir(parents=True, exist_ok=True)
 
-        self.logger.debug("Building Zeek from source...")
+        logger.debug("Building Zeek from source...")
         self.run_command(['cmake', '..'], cwd=build_dir)
         self.run_command(['make', '-j', str(os.cpu_count())], cwd=build_dir)
         self.run_command(['make', 'install'], cwd=build_dir)
@@ -747,14 +746,14 @@ class ZeekInstaller:
         """
         Installs Zeek on Windows.
         """
-        self.logger.debug(f"Starting {SS_NETWORK_ANALYZER_SERVICE_NAME} installation on Windows...")
+        logger.debug(f"Starting {SS_NETWORK_ANALYZER_SERVICE_NAME} installation on Windows...")
 
         # Get the latest release URL
         try:
-            self.logger.debug(f"Fetching latest {SS_NETWORK_ANALYZER_SERVICE_NAME} release information...")
+            logger.debug(f"Fetching latest {SS_NETWORK_ANALYZER_SERVICE_NAME} release information...")
             release_info = self.get_latest_release_info(SS_NETWORK_ANALYZER_REPO)
         except Exception as e:
-            self.logger.error(f"Failed to fetch latest {SS_NETWORK_ANALYZER_SERVICE_NAME} release info: {e}")
+            logger.error(f"Failed to fetch latest {SS_NETWORK_ANALYZER_SERVICE_NAME} release info: {e}")
             sys.exit(1)
 
         # Categorize assets
@@ -762,7 +761,7 @@ class ZeekInstaller:
         selected_assets = self.select_asset(categorized_assets)
 
         if not selected_assets:
-            self.logger.error(f"No suitable {SS_NETWORK_ANALYZER_SERVICE_NAME} Windows asset found for installation.")
+            logger.error(f"No suitable {SS_NETWORK_ANALYZER_SERVICE_NAME} Windows asset found for installation.")
             sys.exit(1)
 
         asset_name, download_url = selected_assets[0]  # Get the first matching asset
@@ -775,16 +774,16 @@ class ZeekInstaller:
             final_path = Path(SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS)
             final_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
         else:
-            self.logger.error(f"install_ss_network_analyzer_windows called on unsupported OS: {platform.system()}")
+            logger.error(f"install_ss_network_analyzer_windows called on unsupported OS: {platform.system()}")
             sys.exit(1)
 
-        self.logger.info(f"Downloading {asset_name} from {download_url}...")
+        logger.info(f"Downloading {asset_name} from {download_url}...")
         self.download_binary(download_url, tmp_path)
 
-        self.logger.info(f"Installing {asset_name}...")
+        logger.info(f"Installing {asset_name}...")
         self.run_installation_command(tmp_path, final_path)
 
-        self.logger.info(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} installation on Windows complete.")
+        logger.info(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} installation on Windows complete.")
 
     def download_binary(self, download_url, dest_path):
         """
@@ -796,9 +795,9 @@ class ZeekInstaller:
             with open(dest_path, 'wb') as file:
                 for chunk in response.iter_content(chunk_size=8192):
                     file.write(chunk)
-            self.logger.debug(f"Downloaded binary to {dest_path}.")
+            logger.debug(f"Downloaded binary to {dest_path}.")
         except Exception as e:
-            self.logger.error(f"Failed to download binary: {e}")
+            logger.error(f"Failed to download binary: {e}")
             raise
 
     def get_latest_release_info(self, repo):
@@ -830,7 +829,7 @@ class ZeekInstaller:
         Selects the appropriate asset for the current operating system.
         """
         system = platform.system().lower()
-        self.logger.info(f"Detected system: {system}")
+        logger.info(f"Detected system: {system}")
         if system == "linux":
             return categorized_assets.get("linux")
         elif system == "darwin":
@@ -855,7 +854,7 @@ class ZeekInstaller:
             bashrc_content = file.read()
 
         if zeek_bin not in bashrc_content:
-            self.logger.debug("Adding Zeek to the system PATH...")
+            logger.debug("Adding Zeek to the system PATH...")
             with bashrc.open('a') as file:
                 file.write(f'\nexport PATH={zeek_bin}:$PATH\n')
 
@@ -866,23 +865,23 @@ class ZeekInstaller:
         """
         Cleans the build directory if necessary.
         """
-        self.logger.debug("Cleaning build directory...")
+        logger.debug("Cleaning build directory...")
         build_dir = Path.cwd() / 'build'
         if build_dir.is_dir():
             try:
                 self.run_command(['make', 'distclean'])
             except:
                 shutil.rmtree(build_dir)
-            self.logger.debug("Build directory cleaned.")
+            logger.debug("Build directory cleaned.")
         else:
-            self.logger.debug("No build directory to clean.")
+            logger.debug("No build directory to clean.")
 
     def install_build_dependencies(self):
         """
         Installs build dependencies required for building Zeek from source.
         """
-        self.logger.debug("Installing build dependencies...")
-        self.logger.debug(f"Detected OS: {self.os_id} {self.os_info.get('version_id', '')} {self.os_info.get('version', '')}")
+        logger.debug("Installing build dependencies...")
+        logger.debug(f"Detected OS: {self.os_id} {self.os_info.get('version_id', '')} {self.os_info.get('version', '')}")
         try:
             if self.os_id in ['ubuntu', 'debian'] or 'debian' in self.os_like:
                 self.run_command(['apt', 'update', '-y'], check=True)
@@ -901,30 +900,30 @@ class ZeekInstaller:
                 self.run_command(['zypper', 'install', '-y', 'curl', 'wget', 'cmake', 'make', 'gcc', 'gcc-c++', 'flex',
                                   'bison', 'libpcap-devel', 'libopenssl-devel', 'python3-devel', 'zlib-devel'])
             else:
-                self.logger.error("Unsupported distribution for source installation.")
+                logger.error("Unsupported distribution for source installation.")
                 sys.exit(1)
-            self.logger.debug("Build dependencies installed successfully.")
+            logger.debug("Build dependencies installed successfully.")
         except Exception as e:
-            self.logger.error("Failed to install build dependencies.")
-            self.logger.error(e)
+            logger.error("Failed to install build dependencies.")
+            logger.error(e)
             sys.exit(1)
 
     def install_zeek_from_source(self):
         """
         Installs Zeek from source.
         """
-        self.logger.debug("Installing Zeek from source...")
+        logger.debug("Installing Zeek from source...")
         if self.is_zeek_installed():
-            self.logger.debug("Skipping source installation as Zeek is already installed.")
+            logger.debug("Skipping source installation as Zeek is already installed.")
             return
         # Set Zeek version
         zeek_version = self.zeek_version
         # Create non-root user if not exists
         try:
             self.run_command(['id', self.builder_user], capture_output=True)
-            self.logger.debug(f"User '{self.builder_user}' already exists.")
+            logger.debug(f"User '{self.builder_user}' already exists.")
         except subprocess.CalledProcessError:
-            self.logger.debug(f"Creating user '{self.builder_user}'...")
+            logger.debug(f"Creating user '{self.builder_user}'...")
             self.run_command(['useradd', '-m', self.builder_user])
         # Install build dependencies
         self.install_build_dependencies()
@@ -971,11 +970,11 @@ make install
         self.run_command(['chown', f'{self.builder_user}:{self.builder_user}', str(build_script_path)])
         self.run_command(['chmod', '+x', str(build_script_path)])
         # Run the build script as the builder user
-        self.logger.debug("Running build script as 'builder' user...")
+        logger.debug("Running build script as 'builder' user...")
         self.run_command(['su', '-', self.builder_user, '-c', f"bash {build_script_path}"])
         # Clean up
         self.run_command(['rm', '-f', str(build_script_path)])
-        self.logger.debug("Zeek installed successfully from source.")
+        logger.debug("Zeek installed successfully from source.")
         # Configure Zeek
         self.configure_zeek()
 
@@ -984,10 +983,10 @@ make install
         """
         Installs Zeek from source on macOS using the existing non-root user.
         """
-        self.logger.debug("Installing Zeek from source on macOS...")
+        logger.debug("Installing Zeek from source on macOS...")
 
         if self.is_zeek_installed():
-            self.logger.debug("Skipping source installation as Zeek is already installed.")
+            logger.debug("Skipping source installation as Zeek is already installed.")
             return
 
         # Set Zeek version
@@ -997,30 +996,30 @@ make install
 
         user = os.getenv('SUDO_USER')
         if not user:
-            self.logger.error('Could not determine the original non-root user. Exiting.')
+            logger.error('Could not determine the original non-root user. Exiting.')
             sys.exit(1)
-        self.logger.debug(f"Using non-root user: {user}")
+        logger.debug(f"Using non-root user: {user}")
 
         # Install build dependencies via Homebrew (if not already installed)
-        self.logger.debug("Installing build dependencies via Homebrew...")
+        logger.debug("Installing build dependencies via Homebrew...")
         try:
             self.run_command(['brew', 'install', 'cmake', 'make', 'gcc', 'flex', 'bison', 'libpcap', 'openssl', 'python3', 'swig', 'zlib'], shell=False)
-            self.logger.debug("Build dependencies installed successfully via Homebrew.")
+            logger.debug("Build dependencies installed successfully via Homebrew.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to install build dependencies: {e}")
+            logger.error(f"Failed to install build dependencies: {e}")
             sys.exit(1)
 
         # Create a directory for the source code
         src_dir = Path(f"/Users/{user}/src")
         try:
             src_dir.mkdir(parents=True, exist_ok=True)
-            self.logger.debug(f"Source directory created at {src_dir}.")
+            logger.debug(f"Source directory created at {src_dir}.")
         except Exception as e:
-            self.logger.error(f"Failed to create source directory at {src_dir}: {e}")
+            logger.error(f"Failed to create source directory at {src_dir}: {e}")
             sys.exit(1)
 
         # No need to change ownership on macOS
-        self.logger.debug(f"Skipping ownership change for {src_dir} on macOS.")
+        logger.debug(f"Skipping ownership change for {src_dir} on macOS.")
 
         # Navigate to the source directory
         os.chdir(src_dir)
@@ -1030,28 +1029,28 @@ make install
         zeek_dir = src_dir / f"zeek-{zeek_version}"
 
         if not zeek_tar.is_file():
-            self.logger.debug(f"Downloading Zeek source code version {zeek_version}...")
+            logger.debug(f"Downloading Zeek source code version {zeek_version}...")
             self.run_command(['curl', '-LO', f"https://download.zeek.org/zeek-{zeek_version}.tar.gz"], cwd=src_dir)
-            self.logger.debug("Zeek source code downloaded successfully.")
+            logger.debug("Zeek source code downloaded successfully.")
         else:
-            self.logger.debug(f"Zeek source code version {zeek_version} already downloaded.")
+            logger.debug(f"Zeek source code version {zeek_version} already downloaded.")
 
         # Extract the source code if not already extracted
         if not zeek_dir.is_dir():
-            self.logger.debug("Extracting Zeek source code...")
+            logger.debug("Extracting Zeek source code...")
             self.run_command(['tar', '-xzf', str(zeek_tar)], cwd=src_dir)
-            self.logger.debug("Zeek source code extracted successfully.")
+            logger.debug("Zeek source code extracted successfully.")
         else:
-            self.logger.debug("Zeek source code already extracted.")
+            logger.debug("Zeek source code already extracted.")
 
         # Build and install Zeek from source
-        self.logger.debug("Building and installing Zeek from source...")
+        logger.debug("Building and installing Zeek from source...")
         build_dir = zeek_dir / 'build'
         try:
             build_dir.mkdir(parents=True, exist_ok=True)
-            self.logger.debug(f"Build directory created at {build_dir}.")
+            logger.debug(f"Build directory created at {build_dir}.")
         except Exception as e:
-            self.logger.error(f"Failed to create build directory at {build_dir}: {e}")
+            logger.error(f"Failed to create build directory at {build_dir}: {e}")
             sys.exit(1)
 
         # Define the build commands
@@ -1064,11 +1063,11 @@ make install
         # Execute build commands as the non-root user
         try:
             for cmd in build_commands:
-                self.logger.debug(f"Executing build command: {cmd}")
+                logger.debug(f"Executing build command: {cmd}")
                 self.run_command(['su', '-', user, '-c', f"cd {build_dir} && {cmd}"], shell=False)
-            self.logger.debug("Zeek built and installed successfully from source.")
+            logger.debug("Zeek built and installed successfully from source.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to build and install Zeek from source: {e}")
+            logger.error(f"Failed to build and install Zeek from source: {e}")
             sys.exit(1)
 
         # Return to the original directory
@@ -1092,9 +1091,9 @@ make install
         # Check if zeek-config is already in the PATH
         if self.command_exists('zeek-config'):
             zeek_config_path = shutil.which('zeek-config')
-            self.logger.debug(f"zeek-config found in PATH at: {zeek_config_path}")
+            logger.debug(f"zeek-config found in PATH at: {zeek_config_path}")
         else:
-            self.logger.debug("zeek-config not found in PATH. Searching common directories...")
+            logger.debug("zeek-config not found in PATH. Searching common directories...")
             zeek_config_path = None
 
             # Search through the specified directories
@@ -1108,13 +1107,13 @@ make install
 
             # If zeek-config is still not found, log an error and exit
             if not zeek_config_path:
-                self.logger.error("Unable to find zeek-config. Please ensure Zeek is installed correctly.")
+                logger.error("Unable to find zeek-config. Please ensure Zeek is installed correctly.")
                 sys.exit(1)
 
             # Add zeek-config directory to the PATH
             zeek_config_dir = os.path.dirname(zeek_config_path)
             os.environ['PATH'] = f"{zeek_config_dir}:{os.environ['PATH']}"
-            self.logger.debug(f"zeek-config found at {zeek_config_path} and added to PATH.")
+            logger.debug(f"zeek-config found at {zeek_config_path} and added to PATH.")
 
         return zeek_config_path
 
@@ -1128,10 +1127,10 @@ make install
                 brew_output = subprocess.run(['brew', '--prefix', 'zeek'], capture_output=True, text=True)
                 zeek_prefix = brew_output.stdout.strip()
                 if zeek_prefix:
-                    self.logger.debug(f"Detected Zeek installed via Homebrew at: {zeek_prefix}")
+                    logger.debug(f"Detected Zeek installed via Homebrew at: {zeek_prefix}")
                     return Path(zeek_prefix)
             except subprocess.CalledProcessError:
-                self.logger.error("Failed to detect Zeek installation using Homebrew.")
+                logger.error("Failed to detect Zeek installation using Homebrew.")
                 return None
         else:
             # For non-macOS systems, use standard paths
@@ -1153,7 +1152,7 @@ make install
     #     if zeekctl_path.exists():
     #         return zeekctl_path
     #     else:
-    #         self.logger.error(f"zeekctl not found in {zeek_install_dir}.")
+    #         logger.error(f"zeekctl not found in {zeek_install_dir}.")
     #         return None
 
     def find_zeekctl(self, zeek_install_dir):
@@ -1161,8 +1160,8 @@ make install
         Attempts to locate the zeekctl executable in common installation paths.
         """
 
-        self.logger.debug("find_zeekctl: searching for zeekctl...")
-        self.logger.debug(f"Zeek installation directory: {zeek_install_dir}")
+        logger.debug("find_zeekctl: searching for zeekctl...")
+        logger.debug(f"Zeek installation directory: {zeek_install_dir}")
         possible_paths = [
             Path('/usr/bin/zeekctl'),
             Path('/opt/zeek/bin/zeekctl'),
@@ -1183,9 +1182,9 @@ make install
         if not logdir.exists():
             try:
                 logdir.mkdir(parents=True, exist_ok=True)
-                self.logger.debug(f"Created log directory: {logdir}")
+                logger.debug(f"Created log directory: {logdir}")
             except Exception as e:
-                self.logger.error(f"Failed to create log directory: {logdir} - {e}")
+                logger.error(f"Failed to create log directory: {logdir} - {e}")
                 sys.exit(1)
         return logdir
 
@@ -1195,7 +1194,7 @@ make install
         """
         if platform.system() != 'Darwin':
             return
-        self.logger.debug("Updating node.cfg for macOS...")
+        logger.debug("Updating node.cfg for macOS...")
         try:
             # Extract the interface used by the default route
             route_output = self.run_command(['route', 'get', 'default'], capture_output=True)
@@ -1205,19 +1204,19 @@ make install
                     interface = line.split(':')[1].strip()
                     break
             if not interface:
-                self.logger.error("Unable to detect network interface from default route.")
+                logger.error("Unable to detect network interface from default route.")
                 sys.exit(1)
-            self.logger.debug(f"Using network interface: {interface}")
+            logger.debug(f"Using network interface: {interface}")
             # Path to node.cfg
             node_cfg = "/usr/local/etc/node.cfg"
             if not Path(node_cfg).is_file():
-                self.logger.error(f"Error: node.cfg not found at {node_cfg}")
+                logger.error(f"Error: node.cfg not found at {node_cfg}")
                 sys.exit(1)
             # Update the node.cfg file with the correct interface
             self.run_command(['sed', '-i', '', f's/^interface=.*/interface={interface}/', node_cfg])
-            self.logger.debug(f"Updated node.cfg with interface {interface}.")
+            logger.debug(f"Updated node.cfg with interface {interface}.")
         except Exception as e:
-            self.logger.error("Failed to update node.cfg for macOS.")
+            logger.error("Failed to update node.cfg for macOS.")
             sys.exit(1)
 
     def update_zeekctl_cfg(self, zeek_install_dir):
@@ -1237,33 +1236,33 @@ make install
                             f.write(f"LogDir = {logdir}\n")
                         else:
                             f.write(line)
-                self.logger.debug(f"Updated LogDir to {logdir} in {zeekctl_cfg_path}")
+                logger.debug(f"Updated LogDir to {logdir} in {zeekctl_cfg_path}")
             except Exception as e:
-                self.logger.error(f"Failed to update zeekctl.cfg: {e}")
+                logger.error(f"Failed to update zeekctl.cfg: {e}")
                 sys.exit(1)
         else:
-            self.logger.warning(f"zeekctl.cfg not found at {zeekctl_cfg_path}")
+            logger.warning(f"zeekctl.cfg not found at {zeekctl_cfg_path}")
             # It should continue to work
 
         # Ensure the logdir exists
         if not logdir.exists():
             try:
                 logdir.mkdir(parents=True, exist_ok=True)
-                self.logger.debug(f"Created log directory: {logdir}")
+                logger.debug(f"Created log directory: {logdir}")
             except Exception as e:
-                self.logger.error(f"Failed to create log directory: {logdir} - {e}")
+                logger.error(f"Failed to create log directory: {logdir} - {e}")
                 sys.exit(1)
 
     def configure_zeek(self):
         """
         Configures Zeek after installation, handling both Linux and macOS, and detects the correct network interface.
         """
-        self.logger.debug("Configuring Zeek...")
+        logger.debug("Configuring Zeek...")
 
         # Find the Zeek installation path
         zeek_install_dir = self.find_zeek_installation()
         if not zeek_install_dir:
-            self.logger.error("Zeek installation directory not found.")
+            logger.error("Zeek installation directory not found.")
             sys.exit(1)
 
         # Update zeekctl.cfg with correct LogDir
@@ -1278,11 +1277,11 @@ make install
         local_zeek = next((p for p in local_zeek_paths if p.exists()), None)
 
         if not node_cfg or not local_zeek:
-            self.logger.error("Zeek configuration files not found in known locations.")
+            logger.error("Zeek configuration files not found in known locations.")
             sys.exit(1)
 
-        self.logger.debug(f"Using node.cfg at: {node_cfg}")
-        self.logger.debug(f"Using local.zeek at: {local_zeek}")
+        logger.debug(f"Using node.cfg at: {node_cfg}")
+        logger.debug(f"Using local.zeek at: {local_zeek}")
 
         # Detect network interface based on the platform
         try:
@@ -1301,11 +1300,11 @@ make install
                                   'default' in line), None)
 
             if not interface:
-                self.logger.error("Unable to detect network interface.")
+                logger.error("Unable to detect network interface.")
                 sys.exit(1)
-            self.logger.debug(f"Using network interface: {interface}")
+            logger.debug(f"Using network interface: {interface}")
         except Exception as e:
-            self.logger.error(f"Failed to detect network interface: {e}")
+            logger.error(f"Failed to detect network interface: {e}")
             sys.exit(1)
 
         # Update node.cfg with the detected network interface
@@ -1316,27 +1315,27 @@ make install
     host=localhost
     interface={interface}
     """)
-            self.logger.debug(f"node.cfg updated at {node_cfg}")
+            logger.debug(f"node.cfg updated at {node_cfg}")
         except Exception as e:
-            self.logger.error(f"Failed to write to node.cfg: {e}")
+            logger.error(f"Failed to write to node.cfg: {e}")
             sys.exit(1)
 
         # Enable JSON logging in local.zeek
         try:
             with open(local_zeek, 'a') as file:
                 file.write('\nredef LogAscii::use_json = T;\n')
-            self.logger.debug(f"Enabled JSON logging in {local_zeek}")
+            logger.debug(f"Enabled JSON logging in {local_zeek}")
         except Exception as e:
-            self.logger.error(f"Failed to update local.zeek: {e}")
+            logger.error(f"Failed to update local.zeek: {e}")
             sys.exit(1)
 
         # Find zeekctl
         zeekctl_path = self.find_zeekctl(zeek_install_dir)
         if not zeekctl_path:
-            self.logger.error("zeekctl not found. Please ensure Zeek is installed correctly.")
+            logger.error("zeekctl not found. Please ensure Zeek is installed correctly.")
             sys.exit(1)
 
-        self.logger.debug(f"Using zeekctl at: {zeekctl_path}")
+        logger.debug(f"Using zeekctl at: {zeekctl_path}")
 
         if platform.system().lower() == 'darwin':
             logs_dir = os.path.join(zeek_install_dir, 'logs')
@@ -1354,36 +1353,36 @@ make install
         """
         Deploys Zeek using zeekctl and handles any errors.
         """
-        self.logger.debug("Deploying Zeek...")
+        logger.debug("Deploying Zeek...")
 
         try:
             # Capture the output of the zeekctl deploy command
             result = self.run_command([str(zeekctl_path), 'deploy'], capture_output=True, check=True, require_root=True)
 
             # Log the output
-            self.logger.debug("Zeek deploy output:\n" + result)
+            logger.debug("Zeek deploy output:\n" + result)
             print("Zeek deploy output:\n" + result)
 
             # Check the status after deployment
-            self.logger.debug("Checking Zeek status...")
+            logger.debug("Checking Zeek status...")
             status_output = self.run_command([str(zeekctl_path), 'status'],
                                              capture_output=True,
                                              check=True,
                                              require_root=False)
-            self.logger.debug("Zeek status output:\n" + status_output)
+            logger.debug("Zeek status output:\n" + status_output)
             print("Zeek status output:\n" + status_output)
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to deploy Zeek: {e}. Command '{e.cmd}' returned non-zero exit status {e.returncode}.")
+            logger.error(f"Failed to deploy Zeek: {e}. Command '{e.cmd}' returned non-zero exit status {e.returncode}.")
 
             # Capture and print diagnostic information with zeekctl diag
-            self.logger.debug("Running zeekctl diag to gather diagnostic information...")
+            logger.debug("Running zeekctl diag to gather diagnostic information...")
             try:
                 diag_output = self.run_command([str(zeekctl_path), 'diag'], capture_output=True, require_root=True)
-                self.logger.error(f"Zeek diagnostic output:\n{diag_output}")
+                logger.error(f"Zeek diagnostic output:\n{diag_output}")
                 print(f"Zeek diagnostic output:\n{diag_output}")
             except subprocess.CalledProcessError as diag_error:
-                self.logger.error(f"Failed to run zeekctl diag: {diag_error}")
+                logger.error(f"Failed to run zeekctl diag: {diag_error}")
 
             sys.exit(1)
 
@@ -1391,22 +1390,22 @@ make install
         """
         Installs required utilities on macOS using Homebrew.
         """
-        self.logger.debug("Installing required utilities for macOS...")
+        logger.debug("Installing required utilities for macOS...")
 
         # Determine the non-root user
         user = getpass.getuser()
-        self.logger.debug(f"Using non-root user: {user}")
+        logger.debug(f"Using non-root user: {user}")
 
         # Check if Homebrew is installed
         if not self.command_exists('brew'):
-            self.logger.debug("Homebrew not found. Installing Homebrew...")
+            logger.debug("Homebrew not found. Installing Homebrew...")
             try:
                 brew_install_cmd = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
                 self.run_command(f'bash -c "{brew_install_cmd}"', shell=True)
-                self.logger.debug("Homebrew installed successfully.")
+                logger.debug("Homebrew installed successfully.")
             except Exception as e:
-                self.logger.error("Failed to install Homebrew.")
-                self.logger.error(e)
+                logger.error("Failed to install Homebrew.")
+                logger.error(e)
                 sys.exit(1)
 
     def create_source_directory(self):
@@ -1421,21 +1420,21 @@ make install
             # Create the source directory if it doesn't exist
             if not src_dir.exists():
                 src_dir.mkdir(parents=True)
-                self.logger.debug(f"Source directory created at {src_dir}.")
+                logger.debug(f"Source directory created at {src_dir}.")
         except Exception as e:
-            self.logger.error(f"Failed to create source directory at {src_dir}: {e}")
+            logger.error(f"Failed to create source directory at {src_dir}: {e}")
             sys.exit(1)
 
         # For macOS, do not change ownership
         if self.os_system == 'darwin':
-            self.logger.debug(f"Skipping ownership change for {src_dir} on macOS.")
+            logger.debug(f"Skipping ownership change for {src_dir} on macOS.")
         else:
             # For Linux, change ownership
             try:
                 self.run_command(['chown', '-R', f'{user}:staff', str(src_dir)])
-                self.logger.debug(f"Ownership changed to {user}:staff for {src_dir}.")
+                logger.debug(f"Ownership changed to {user}:staff for {src_dir}.")
             except subprocess.CalledProcessError as e:
-                self.logger.warning(f"Failed to change ownership of {src_dir}: {e}. Proceeding without changing ownership.")
+                logger.warning(f"Failed to change ownership of {src_dir}: {e}. Proceeding without changing ownership.")
 
         return src_dir
 
@@ -1443,9 +1442,9 @@ make install
         brew_install_cmd = f'brew install cmake make gcc flex bison libpcap openssl python3 swig zlib'
         try:
             self.run_command(brew_install_cmd, shell=True)
-            self.logger.debug("Build dependencies installed successfully via Homebrew.")
+            logger.debug("Build dependencies installed successfully via Homebrew.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to install dependencies via Homebrew: {e}")
+            logger.error(f"Failed to install dependencies via Homebrew: {e}")
             sys.exit(1)
 
     def is_tap_installed(self, tap_name):
@@ -1462,13 +1461,13 @@ make install
         """
         Installs Zeek on macOS, automatically selecting the appropriate version based on the macOS version.
         """
-        self.logger.debug("Detected macOS. Proceeding with installation...")
+        logger.debug("Detected macOS. Proceeding with installation...")
         self.install_utilities_macos()
 
         # Determine the non-root user
         user = getpass.getuser()
         user_home = Path.home()
-        self.logger.debug(f"Using non-root user: {user}")
+        logger.debug(f"Using non-root user: {user}")
 
         # Automatically choose Zeek version based on macOS version
         macos_version = platform.mac_ver()[0]
@@ -1477,31 +1476,31 @@ make install
         if major_version == 11:  # macOS Big Sur
             zeek_version = "zeek@5.2.2"
             zeek_name = f"{user}/older-zeek/zeek"
-            self.logger.debug("Detected macOS Big Sur. Proceeding with Zeek version 5.2.2.")
+            logger.debug("Detected macOS Big Sur. Proceeding with Zeek version 5.2.2.")
 
             # Create the custom tap if it doesn't exist
             tap_name = f"{user}/older-zeek"
             if not self.is_tap_installed(tap_name):
                 try:
                     self.run_command(['brew', 'tap-new', tap_name], check=True, shell=False)
-                    self.logger.debug(f"Tap '{tap_name}' created successfully.")
+                    logger.debug(f"Tap '{tap_name}' created successfully.")
                 except subprocess.CalledProcessError as e:
-                    self.logger.error(f"Failed to create tap '{tap_name}': {e}")
+                    logger.error(f"Failed to create tap '{tap_name}': {e}")
                     sys.exit(1)
             else:
-                self.logger.debug(f"Tap '{tap_name}' already exists. Skipping tap creation.")
+                logger.debug(f"Tap '{tap_name}' already exists. Skipping tap creation.")
 
             # Download the Zeek 5.2.2 formula directly using curl
             formula_path = f"/usr/local/Homebrew/Library/Taps/{user}/homebrew-older-zeek/Formula/zeek.rb"
             try:
-                self.logger.debug("Downloading the Zeek 5.2.2 formula...")
+                logger.debug("Downloading the Zeek 5.2.2 formula...")
                 self.run_command(['curl', '-o', formula_path,
                                   'https://raw.githubusercontent.com/Homebrew/homebrew-core/666405fbc6af1f06a7ee70d0912a85129258847f/Formula/z/zeek.rb'],
                                  check=True,
                                  shell=False)
-                self.logger.debug(f"Zeek 5.2.2 formula downloaded successfully to {formula_path}.")
+                logger.debug(f"Zeek 5.2.2 formula downloaded successfully to {formula_path}.")
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to download the Zeek formula: {e}. Proceeding to install from source.")
+                logger.error(f"Failed to download the Zeek formula: {e}. Proceeding to install from source.")
                 self.create_source_directory()  # Ensure source directory exists
                 self.install_zeek_from_source_macos()
                 return
@@ -1509,31 +1508,31 @@ make install
         elif major_version == 12:  # macOS Monterey
             zeek_version = "zeek@7.0.1"
             zeek_name = f"{user}/older-zeek/zeek"
-            self.logger.debug("Detected macOS Monterey. Proceeding with Zeek version 7.0.1.")
+            logger.debug("Detected macOS Monterey. Proceeding with Zeek version 7.0.1.")
 
             # Create the custom tap if it doesn't exist
             tap_name = f"{user}/older-zeek"
             if not self.is_tap_installed(tap_name):
                 try:
                     self.run_command(['brew', 'tap-new', tap_name], check=True, shell=False)
-                    self.logger.debug(f"Tap '{tap_name}' created successfully.")
+                    logger.debug(f"Tap '{tap_name}' created successfully.")
                 except subprocess.CalledProcessError as e:
-                    self.logger.error(f"Failed to create tap '{tap_name}': {e}")
+                    logger.error(f"Failed to create tap '{tap_name}': {e}")
                     sys.exit(1)
             else:
-                self.logger.debug(f"Tap '{tap_name}' already exists. Skipping tap creation.")
+                logger.debug(f"Tap '{tap_name}' already exists. Skipping tap creation.")
 
             # Download the Zeek 7.0.1 formula directly using curl
             formula_path = f"/usr/local/Homebrew/Library/Taps/{user}/homebrew-older-zeek/Formula/zeek.rb"
             try:
-                self.logger.debug("Downloading the Zeek 7.0.1 formula...")
+                logger.debug("Downloading the Zeek 7.0.1 formula...")
                 self.run_command(['curl', '-o', formula_path,
                                   'https://raw.githubusercontent.com/Homebrew/homebrew-core/7e624e19de94dc6dccff8808f2b105480b2a9320/Formula/z/zeek.rb'],
                                  check=True,
                                  shell=False)
-                self.logger.debug(f"Zeek 7.0.1 formula downloaded successfully to {formula_path}.")
+                logger.debug(f"Zeek 7.0.1 formula downloaded successfully to {formula_path}.")
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to download the Zeek formula: {e}. Proceeding to install from source.")
+                logger.error(f"Failed to download the Zeek formula: {e}. Proceeding to install from source.")
                 self.create_source_directory()  # Ensure source directory exists
                 self.install_zeek_from_source_macos()
                 return
@@ -1541,11 +1540,11 @@ make install
         elif major_version >= 13:  # macOS Ventura or newer
             zeek_version = "zeek"
             zeek_name = "zeek"
-            self.logger.debug(
+            logger.debug(
                 "Detected macOS version newer than Monterey. Proceeding with the latest version of Zeek (latest).")
 
         else:  # macOS versions older than Big Sur
-            self.logger.debug("Detected macOS version older than Big Sur. Proceeding to install Zeek from source.")
+            logger.debug("Detected macOS version older than Big Sur. Proceeding to install Zeek from source.")
             self.create_source_directory()  # Ensure source directory exists
             self.install_zeek_from_source_macos()
             return
@@ -1556,20 +1555,20 @@ make install
             brew_info = self.run_command(brew_info_cmd, capture_output=True, shell=False)
 
             if 'Not installed' in brew_info or 'could not be found' in brew_info or 'No available formula' in brew_info:
-                self.logger.info(f"Installing Zeek ({zeek_version}) using Homebrew...")
+                logger.info(f"Installing Zeek ({zeek_version}) using Homebrew...")
                 zeek_install_cmd = ['brew', 'install', zeek_name]
                 self.run_command(zeek_install_cmd, check=True, shell=False)
-                self.logger.info(f"Zeek ({zeek_version}) installed successfully via Homebrew.")
+                logger.info(f"Zeek ({zeek_version}) installed successfully via Homebrew.")
                 # Verify the installation
                 self.run_command(['zeek', '--version'], check=True, shell=False)
             else:
-                self.logger.info(f"Zeek ({zeek_version}) is already installed via Homebrew.")
+                logger.info(f"Zeek ({zeek_version}) is already installed via Homebrew.")
         except subprocess.CalledProcessError as e:
-            self.logger.info(f"Zeek is not available via Homebrew: {e}. Proceeding to install from source.")
+            logger.info(f"Zeek is not available via Homebrew: {e}. Proceeding to install from source.")
             self.create_source_directory()  # Creating source directory before installing from source
             self.install_zeek_from_source_macos()
         except Exception as e:
-            self.logger.debug(f"An unexpected error occurred: {e}. Proceeding to install Zeek from source.")
+            logger.debug(f"An unexpected error occurred: {e}. Proceeding to install Zeek from source.")
             self.create_source_directory()  # Creating source directory before installing from source
             self.install_zeek_from_source_macos()
 
@@ -1580,7 +1579,7 @@ make install
         """
         Detects the OS distribution and calls the appropriate installation function.
         """
-        self.logger.debug("Detecting operating system and proceeding with installation...")
+        logger.debug("Detecting operating system and proceeding with installation...")
         if self.os_system == 'darwin':
             self.install_zeek_macos()
         elif self.os_system == 'linux':
@@ -1595,13 +1594,13 @@ make install
             elif 'suse' in self.os_like:  # General check for all SUSE-based distros
                 self.install_zeek_opensuse()
             else:
-                self.logger.error(f"Unsupported Linux distribution: {self.os_id}")
+                logger.error(f"Unsupported Linux distribution: {self.os_id}")
                 sys.exit(1)
         elif self.os_system == 'windows':
             self.install_ss_network_analyzer_windows()
             self.configure_network_interface_ss_network_analyzer_windows()
         else:
-            self.logger.error("Unsupported operating system.")
+            logger.error("Unsupported operating system.")
             sys.exit(1)
 
     def install(self):
@@ -1612,7 +1611,7 @@ make install
         # Check privileges based on OS
         self.check_privileges()
 
-        self.logger.info("Checking if Zeek is already installed...")
+        logger.info("Checking if Zeek is already installed...")
         if self.check_zeek_installed():
             self.configure_zeek()
         self.detect_distro_and_install()
@@ -1621,7 +1620,7 @@ make install
         """
         Orchestrates the uninstallation of Zeek based on the detected OS and distribution.
         """
-        self.logger.info("Starting Zeek uninstallation process...")
+        logger.info("Starting Zeek uninstallation process...")
 
         if self.os_system == "darwin":
             self.uninstall_zeek_macos()
@@ -1632,38 +1631,38 @@ make install
             self.stop_and_remove_zeek_service_windows()
             self.uninstall_zeek_windows()
         else:
-            self.logger.error(f"Unsupported OS for Zeek uninstallation: {self.os_system}")
+            logger.error(f"Unsupported OS for Zeek uninstallation: {self.os_system}")
             sys.exit(1)
 
     def uninstall_zeek_macos(self):
         """
         Uninstall Zeek on macOS using Homebrew. If Homebrew fails, attempt manual removal.
         """
-        self.logger.debug("Starting Zeek uninstallation process on macOS.")
+        logger.debug("Starting Zeek uninstallation process on macOS.")
 
         try:
             # Step 1: Uninstall Zeek via Homebrew
             self.uninstall_zeek_via_brew()
 
             # If uninstallation via Homebrew succeeds, exit successfully
-            self.logger.info("Zeek uninstallation via Homebrew completed successfully.")
+            logger.info("Zeek uninstallation via Homebrew completed successfully.")
             return
 
         except RuntimeError as e:
-            self.logger.error(f"{e}")
-            self.logger.info("Attempting manual removal of Zeek...")
+            logger.error(f"{e}")
+            logger.info("Attempting manual removal of Zeek...")
             try:
                 # Step 2: Manual removal
                 self.handle_manual_removal_macos(e)
             except RuntimeError as manual_e:
-                self.logger.error(f"{manual_e}")
+                logger.error(f"{manual_e}")
                 raise RuntimeError("Zeek uninstallation failed. Manual intervention may be required.") from manual_e
 
     def uninstall_zeek_via_brew(self):
         """
         Attempt to uninstall Zeek using Homebrew.
         """
-        self.logger.debug("Attempting to uninstall Zeek via Homebrew...")
+        logger.debug("Attempting to uninstall Zeek via Homebrew...")
         try:
             result = subprocess.run(
                 ["brew", "uninstall", "zeek"],
@@ -1672,14 +1671,14 @@ make install
                 stderr=subprocess.PIPE,
                 text=True
             )
-            self.logger.info("Zeek has been successfully uninstalled via Homebrew.")
-            self.logger.debug(f"Homebrew output: {result.stdout.strip()}")
+            logger.info("Zeek has been successfully uninstalled via Homebrew.")
+            logger.debug(f"Homebrew output: {result.stdout.strip()}")
         except subprocess.CalledProcessError as e:
-            self.logger.error("Failed to uninstall Zeek via Homebrew.")
-            self.logger.debug(f"Homebrew stderr: {e.stderr.strip()}")
+            logger.error("Failed to uninstall Zeek via Homebrew.")
+            logger.debug(f"Homebrew stderr: {e.stderr.strip()}")
             # Check if the error is due to Zeek not being installed
             if "No such keg" in e.stderr:
-                self.logger.info("Zeek is not installed via Homebrew. No further action required.")
+                logger.info("Zeek is not installed via Homebrew. No further action required.")
                 raise RuntimeError("Zeek is not installed via Homebrew.") from e
             else:
                 # Raise exception for other errors to attempt manual removal
@@ -1692,39 +1691,39 @@ make install
         :param brew_error: The RuntimeError raised from brew uninstallation.
         """
         error_message = brew_error.args[0]
-        self.logger.debug(f"Handling manual removal with error message: {error_message}")
+        logger.debug(f"Handling manual removal with error message: {error_message}")
 
         # Attempt to get the installation prefix using brew
         zeek_prefix = self._get_brew_prefix()
         if zeek_prefix:
             zeek_path = Path(zeek_prefix).resolve()
-            self.logger.info(f"Manual removal of Zeek directory is required: {zeek_path}")
-            self.logger.debug(f"Attempting to remove Zeek directory manually: {zeek_path}")
+            logger.info(f"Manual removal of Zeek directory is required: {zeek_path}")
+            logger.debug(f"Attempting to remove Zeek directory manually: {zeek_path}")
 
             # Check if the path exists before attempting validation
             if zeek_path.exists():
                 # Validate the path to ensure safety
                 if self._is_valid_zeek_path_macos(zeek_path):
-                    self.logger.debug(f"Validated Zeek directory path: {zeek_path}")
+                    logger.debug(f"Validated Zeek directory path: {zeek_path}")
 
                     # Attempt to remove the directory using sudo rm -rf
                     removal_success = self._remove_directory_with_sudo(zeek_path)
                     if removal_success:
-                        self.logger.info("Zeek directory has been successfully removed manually.")
+                        logger.info("Zeek directory has been successfully removed manually.")
                         return
                     else:
                         # If removal failed, instruct the user to remove it manually
-                        self.logger.warning(
+                        logger.warning(
                             f"Failed to remove Zeek directory: {zeek_path}. "
                             "You may need to remove it manually with elevated permissions."
                         )
-                        self.logger.debug(f"Manual removal command: sudo rm -rf {zeek_path}")
+                        logger.debug(f"Manual removal command: sudo rm -rf {zeek_path}")
                         raise RuntimeError(
                             f"Manual removal of Zeek directory failed. "
                             f"Please run: sudo rm -rf {zeek_path}"
                         )
                 else:
-                    self.logger.error(
+                    logger.error(
                         f"The extracted path does not appear to be a valid Zeek installation directory: {zeek_path}"
                     )
                     raise RuntimeError(
@@ -1732,11 +1731,11 @@ make install
                         "Please verify the Zeek installation directory."
                     )
             else:
-                self.logger.info(f"Zeek directory does not exist: {zeek_path}. No manual removal needed.")
+                logger.info(f"Zeek directory does not exist: {zeek_path}. No manual removal needed.")
                 return
         else:
             # If brew_prefix is not found, assume Zeek is not installed via Homebrew
-            self.logger.info("No Zeek installation found via Homebrew. No manual removal needed.")
+            logger.info("No Zeek installation found via Homebrew. No manual removal needed.")
             return
 
 
@@ -1756,10 +1755,10 @@ make install
             )
             zeek_prefix = result.stdout.strip()
             if zeek_prefix:
-                self.logger.debug(f"Zeek is installed via Homebrew at: {zeek_prefix}")
+                logger.debug(f"Zeek is installed via Homebrew at: {zeek_prefix}")
                 return zeek_prefix
         except subprocess.CalledProcessError as e:
-            self.logger.debug(f"brew --prefix zeek failed: {e.stderr.strip()}")
+            logger.debug(f"brew --prefix zeek failed: {e.stderr.strip()}")
         return None
 
     def _is_valid_zeek_path_macos(self, path):
@@ -1772,7 +1771,7 @@ make install
         # Define the expected base directory (Homebrew Cellar)
         expected_base = Path("/usr/local/Cellar/zeek")
         is_valid = expected_base in path.parents and path.exists()
-        self.logger.debug(f"Validating Zeek path: {path} - Valid: {is_valid}")
+        logger.debug(f"Validating Zeek path: {path} - Valid: {is_valid}")
         return is_valid
 
     def _remove_directory_with_sudo(self, path):
@@ -1783,18 +1782,18 @@ make install
         :return: True if removal was successful, False otherwise.
         """
         try:
-            self.logger.debug(f"Attempting to remove directory with sudo: {path}")
+            logger.debug(f"Attempting to remove directory with sudo: {path}")
             # Construct the sudo rm -rf command
             remove_command = ["sudo", "rm", "-rf", str(path)]
-            self.logger.debug(f"Running command: {' '.join(remove_command)}")
+            logger.debug(f"Running command: {' '.join(remove_command)}")
             subprocess.run(remove_command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            self.logger.debug(f"Directory {path} removed successfully with sudo.")
+            logger.debug(f"Directory {path} removed successfully with sudo.")
             return True
         except subprocess.CalledProcessError as rm_error:
-            self.logger.error(f"Failed to remove Zeek directory with sudo: {rm_error.stderr.strip()}")
+            logger.error(f"Failed to remove Zeek directory with sudo: {rm_error.stderr.strip()}")
             return False
         except Exception as ex:
-            self.logger.error(f"Unexpected error while removing directory with sudo: {ex}")
+            logger.error(f"Unexpected error while removing directory with sudo: {ex}")
             return False
 
     def get_macos_package_id(self):
@@ -1813,10 +1812,10 @@ make install
             packages = result.stdout.splitlines()
             for pkg in packages:
                 if "zeek" in pkg.lower():
-                    self.logger.debug(f"Identified Zeek package ID: {pkg}")
+                    logger.debug(f"Identified Zeek package ID: {pkg}")
                     return pkg
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to list packages with pkgutil: {e.stderr.strip()}")
+            logger.error(f"Failed to list packages with pkgutil: {e.stderr.strip()}")
         return None
 
     def stop_and_remove_zeek_service_linux(self):
@@ -1827,63 +1826,63 @@ make install
         zeek_service_path = ZEEK_SERVICE_PATH_LINUX
 
         if Path(zeek_service_path).exists():
-            self.logger.debug(f"Zeek service found at {zeek_service_path}. Proceeding to stop and remove it.")
+            logger.debug(f"Zeek service found at {zeek_service_path}. Proceeding to stop and remove it.")
             try:
                 # Stop the service if it's running
-                self.logger.debug("Stopping Zeek service...")
+                logger.debug("Stopping Zeek service...")
                 result_stop = subprocess.run(["sudo", "systemctl", "stop", "zeek"],
                                              check=False,
                                              text=True,
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE)
                 if result_stop.returncode == 0:
-                    self.logger.debug("Zeek service stopped successfully.")
+                    logger.debug("Zeek service stopped successfully.")
                 else:
-                    self.logger.warning(f"Zeek service may not have been running, or failed to stop: {result_stop.stderr}")
+                    logger.warning(f"Zeek service may not have been running, or failed to stop: {result_stop.stderr}")
 
                 # Disable the service
-                self.logger.debug("Disabling Zeek service...")
+                logger.debug("Disabling Zeek service...")
                 result_disable = subprocess.run(["sudo", "systemctl", "disable", "zeek"],
                                                 check=False,
                                                 text=True,
                                                 stdout=subprocess.PIPE,
                                                 stderr=subprocess.PIPE)
                 if result_disable.returncode == 0:
-                    self.logger.debug("Zeek service disabled successfully.")
+                    logger.debug("Zeek service disabled successfully.")
                 else:
-                    self.logger.warning(f"Failed to disable Zeek service: {result_disable.stderr}")
+                    logger.warning(f"Failed to disable Zeek service: {result_disable.stderr}")
 
                 # Remove the service file directly with sudo
-                self.logger.debug(f"Removing Zeek service file at {zeek_service_path} with sudo...")
+                logger.debug(f"Removing Zeek service file at {zeek_service_path} with sudo...")
                 result_remove = subprocess.run(["sudo", "rm", "-f", zeek_service_path],
                                                check=False,
                                                text=True,
                                                stdout=subprocess.PIPE,
                                                stderr=subprocess.PIPE)
                 if result_remove.returncode == 0:
-                    self.logger.debug("Zeek service file removed successfully.")
+                    logger.debug("Zeek service file removed successfully.")
                 else:
-                    self.logger.error(f"Failed to remove Zeek service file: {result_remove.stderr}")
+                    logger.error(f"Failed to remove Zeek service file: {result_remove.stderr}")
                     raise
 
                 # Reload systemd to reflect the changes
-                self.logger.debug("Reloading systemd daemon to apply changes...")
+                logger.debug("Reloading systemd daemon to apply changes...")
                 result_reload = subprocess.run(["sudo", "systemctl", "daemon-reload"],
                                                check=True,
                                                text=True,
                                                stdout=subprocess.PIPE,
                                                stderr=subprocess.PIPE)
                 if result_reload.returncode == 0:
-                    self.logger.debug("Systemd daemon reloaded successfully.")
+                    logger.debug("Systemd daemon reloaded successfully.")
                 else:
-                    self.logger.warning(f"Failed to reload systemd daemon: {result_reload.stderr}")
+                    logger.warning(f"Failed to reload systemd daemon: {result_reload.stderr}")
 
-                self.logger.info("Zeek service has been successfully stopped and removed.")
+                logger.info("Zeek service has been successfully stopped and removed.")
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to stop and remove Zeek service: {e.stderr}")
+                logger.error(f"Failed to stop and remove Zeek service: {e.stderr}")
                 raise
         else:
-            self.logger.debug(f"Zeek service not found at {zeek_service_path}. Skipping stop and removal.")
+            logger.debug(f"Zeek service not found at {zeek_service_path}. Skipping stop and removal.")
 
     def uninstall_zeek_linux(self):
         """
@@ -1898,79 +1897,79 @@ make install
         elif 'suse' in self.os_like:  # General check for SUSE-based distributions
             self.uninstall_with_zypper("zeek")
         else:
-            self.logger.error(f"Unsupported Linux distribution: {self.os_id}")
+            logger.error(f"Unsupported Linux distribution: {self.os_id}")
             sys.exit(1)
 
     def uninstall_with_apt(self, package_name):
         """
         Uninstall Zeek using apt on Debian-based systems.
         """
-        self.logger.debug(f"Using apt to uninstall {package_name}...")
+        logger.debug(f"Using apt to uninstall {package_name}...")
         try:
             result_remove = subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
             result_autoremove = subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
 
             if result_remove.returncode == 0 and result_autoremove.returncode == 0:
-                self.logger.debug(f"{package_name} has been successfully uninstalled using apt.")
+                logger.debug(f"{package_name} has been successfully uninstalled using apt.")
             else:
-                self.logger.debug(f"{package_name} was not fully removed using apt. Some components may remain.")
+                logger.debug(f"{package_name} was not fully removed using apt. Some components may remain.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"apt failed to uninstall {package_name}: {e}")
+            logger.error(f"apt failed to uninstall {package_name}: {e}")
             raise
 
     def uninstall_with_dnf_yum(self, package_name, package_manager):
         """
         Uninstall Zeek using dnf or yum on Fedora-based systems.
         """
-        self.logger.debug(f"Using {package_manager} to uninstall {package_name}...")
+        logger.debug(f"Using {package_manager} to uninstall {package_name}...")
         try:
             result = subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
 
             if result.returncode == 0:
-                self.logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
+                logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
             else:
-                self.logger.debug(f"{package_name} was not fully removed using {package_manager}. Some components may remain.")
+                logger.debug(f"{package_name} was not fully removed using {package_manager}. Some components may remain.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
+            logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
             raise
 
     def uninstall_with_zypper(self, package_name):
         """
         Uninstall Zeek using zypper on SUSE-based distributions.
         """
-        self.logger.debug(f"Using zypper to uninstall {package_name}...")
+        logger.debug(f"Using zypper to uninstall {package_name}...")
         try:
             result = subprocess.run(["sudo", "zypper", "rm", "-y", package_name], check=True)
 
             if result.returncode == 0:
-                self.logger.debug(f"{package_name} has been successfully uninstalled using zypper.")
+                logger.debug(f"{package_name} has been successfully uninstalled using zypper.")
             else:
-                self.logger.debug(f"{package_name} was not fully removed using zypper. Some components may remain.")
+                logger.debug(f"{package_name} was not fully removed using zypper. Some components may remain.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"zypper failed to uninstall {package_name}: {e}")
+            logger.error(f"zypper failed to uninstall {package_name}: {e}")
             raise
 
     def uninstall_zeek_windows(self):
         """
         Uninstalls Zeek on Windows by removing the Zeek executable and updating PATH.
         """
-        self.logger.info(f"Starting {SS_NETWORK_ANALYZER_SERVICE_NAME} uninstallation on Windows...")
+        logger.info(f"Starting {SS_NETWORK_ANALYZER_SERVICE_NAME} uninstallation on Windows...")
         zeek_executable_path = Path(SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS)  # Adjust this path accordingly
         try:
             if zeek_executable_path.exists():
-                self.logger.debug(f"Removing {SS_NETWORK_ANALYZER_SERVICE_NAME} executable at {zeek_executable_path}...")
+                logger.debug(f"Removing {SS_NETWORK_ANALYZER_SERVICE_NAME} executable at {zeek_executable_path}...")
                 zeek_executable_path.unlink()
-                self.logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} executable removed.")
+                logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} executable removed.")
             else:
-                self.logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} executable not found; skipping removal.")
+                logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} executable not found; skipping removal.")
 
             # Remove Zeek bin directory from PATH
             zeek_bin_dir = zeek_executable_path.parent
             self.remove_zeek_from_windows_path(zeek_bin_dir)
 
-            self.logger.info("Zeek has been successfully uninstalled from Windows.")
+            logger.info("Zeek has been successfully uninstalled from Windows.")
         except Exception as e:
-            self.logger.error(f"Failed to uninstall Zeek on Windows: {e}")
+            logger.error(f"Failed to uninstall Zeek on Windows: {e}")
             raise
 
     def remove_zeek_from_windows_path(self, zeek_bin_dir):
@@ -1978,7 +1977,7 @@ make install
         Removes the Zeek binary directory from the Windows PATH environment variable.
         """
         try:
-            self.logger.debug(f"Removing {SS_NETWORK_ANALYZER_SERVICE_NAME} from Windows PATH...")
+            logger.debug(f"Removing {SS_NETWORK_ANALYZER_SERVICE_NAME} from Windows PATH...")
             # Get current PATH from the system
             current_path = os.environ.get('PATH', '')
             zeek_bin_dir_str = str(zeek_bin_dir)
@@ -1990,16 +1989,16 @@ make install
                 # Update the system PATH permanently using setx
                 result_setx = subprocess.run(['setx', 'PATH', new_path], check=True)
                 if result_setx.returncode == 0:
-                    self.logger.debug(f"Removed {zeek_bin_dir_str} from PATH.")
+                    logger.debug(f"Removed {zeek_bin_dir_str} from PATH.")
                 else:
-                    self.logger.debug(f"Failed to remove {zeek_bin_dir_str} from PATH using setx.")
+                    logger.debug(f"Failed to remove {zeek_bin_dir_str} from PATH using setx.")
             else:
-                self.logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} binary directory is not in PATH.")
+                logger.debug(f"{SS_NETWORK_ANALYZER_SERVICE_NAME} binary directory is not in PATH.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to remove {SS_NETWORK_ANALYZER_SERVICE_NAME} from PATH: {e}")
+            logger.error(f"Failed to remove {SS_NETWORK_ANALYZER_SERVICE_NAME} from PATH: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"Unexpected error while removing {SS_NETWORK_ANALYZER_SERVICE_NAME} from PATH: {e}")
+            logger.error(f"Unexpected error while removing {SS_NETWORK_ANALYZER_SERVICE_NAME} from PATH: {e}")
             raise
 
     def stop_and_remove_zeek_service_windows(self):
@@ -2008,49 +2007,49 @@ make install
         """
         os_system = platform.system().lower()
         if os_system != 'windows':
-            self.logger.warning("The stop_and_remove_zeek_service method is intended for Windows platforms.")
+            logger.warning("The stop_and_remove_zeek_service method is intended for Windows platforms.")
             return
 
         try:
             # Check if the service exists
-            self.logger.debug(f"Checking if the '{SS_NETWORK_ANALYZER_SERVICE_NAME}' service exists...")
+            logger.debug(f"Checking if the '{SS_NETWORK_ANALYZER_SERVICE_NAME}' service exists...")
             result = subprocess.run(['sc.exe', 'query', SS_NETWORK_ANALYZER_SERVICE_NAME], capture_output=True, text=True)
             service_exists = f"SERVICE_NAME: {SS_NETWORK_ANALYZER_SERVICE_NAME}" in result.stdout
 
             if service_exists:
                 # Stop the service if it's running
-                self.logger.debug(f"Attempting to stop the '{SS_NETWORK_ANALYZER_SERVICE_NAME}' service...")
+                logger.debug(f"Attempting to stop the '{SS_NETWORK_ANALYZER_SERVICE_NAME}' service...")
                 stop_result = subprocess.run(['sc.exe', 'stop', SS_NETWORK_ANALYZER_SERVICE_NAME], capture_output=True, text=True)
                 if "FAILED" in stop_result.stdout or "FAILED" in stop_result.stderr:
-                    self.logger.warning(f"Failed to stop service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'. It might not be running.")
-                    self.logger.debug(f"stop_result stdout: {stop_result.stdout.strip()}")
-                    self.logger.debug(f"stop_result stderr: {stop_result.stderr.strip()}")
+                    logger.warning(f"Failed to stop service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'. It might not be running.")
+                    logger.debug(f"stop_result stdout: {stop_result.stdout.strip()}")
+                    logger.debug(f"stop_result stderr: {stop_result.stderr.strip()}")
                 else:
-                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' stopped successfully.")
+                    logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' stopped successfully.")
                     # Wait for the service to stop completely
                     time.sleep(2)
 
                 # Delete the service
-                self.logger.debug(f"Deleting service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'...")
+                logger.debug(f"Deleting service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'...")
                 delete_result = subprocess.run(['sc.exe', 'delete', SS_NETWORK_ANALYZER_SERVICE_NAME],
                                                check=True,
                                                capture_output=True,
                                                text=True)
                 if "SUCCESS" in delete_result.stdout:
-                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' deleted successfully.")
+                    logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' deleted successfully.")
                 else:
-                    self.logger.warning(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' deletion output: {delete_result.stdout.strip()}")
+                    logger.warning(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' deletion output: {delete_result.stdout.strip()}")
             else:
-                self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' does not exist. No need to stop or delete.")
+                logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' does not exist. No need to stop or delete.")
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
-            self.logger.error(f"stdout: {e.stdout.strip()}")
-            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+            logger.error(f"stdout: {e.stdout.strip()}")
+            logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
             raise
 
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred while stopping and deleting the service: {ex}")
+            logger.error(f"An unexpected error occurred while stopping and deleting the service: {ex}")
             raise
 
     def run_installation_command(self, dest_path, final_path):
@@ -2058,7 +2057,7 @@ make install
         Moves the downloaded binary to the final installation path and updates PATH.
         """
         try:
-            self.logger.info(f"Moving {dest_path} to {final_path}...")
+            logger.info(f"Moving {dest_path} to {final_path}...")
 
             if platform.system() in ["Linux", "Darwin"]:
                 # Use sudo to move the file to a protected directory
@@ -2070,29 +2069,29 @@ make install
 
                 if platform.system() == "Linux":
                     subprocess.run(["sudo", "setcap", "cap_net_raw,cap_net_admin=eip", str(final_path)], check=True)
-                    self.logger.info(f"Set network capture capabilities on {final_path}.")
+                    logger.info(f"Set network capture capabilities on {final_path}.")
 
             elif platform.system() == "Windows":
                 shutil.move(str(dest_path), str(final_path))
 
-            self.logger.info(f"{final_path} has been installed successfully.")
+            logger.info(f"{final_path} has been installed successfully.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to move the file to {final_path}: {e}")
+            logger.error(f"Failed to move the file to {final_path}: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"Failed to move the file to {final_path}: {e}")
+            logger.error(f"Failed to move the file to {final_path}: {e}")
             raise
 
         # Verify installation by running the version command of the installed binary
         try:
-            self.logger.info(f"Running '{final_path} --version' to verify installation...")
+            logger.info(f"Running '{final_path} --version' to verify installation...")
             result = subprocess.run([str(final_path), "--version"], check=True, capture_output=True, text=True)
-            self.logger.info(f"Installed binary version: {result.stdout.strip()}")
+            logger.info(f"Installed binary version: {result.stdout.strip()}")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Running {final_path} failed: {e}")
+            logger.error(f"Running {final_path} failed: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"Unexpected error during installation verification: {e}")
+            logger.error(f"Unexpected error during installation verification: {e}")
             raise
 
     def configure_and_start_windows(self):
@@ -2106,52 +2105,52 @@ make install
 
             # Verify that the Zeek executable exists
             if not Path(SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS).exists():
-                self.logger.error(f"Zeek executable not found at: {SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS}. Please verify the installation path.")
+                logger.error(f"Zeek executable not found at: {SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS}. Please verify the installation path.")
                 raise FileNotFoundError(f"Zeek executable not found at {SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS}")
 
             try:
                 # Check if the service exists
-                self.logger.debug(f"Checking if the '{SS_NETWORK_ANALYZER_SERVICE_NAME}' service exists...")
+                logger.debug(f"Checking if the '{SS_NETWORK_ANALYZER_SERVICE_NAME}' service exists...")
                 result = subprocess.run(['sc.exe', 'query', SS_NETWORK_ANALYZER_SERVICE_NAME], capture_output=True, text=True)
                 service_exists = f'SERVICE_NAME: {SS_NETWORK_ANALYZER_SERVICE_NAME}' in result.stdout
 
                 # Create the service if it doesn't exist
                 if not service_exists:
-                    self.logger.debug(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' not found. Creating the service...")
+                    logger.debug(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' not found. Creating the service...")
                     create_command = [
                         'sc.exe', 'create', SS_NETWORK_ANALYZER_SERVICE_NAME,
                         'binPath=', f'"{SS_NETWORK_ANALYZER_EXECUTABLE_PATH_WINDOWS}" start= auto',
                         'start=', 'auto'
                     ]
                     subprocess.run(create_command, check=True)
-                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' created successfully.")
+                    logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' created successfully.")
 
                 # Configure the service
-                self.logger.debug(f"Configuring service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' to use LocalSystem and auto-start on boot...")
+                logger.debug(f"Configuring service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' to use LocalSystem and auto-start on boot...")
                 config_command = ['sc.exe', 'config', SS_NETWORK_ANALYZER_SERVICE_NAME, 'obj=', 'LocalSystem', 'start=', 'auto']
                 subprocess.run(config_command, check=True, capture_output=True, text=True)
-                self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' configured successfully.")
+                logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' configured successfully.")
 
                 # Check the service status before starting
-                self.logger.debug(f"Checking the status of service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'...")
+                logger.debug(f"Checking the status of service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'...")
                 query_result = subprocess.run(['sc.exe', 'query', SS_NETWORK_ANALYZER_SERVICE_NAME], capture_output=True, text=True)
 
                 if "RUNNING" in query_result.stdout:
-                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' is already running. No need to start.")
+                    logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' is already running. No need to start.")
                 else:
                     # Start the service if not running
-                    self.logger.debug(f"Starting service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'...")
+                    logger.debug(f"Starting service '{SS_NETWORK_ANALYZER_SERVICE_NAME}'...")
                     start_result = subprocess.run(['sc.exe', 'start', SS_NETWORK_ANALYZER_SERVICE_NAME], check=True, capture_output=True, text=True)
-                    self.logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' started successfully.")
+                    logger.info(f"Service '{SS_NETWORK_ANALYZER_SERVICE_NAME}' started successfully.")
 
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
-                self.logger.error(f"stdout: {e.stdout.strip()}")
-                self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+                logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+                logger.error(f"stdout: {e.stdout.strip()}")
+                logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
                 raise
 
             except Exception as ex:
-                self.logger.error(f"An unexpected error occurred: {ex}")
+                logger.error(f"An unexpected error occurred: {ex}")
                 raise
 
     def get_default_interface(self):
@@ -2195,7 +2194,7 @@ make install
                 interface_index = route_data.get('InterfaceIndex')
 
                 if interface_alias and interface_index:
-                    self.logger.debug("Detected InterfaceAlias: %s, InterfaceIndex: %s", interface_alias, interface_index)
+                    logger.debug("Detected InterfaceAlias: %s, InterfaceIndex: %s", interface_alias, interface_index)
                     # Step 2: Retrieve the GUID for the InterfaceIndex using InterfaceGuid
                     ps_guid_command = (
                         f"Get-NetAdapter -InterfaceIndex {interface_index} | Select-Object -ExpandProperty InterfaceGuid | ConvertTo-Json"
@@ -2207,27 +2206,27 @@ make install
                         # Format the NPF device name with double backslashes
                         device_name = f"\\Device\\NPF_{interface_guid.upper()}"
                         interface = device_name
-                        self.logger.debug("Formatted NPF Device Name: %s", device_name)
+                        logger.debug("Formatted NPF Device Name: %s", device_name)
                     else:
-                        self.logger.warning("Failed to retrieve InterfaceGuid via PowerShell. Attempting fallback method.")
+                        logger.warning("Failed to retrieve InterfaceGuid via PowerShell. Attempting fallback method.")
                         interface = self.fallback_windows_interface(interface_index)
                 else:
-                    self.logger.warning("PowerShell command did not return InterfaceAlias and InterfaceIndex. Attempting fallback method.")
+                    logger.warning("PowerShell command did not return InterfaceAlias and InterfaceIndex. Attempting fallback method.")
                     interface = self.fallback_windows_interface()
 
             except json.JSONDecodeError as e:
-                self.logger.error("Failed to parse PowerShell JSON output: %s", e)
-                self.logger.debug("Raw PowerShell Output:\n%s", route_output)
+                logger.error("Failed to parse PowerShell JSON output: %s", e)
+                logger.debug("Raw PowerShell Output:\n%s", route_output)
                 interface = self.fallback_windows_interface()
 
         else:
-            self.logger.error("Unsupported operating system: %s", platform.system())
+            logger.error("Unsupported operating system: %s", platform.system())
             sys.exit(1)
 
         if not interface:
-            self.logger.error("Unable to detect network interface.")
+            logger.error("Unable to detect network interface.")
             sys.exit(1)
-        self.logger.debug("Using network interface: %s", interface)
+        logger.debug("Using network interface: %s", interface)
         return interface
 
     def fallback_windows_interface(self, interface_index=None):
@@ -2261,7 +2260,7 @@ make install
                     break
 
         if not interface_ip:
-            self.logger.error("Unable to find default route in 'route print' output.")
+            logger.error("Unable to find default route in 'route print' output.")
             return None
 
         # Map the interface IP to the interface's GUID using WMI with JSON output
@@ -2273,14 +2272,14 @@ make install
             interface_guid = json.loads(guid_output) if guid_output else None
             if interface_guid:
                 device_name = f"\\Device\\NPF_{interface_guid.upper()}"
-                self.logger.debug("Formatted NPF Device Name from fallback: %s", device_name)
+                logger.debug("Formatted NPF Device Name from fallback: %s", device_name)
                 return device_name
             else:
-                self.logger.error("Failed to retrieve GUID via fallback method.")
+                logger.error("Failed to retrieve GUID via fallback method.")
                 return None
         except json.JSONDecodeError as e:
-            self.logger.error("Failed to parse fallback PowerShell JSON output: %s", e)
-            self.logger.debug("Raw Fallback PowerShell Output:\n%s", guid_output)
+            logger.error("Failed to parse fallback PowerShell JSON output: %s", e)
+            logger.debug("Raw Fallback PowerShell Output:\n%s", guid_output)
             return None
 
     def configure_network_interface_ss_network_analyzer_windows(self):
@@ -2302,7 +2301,7 @@ make install
             log_dir_default = SS_NETWORK_ANALYZER_LOG_PATH_MACOS
             config_dir = SS_NETWORK_ANALYZER_CONFIG_DIR_MACOS
         else:
-            self.logger.error("Unsupported operating system: %s", platform.system())
+            logger.error("Unsupported operating system: %s", platform.system())
             sys.exit(1)
 
         # Define the configuration file path
@@ -2312,9 +2311,9 @@ make install
         # Ensure the configuration directory exists
         try:
             os.makedirs(config_dir, exist_ok=True)
-            self.logger.debug("Ensured that the config directory exists: %s", config_dir)
+            logger.debug("Ensured that the config directory exists: %s", config_dir)
         except Exception as e:
-            self.logger.error("Failed to create config directory '%s': %s", config_dir, e)
+            logger.error("Failed to create config directory '%s': %s", config_dir, e)
             sys.exit(1)
 
         # Load existing config or initialize a new one
@@ -2323,61 +2322,61 @@ make install
             try:
                 with open(config_path, 'r') as f:
                     config = toml.load(f)
-                self.logger.debug("Loaded existing config file: %s", config_path)
+                logger.debug("Loaded existing config file: %s", config_path)
             except toml.TomlDecodeError as e:
-                self.logger.error("Failed to parse config file '%s': %s", config_path, e)
+                logger.error("Failed to parse config file '%s': %s", config_path, e)
                 sys.exit(1)
             except Exception as e:
-                self.logger.error("Error reading config file '%s': %s", config_path, e)
+                logger.error("Error reading config file '%s': %s", config_path, e)
                 sys.exit(1)
         else:
-            self.logger.debug("Config file does not exist. A new one will be created at: %s", config_path)
+            logger.debug("Config file does not exist. A new one will be created at: %s", config_path)
 
         # Flags to track if any updates are made
         config_updated = False
 
         # Check and set 'selected_interface' if not set
         if 'selected_interface' not in config or not config['selected_interface']:
-            self.logger.info("'selected_interface' not set in config. Detecting default network interface...")
+            logger.info("'selected_interface' not set in config. Detecting default network interface...")
             # Detect the default network interface
             default_interface = self.get_default_interface()
 
             # Update the config with the detected interface
             config['selected_interface'] = default_interface
-            self.logger.debug("Set 'selected_interface' to: %s", default_interface)
+            logger.debug("Set 'selected_interface' to: %s", default_interface)
             config_updated = True
         else:
-            self.logger.info("'selected_interface' is already set to: %s", config['selected_interface'])
+            logger.info("'selected_interface' is already set to: %s", config['selected_interface'])
 
         # Check and set 'log_dir' if not set
         if 'log_dir' not in config or not config['log_dir']:
-            self.logger.info("'log_dir' not set in config. Setting to default path...")
+            logger.info("'log_dir' not set in config. Setting to default path...")
             config['log_dir'] = log_dir_default
-            self.logger.debug("Set 'log_dir' to: %s", config['log_dir'])
+            logger.debug("Set 'log_dir' to: %s", config['log_dir'])
             config_updated = True
         else:
-            self.logger.info("'log_dir' is already set to: %s", config['log_dir'])
+            logger.info("'log_dir' is already set to: %s", config['log_dir'])
 
         # Check and set 'flush_interval' if not set
         if 'flush_interval' not in config or not config['flush_interval']:
-            self.logger.info("'flush_interval' not set in config. Setting to default value...")
+            logger.info("'flush_interval' not set in config. Setting to default value...")
             config['flush_interval'] = SS_NETWORK_ANALYZER_CONF_DEFAULT_FLUSH_INTERVAL
-            self.logger.debug("Set 'flush_interval' to: %s", config['flush_interval'])
+            logger.debug("Set 'flush_interval' to: %s", config['flush_interval'])
             config_updated = True
         else:
-            self.logger.info("'flush_interval' is already set to: %s", config['flush_interval'])
+            logger.info("'flush_interval' is already set to: %s", config['flush_interval'])
 
         # Write the updated config back to the file if any updates were made
         if config_updated:
             try:
                 with open(config_path, 'w') as f:
                     toml.dump(config, f)
-                self.logger.info("Updated configuration in config file: %s", config_path)
+                logger.info("Updated configuration in config file: %s", config_path)
             except Exception as e:
-                self.logger.error("Failed to write to config file '%s': %s", config_path, e)
+                logger.error("Failed to write to config file '%s': %s", config_path, e)
                 sys.exit(1)
         else:
-            self.logger.info("No updates made to the config file: %s", config_path)
+            logger.info("No updates made to the config file: %s", config_path)
 
 
 if __name__ == "__main__":

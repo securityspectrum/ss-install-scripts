@@ -9,7 +9,9 @@ from agent_core.secrets_manager import ContextName
 from agent_core.system_utils import SystemUtility
 from agent_core.constants import API_URL_DOMAIN, API_VERSION_PATH, SS_AGENT_TEMPLATE
 
-logger = logging.getLogger('InstallationLogger')
+logger = logging.getLogger("InstallationLogger")
+quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
+
 
 class SSAgentConfigurator:
     def __init__(self, api_url_domain, config_dir, cert_dir):

@@ -4,11 +4,8 @@ import argparse
 import platform
 import logging
 import sys
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-# ------------------------
-# Example imports (you'd adjust according to your actual code structure):
 from agent_core.configure_logging import configure_logging
 from agent_core.fluent_bit_installer import FluentBitInstaller
 from agent_core.npcap_installer import NpcapInstaller
@@ -23,17 +20,33 @@ from agent_core.zeek_installer import ZeekInstaller
 from agent_core.osquery import OsqueryInstaller
 
 
-###############################################################################
-# Main Installation Routines
-###############################################################################
-def install(args, logger):
-    """
-    Perform installation steps.
-    """
+def get_platform_specific_paths():
+    os_name = platform.system().lower()
+    if os_name == "windows":
+        return (FLUENT_BIT_DIR_WINDOWS, SS_AGENT_CONFIG_DIR_WINDOWS,
+                SS_AGENT_SSL_DIR_WINDOWS, ZEEK_LOG_PATH_WINDOWS)
+    elif os_name == "linux":
+        return (FLUENT_BIT_CONFIG_DIR_LINUX, SS_AGENT_CONFIG_DIR_LINUX,
+                SS_AGENT_SSL_DIR_LINUX, ZEEK_LOG_PATH_LINUX)
+    elif os_name == "darwin":
+        return (FLUENT_BIT_CONFIG_DIR_MACOS, SS_AGENT_CONFIG_DIR_MACOS,
+                SS_AGENT_SSL_DIR_MACOS, ZEEK_LOG_PATH_MACOS)
+    else:
+        raise ValueError(f"Unsupported operating system: {os_name}")
+
+
+def confirm_uninstallation():
+    logger = logging.getLogger("InstallationLogger")
+    confirmation = input("Are you sure you want to uninstall SS Agent? [y/N]: ").strip().lower()
+    if confirmation != 'y':
+        logger.info("Uninstallation aborted by the user.")
+        sys.exit(0)
+
+
+def install(args):
+    logger = logging.getLogger("InstallationLogger")
+    quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
     try:
-
-        quiet_install = (args.log_level.upper() != "DEBUG")
-
         supported_os = ["linux", "darwin", "windows"]
         current_os = platform.system().lower()
         architecture = platform.machine()
@@ -42,14 +55,15 @@ def install(args, logger):
             logger.error(f"Unsupported operating system: {current_os} ({architecture})")
             sys.exit(1)
 
+        logger.info(f"quiet_install ? {quiet_install}")
         logger.info("Beginning of ss-install-script execution process.")
         logger.debug(f"ss-install-script version: {INSTALL_SCRIPT_VERSION}")
         logger.debug(f"Operating system: {current_os} ({architecture})")
 
         SystemUtility.elevate_privileges()
 
-        # Example usage of your classes:
-        ss_agent_installer = SSAgentInstaller(logger=logger, quiet_install=quiet_install)
+        # Instantiate classes without passing logger explicitly.
+        ss_agent_installer = SSAgentInstaller()
         ss_agent_installer.stop_all_services_ss_agent()
         ss_agent_installer.stop_ss_agent()
 
@@ -58,7 +72,6 @@ def install(args, logger):
         organization_slug = secrets_manager.get_organization_slug()
 
         api_url = f"{API_URL_DOMAIN}{API_VERSION_PATH}/r/{organization_slug}"
-
         (fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path) = get_platform_specific_paths()
 
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
@@ -69,7 +82,7 @@ def install(args, logger):
             npcap_installer = NpcapInstaller(download_url=NPCAP_URL_WINDOWS)
             npcap_installer.install_npcap()
 
-        fluent_bit_installer = FluentBitInstaller(logger=logger, quiet_install=quiet_install)
+        fluent_bit_installer = FluentBitInstaller()
         fluent_bit_installer.install()
         fluent_bit_installer.enable_and_start()
 
@@ -84,7 +97,7 @@ def install(args, logger):
 
         ss_agent_installer.install()
 
-        zeek_installer = ZeekInstaller(logger=logger, quiet_install=quiet_install)
+        zeek_installer = ZeekInstaller()
         zeek_installer.install()
         zeek_installer.configure_and_start_windows()
 
@@ -100,63 +113,38 @@ def install(args, logger):
 
         logger.info("Installation complete.")
     except Exception as e:
-        logger.error("Installation failed: %s", e, exc_info=logger.isEnabledFor(logging.DEBUG))
+        logger.error("Installation failed: %s", e, exc_info=quiet_install is not False)
         sys.exit(1)
 
 
-def uninstall(args, logger):
-    """
-    Perform uninstallation steps.
-    """
+def uninstall(args):
+    logger = logging.getLogger("InstallationLogger")
+    quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
     try:
-
-        quiet_install = (args.log_level.upper() != "DEBUG")
-
-        confirm_uninstallation(logger)
+        confirm_uninstallation()
         logger.info("Starting ss-agent uninstallation process...")
 
-        ss_agent_installer = SSAgentInstaller(logger=logger, quiet_install=quiet_install)
+        ss_agent_installer = SSAgentInstaller()
         ss_agent_installer.stop_all_services_ss_agent()
         ss_agent_installer.stop_and_delete_windows_service()
         ss_agent_installer.stop_ss_agent()
 
-        fluent_bit_installer = FluentBitInstaller(logger=logger, quiet_install=quiet_install)
+        fluent_bit_installer = FluentBitInstaller()
         fluent_bit_installer.uninstall()
 
         osquery_installer = OsqueryInstaller()
         osquery_installer.uninstall()
 
-        zeek_installer = ZeekInstaller(logger=logger, quiet_install=quiet_install)
+        zeek_installer = ZeekInstaller()
         zeek_installer.uninstall()
 
         ss_agent_installer.uninstall()
 
         logger.info("Uninstallation complete.")
     except Exception as e:
-        logger.error("Uninstallation failed: %s", e, exc_info=logger.isEnabledFor(logging.DEBUG))
+        logger.error("Uninstallation failed: %s", e,
+                     exc_info=quiet_install is not False)
         sys.exit(1)
-
-
-def confirm_uninstallation(logger):
-    """
-    Confirm with the user before uninstalling.
-    """
-    confirmation = input("Are you sure you want to uninstall SS Agent? [y/N]: ").strip().lower()
-    if confirmation != 'y':
-        logger.info("Uninstallation aborted by the user.")
-        sys.exit(0)
-
-
-def get_platform_specific_paths():
-    os_name = platform.system().lower()
-    if os_name == "windows":
-        return (FLUENT_BIT_DIR_WINDOWS, SS_AGENT_CONFIG_DIR_WINDOWS, SS_AGENT_SSL_DIR_WINDOWS, ZEEK_LOG_PATH_WINDOWS)
-    elif os_name == "linux":
-        return (FLUENT_BIT_CONFIG_DIR_LINUX, SS_AGENT_CONFIG_DIR_LINUX, SS_AGENT_SSL_DIR_LINUX, ZEEK_LOG_PATH_LINUX)
-    elif os_name == "darwin":
-        return (FLUENT_BIT_CONFIG_DIR_MACOS, SS_AGENT_CONFIG_DIR_MACOS, SS_AGENT_SSL_DIR_MACOS, ZEEK_LOG_PATH_MACOS)
-    else:
-        raise ValueError(f"Unsupported operating system: {os_name}")
 
 
 if __name__ == "__main__":
@@ -164,18 +152,17 @@ if __name__ == "__main__":
     parser.add_argument('--install', action='store_true', help='Install SS Agent')
     parser.add_argument('--uninstall', action='store_true', help='Uninstall SS Agent')
     parser.add_argument('--log-level',
-                        default='INFO',
+                        default='ERROR',
                         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set the console logging level')
     args = parser.parse_args()
 
-    # Configure logging once here:
-    LOG_DIR_PATH = "logs"  # or wherever you want
-    logger = configure_logging(log_dir_path=LOG_DIR_PATH, console_level=args.log_level)
+    LOG_DIR_PATH = "logs"
+    configure_logging(log_dir_path=LOG_DIR_PATH, console_level=args.log_level)
 
     if args.install:
-        install(args, logger)
+        install(args)
     elif args.uninstall:
-        uninstall(args, logger)
+        uninstall(args)
     else:
-        logger.info("No action specified. Use --install or --uninstall.")
+        logging.getLogger("InstallationLogger").info("No action specified. Use --install or --uninstall.")

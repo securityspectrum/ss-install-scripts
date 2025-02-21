@@ -19,55 +19,46 @@ class SystemUtility:
         If not, it re-runs the script with the necessary privileges.
         """
         system = platform.system().lower()
-
         if system == "windows":
             # For Windows, check if the script is running as admin
             if not SystemUtility.is_admin():
-                logger.info("Requesting admin privileges on Windows...")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Requesting admin privileges on Windows...")
                 try:
                     # Absolute path to the script
                     script = os.path.abspath(sys.argv[0])
-
                     # Prepare arguments: ensure each argument is quoted
                     args = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
-
                     # Command to execute: Python executable, script path, and arguments
                     command = f'"{sys.executable}" "{script}" {args}'
-
-                    # Log the command for debugging
-                    logger.debug(f"Elevation command: {command}")
-
-                    # Execute the command with admin privileges
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Elevation command: {command}")
                     ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script}" {args}', None, 1)
-                    sys.exit(0)  # Exit the non-admin instance of the script
+                    sys.exit(0)
                 except Exception as e:
                     logger.error(f"Failed to elevate privileges on Windows: {e}")
                     sys.exit(1)
             else:
-                logger.info("Script is already running with admin privileges.")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Script is already running with admin privileges.")
         elif system in ["linux", "darwin"]:
             # For Unix-like systems (Linux/macOS), check if the script is running as root
             if os.geteuid() != 0:
-                logger.info("Elevating script privileges with sudo...")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Elevating script privileges with sudo...")
                 try:
-                    # Re-run the script with sudo, preserving the environment
                     subprocess.run(['sudo', '-E', sys.executable] + sys.argv, check=True)
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Failed to elevate privileges with sudo: {e}")
                     sys.exit(1)
-                sys.exit(0)  # Exit the non-root process after relaunching with sudo
+                sys.exit(0)
             else:
-                logger.info("Script is already running with root privileges.")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Script is already running with root privileges.")
 
     @staticmethod
     def is_admin():
-        """
-        Check if the script is running with administrator (Windows) or root (Linux/macOS) privileges.
-        Returns:
-            bool: True if running as admin/root, False otherwise.
-        """
         system = platform.system().lower()
-
         if system == "windows":
             try:
                 return ctypes.windll.shell32.IsUserAnAdmin() == 1
@@ -80,115 +71,113 @@ class SystemUtility:
             raise NotImplementedError(f"Unsupported operating system: {system}")
 
     @staticmethod
-    def run_command_with_retries(command, logger, retries=3, delay=5, backoff=2, success_predicate=None):
+    def run_command_with_retries(command, logger, retries=3, delay=5, backoff=2, success_predicate=None, quiet=False):
         """
         Executes a shell command with retries and exponential backoff.
-        Optionally accepts a success_predicate function that returns True for acceptable results.
+        If quiet is True, suppress stdout and stderr.
         """
         attempt = 0
         current_delay = delay
-
         while attempt <= retries:
             try:
                 logger.debug(f"Executing command: {' '.join(command)} (Attempt {attempt + 1})")
-                result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-                # Use the provided success predicate if available,
-                # otherwise default to returncode 0 being a success.
+                if quiet:
+                    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+                else:
+                    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 if success_predicate:
                     is_success = success_predicate(result)
                 else:
                     is_success = result.returncode == 0
-
                 if is_success:
                     logger.debug(f"Command succeeded: {' '.join(command)}")
                     return result
                 else:
-                    logger.warning(f"Command failed with return code {result.returncode}: {' '.join(command)}")
-                    logger.warning(f"stderr: {result.stderr.strip()}")
-
+                    logger.debug(f"Command failed with return code {result.returncode}: {' '.join(command)}")
+                    if not quiet:
+                        logger.debug(f"stderr: {result.stderr.strip()}")
             except Exception as e:
                 logger.error(f"Exception occurred while executing command {' '.join(command)}: {e}")
-
             attempt += 1
             if attempt > retries:
                 break
             logger.debug(f"Retrying after {current_delay} seconds...")
             time.sleep(current_delay)
-            current_delay *= backoff  # Exponential backoff
-
+            current_delay *= backoff
         logger.error(f"All {retries} attempts failed for command: {' '.join(command)}")
         return None
 
     @staticmethod
-    def run_command(command, check=True, shell=False):
+    def run_command(command, check=True, shell=False, quiet=False):
+        """
+        Executes a shell command.
+        If quiet is True, suppress stdout and stderr.
+        """
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Running command: {' '.join(command)}")
         try:
-            logger.info(f"Running command: {' '.join(command)}")
-            subprocess.run(command, check=check, shell=shell)
-            logger.info(f"Command completed successfully: {' '.join(command)}")
+            if quiet:
+                subprocess.run(command, check=check, shell=shell,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.run(command, check=check, shell=shell)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Command completed successfully: {' '.join(command)}")
         except subprocess.CalledProcessError as e:
             logger.error(f"Command failed: {e}")
             if check:
                 sys.exit(1)
 
     @staticmethod
-    def move_with_sudo(src, dest, logger=None):
-        logger = logger or logging.getLogger(__name__)
+    def move_with_sudo(src, dest, logger_instance=None, quiet=False):
+        """
+        Moves a file from src to dest using sudo if necessary.
+        Accepts an optional quiet flag to suppress command output.
+        """
+        log = logger_instance or logging.getLogger(__name__)
         try:
             if not os.path.exists(src):
-                logger.error(f"Source file does not exist: {src}")
+                log.error(f"Source file does not exist: {src}")
                 return False
-
-            # Determine the operating system
             if sys.platform.startswith('linux') or sys.platform.startswith('darwin'):
-                # Unix-like systems: Use sudo if necessary
-                # Check if the current user has write permissions to the destination
                 dest_dir = os.path.dirname(dest)
                 if not os.access(dest_dir, os.W_OK):
                     command = ['sudo', 'mv', src, dest]
-                    result = SystemUtility.run_command_with_retries(command, logger)
+                    result = SystemUtility.run_command_with_retries(command, log, quiet=quiet)
                     if result and result.returncode != 0:
-                        logger.error(f"Failed to move {src} to {dest} with sudo.")
+                        log.error(f"Failed to move {src} to {dest} with sudo.")
                         return False
-                    logger.debug(f"Successfully moved {src} to {dest} with sudo.")
-
-                    # Set permissions
+                    log.debug(f"Successfully moved {src} to {dest} with sudo.")
                     chmod_command = ['sudo', 'chmod', '644', dest]
-                    chmod_result = SystemUtility.run_command_with_retries(chmod_command, logger)
+                    chmod_result = SystemUtility.run_command_with_retries(chmod_command, log, quiet=quiet)
                     if chmod_result and chmod_result.returncode != 0:
-                        logger.error(f"Failed to set permissions for {dest}.")
+                        log.error(f"Failed to set permissions for {dest}.")
                         return False
-                    logger.debug(f"Permissions set for {dest}.")
+                    log.debug(f"Permissions set for {dest}.")
                 else:
-                    # User has write permissions; no need for sudo
                     shutil.move(src, dest)
-                    logger.debug(f"Successfully moved {src} to {dest}.")
+                    log.debug(f"Successfully moved {src} to {dest}.")
                     os.chmod(dest, 0o644)
-                    logger.debug(f"Permissions set for {dest}.")
+                    log.debug(f"Permissions set for {dest}.")
             elif sys.platform.startswith('win'):
-                # Windows systems: Use shutil.move and handle permissions if necessary
                 shutil.move(src, dest)
-                logger.debug(f"Successfully moved {src} to {dest}.")
-
-                # Set permissions (Windows permissions are different; os.chmod can set read-only attribute
-                # For more advanced permission handling, use the `pywin32` library or similar
-                os.chmod(dest, 0o644)  # This sets read/write permissions; adjust as needed
-                logger.debug(f"Permissions set for {dest}.")
+                log.debug(f"Successfully moved {src} to {dest}.")
+                os.chmod(dest, 0o644)
+                log.debug(f"Permissions set for {dest}.")
             else:
-                logger.error(f"Unsupported platform: {sys.platform}")
+                log.error(f"Unsupported platform: {sys.platform}")
                 return False
-
             return True
-
         except Exception as e:
-            logger.error(f"Exception occurred while moving file: {e}")
+            log.error(f"Exception occurred while moving file: {e}")
             return False
 
     @staticmethod
     def create_directories(dirs):
         for dir in dirs:
             if not dir.exists():
-                logger.info(f"Creating directory: {dir}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Creating directory: {dir}")
                 if platform.system() == "Windows":
                     dir.mkdir(parents=True, exist_ok=True)
                 else:
@@ -196,7 +185,8 @@ class SystemUtility:
 
     @staticmethod
     def get_distro():
-        logger.info("Getting OS distribution info...")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Getting OS distribution info...")
         if platform.system() == "Linux":
             try:
                 distro = subprocess.check_output(['lsb_release', '-is']).decode().strip().lower()
@@ -204,8 +194,12 @@ class SystemUtility:
             except FileNotFoundError:
                 with open('/etc/os-release') as f:
                     lines = f.readlines()
-                    distro = next((line.split('=')[1].strip().strip('"').lower() for line in lines if line.startswith('ID=')), None)
-                    version = next((line.split('=')[1].strip().strip('"') for line in lines if line.startswith('VERSION_ID=')), None)
+                    distro = next(
+                        (line.split('=')[1].strip().strip('"').lower() for line in lines if line.startswith('ID=')),
+                        None)
+                    version = next(
+                        (line.split('=')[1].strip().strip('"') for line in lines if line.startswith('VERSION_ID=')),
+                        None)
         elif platform.system() == "Darwin":
             distro = "macos"
             version = platform.mac_ver()[0]
@@ -215,18 +209,14 @@ class SystemUtility:
         else:
             distro = "unknown"
             version = "unknown"
-
-        logger.debug(f"Operating System: {platform.system()}")
-        logger.debug(f"Distribution: {distro}")
-        logger.debug(f"Version: {version}")
-
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Operating System: {platform.system()}")
+            logger.debug(f"Distribution: {distro}")
+            logger.debug(f"Version: {version}")
         return distro, version
 
     @staticmethod
     def has_winreg():
-        """
-        Checks if the winreg module is available.
-        """
         try:
             import winreg
             return True
@@ -243,19 +233,16 @@ class SystemUtility:
         except ImportError:
             logger.error("winreg module is not available. Cannot access the Windows Registry.")
             return None
-
         uninstall_subkeys = [
             r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
             r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
         ]
-
         for root in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
             for subkey in uninstall_subkeys:
                 try:
                     registry_key = winreg.OpenKey(root, subkey)
                 except FileNotFoundError:
                     continue
-
                 for i in range(0, winreg.QueryInfoKey(registry_key)[0]):
                     try:
                         subkey_name = winreg.EnumKey(registry_key, i)
@@ -273,10 +260,10 @@ class SystemUtility:
         return None
 
     @staticmethod
-    def is_admin():
+    def is_admin_alt():
         try:
             return ctypes.windll.shell32.IsUserAnAdmin()
-        except:
+        except Exception:
             return False
 
     @staticmethod

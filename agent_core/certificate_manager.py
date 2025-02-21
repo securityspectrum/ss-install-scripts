@@ -1,17 +1,17 @@
 import tempfile
-from subprocess import CalledProcessError
-
 import requests
 import zipfile
 import shutil
 from pathlib import Path
 import platform
 import logging
-
-from agent_core.configure_logging import configure_logging
 from agent_core.system_utils import SystemUtility
+from pathlib import Path
+import logging
 
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger("InstallationLogger")
+quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
 
 class CertificateManager:
     def __init__(self, api_url, cert_dir, organization_slug):
@@ -23,17 +23,15 @@ class CertificateManager:
     def download_and_extract_certificates(self, jwt_token):
         logger.info("Starting the process to download and extract certificates.")
         headers = {"Authorization": f"Bearer {jwt_token}"}
-
         logger.debug(f"Creating certificate directory: {self.cert_dir}")
         logger.debug("Using Authorization header for API requests.")
-
         cert_list_url = f"{self.api_url}/kafka/agent-certs/"
         logger.debug(f"Fetching certificate list from {cert_list_url}")
-
-
         try:
             response = requests.get(cert_list_url, headers=headers, verify=False)
-            logger.debug(f"Received response with status code: {response.status_code} - content lenght ({len(response.content)}) bytes")
+            logger.debug(
+                f"Received response with status code: {response.status_code} - content length ({len(response.content)}) bytes"
+            )
             response.raise_for_status()
         except requests.exceptions.SSLError as ssl_err:
             logger.error("SSL verification failed. Please check your SSL certificates.")
@@ -66,9 +64,7 @@ class CertificateManager:
         except requests.exceptions.RequestException as e:
             logger.error(f"An unexpected error occurred: {e}")
             raise RuntimeError("An unexpected error occurred while fetching certificates.") from e
-
-        logger.info("Successfully fetched the certificate list from the server.")
-
+        logger.debug("Successfully fetched the certificate list from the server.")
         try:
             cert_body = response.json()
             logger.debug(f"Certificate List Response JSON: {cert_body}")
@@ -79,10 +75,8 @@ class CertificateManager:
         except (ValueError, KeyError, IndexError) as e:
             logger.error(f"Error parsing certificate data: {e}")
             raise RuntimeError("Invalid certificate data received from the server.") from e
-
         cert_url = f"{cert_list_url}{cert_uuid}/"
         logger.debug(f"Downloading certificate ZIP file from URL: {cert_url}")
-
         try:
             response = requests.get(cert_url, headers=headers, verify=False)
             logger.debug(f"Received response with status code: {response.status_code}")
@@ -119,134 +113,119 @@ class CertificateManager:
         except requests.exceptions.RequestException as e:
             logger.error(f"An unexpected error occurred while downloading certificates: {e}")
             raise RuntimeError("An unexpected error occurred while downloading certificates.") from e
-
-        logger.info("Successfully downloaded the certificate ZIP file from the server.")
-
+        logger.debug("Successfully downloaded the certificate ZIP file from the server.")
         zip_path = Path("agent-service-certificates.zip")
         try:
             with zip_path.open("wb") as f:
                 f.write(response.content)
-            logger.info(f"Downloaded certificates ZIP file to {zip_path}")
+            logger.debug(f"Downloaded certificates ZIP file to {zip_path}")
         except IOError as e:
             logger.error(f"Failed to write ZIP file to disk: {e}")
             raise RuntimeError("Failed to save the certificate ZIP file.") from e
         except Exception as e:
             logger.error(f"An unexpected error occurred while saving the ZIP file: {e}")
             raise RuntimeError("Failed to save certificates due to an unexpected error.") from e
-
         self.extract_certificates(zip_path)
 
     def extract_certificates(self, zip_path):
-        logger.info("Extracting certificate ZIP file to a temporary directory...")
+        logger.debug("Extracting certificate ZIP file to a temporary directory...")
         try:
             temp_cert_dir = Path(tempfile.mkdtemp())
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 zip_ref.extractall(temp_cert_dir)
-            logger.info(f"Extracted certificates to temporary directory: {temp_cert_dir}")
+            logger.debug(f"Extracted certificates to temporary directory: {temp_cert_dir}")
         except zipfile.BadZipFile as e:
             logger.error(f"The ZIP file is corrupted or not a valid ZIP archive: {e}")
             raise RuntimeError("Failed to extract certificates. The ZIP file is invalid.") from e
         except Exception as e:
             logger.error(f"An unexpected error occurred during extraction: {e}")
             raise RuntimeError("Failed to extract certificates due to an unexpected error.") from e
-
         self.move_certificates(temp_cert_dir)
-
         for path in self.cert_dir.rglob("*"):
             try:
-                logger.info(f"Setting permissions for {path}")
+                logger.debug(f"Setting permissions for {path}")
                 if platform.system() == "Windows":
-                    # Set permissions and enable inheritance for Windows
                     self.set_windows_permissions(path)
                 else:
-                    # Set permissions for Linux/macOS
                     self.set_unix_permissions(path)
-                logger.info(f"Permissions set successfully for {path}")
+                logger.debug(f"Permissions set successfully for {path}")
             except Exception as e:
                 logger.error(f"Error setting permissions for {path}: {e}")
-
         self.cleanup_temp_files(zip_path, temp_cert_dir)
 
     def set_windows_permissions(self, path):
         try:
-            # Enable inheritance for the directory and its contents
-            SystemUtility.run_command(["icacls", str(path), "/inheritance:e"], check=True)
-
-            # Set file permissions to readable by the owner only
+            SystemUtility.run_command(["icacls", str(path), "/inheritance:e"],
+                                        check=True, quiet=quiet_install)
             if path.is_file():
-                SystemUtility.run_command(["icacls", str(path), "/grant:r", "everyone:F"], check=True)
+                SystemUtility.run_command(["icacls", str(path), "/grant:r", "everyone:F"],
+                                            check=True, quiet=quiet_install)
             else:
-                # Set directory permissions
-                SystemUtility.run_command(["icacls", str(path), "/grant:r", "everyone:F"], check=True)
-
-            logger.info(f"Successfully set permissions for {path}")
+                SystemUtility.run_command(["icacls", str(path), "/grant:r", "everyone:F"],
+                                            check=True, quiet=quiet_install)
+            logger.debug(f"Successfully set permissions for {path}")
         except Exception as e:
             logger.error(f"Failed to set permissions for {path}: {e}")
             raise
 
     def set_unix_permissions(self, path):
         try:
-            # Set file or directory permissions for Unix-like systems
             if path.is_file():
-                SystemUtility.run_command(["chmod", "600", str(path)], check=True)
+                SystemUtility.run_command(["chmod", "600", str(path)],
+                                            check=True, quiet=quiet_install)
             else:
-                SystemUtility.run_command(["chmod", "700", str(path)], check=True)
+                SystemUtility.run_command(["chmod", "700", str(path)],
+                                            check=True, quiet=quiet_install)
         except Exception as e:
             logger.error(f"Failed to set permissions for {path}: {e}")
             raise
 
     def move_certificates(self, temp_cert_dir):
         try:
-            # Create the directory with sudo for Unix-like systems
             if platform.system() != "Windows":
-                logger.info(f"Creating directory {self.cert_dir} with sudo")
-                SystemUtility.run_command(["sudo", "mkdir", "-p", str(self.cert_dir)])
+                logger.debug(f"Creating directory {self.cert_dir} with sudo")
+                SystemUtility.run_command(["sudo", "mkdir", "-p", str(self.cert_dir)],
+                                            quiet=quiet_install)
             else:
-                logger.info(f"Creating directory {self.cert_dir} on Windows")
+                logger.debug(f"Creating directory {self.cert_dir} on Windows")
                 self.cert_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             logger.error(f"Error creating directory {self.cert_dir}: {e}")
             raise
-
         for item in temp_cert_dir.iterdir():
             try:
                 dest_path = self.cert_dir / item.name
                 if platform.system() != "Windows":
-                    logger.info(f"Moving {item} to {dest_path} with sudo")
+                    logger.debug(f"Moving {item} to {dest_path} with sudo")
                     SystemUtility.move_with_sudo(str(item), str(dest_path))
                 else:
-                    logger.info(f"Moving {item} to {dest_path} without sudo")
+                    logger.debug(f"Moving {item} to {dest_path} without sudo")
                     shutil.move(str(item), str(dest_path))
-                logger.info(f"Moved {item} to {dest_path}")
+                logger.debug(f"Moved {item} to {dest_path}")
             except Exception as e:
                 logger.error(f"Error moving {item} to {dest_path}: {e}")
                 raise
-
         for item in temp_cert_dir.iterdir():
             try:
                 dest_path = self.cert_dir / item.name
-                logger.info(f"Moving {item} to {dest_path} with sudo")
+                logger.debug(f"Moving {item} to {dest_path} with sudo")
                 SystemUtility.move_with_sudo(str(item), str(dest_path))
-                logger.info(f"Moved {item} to {dest_path}")
+                logger.debug(f"Moved {item} to {dest_path}")
             except Exception as e:
                 logger.error(f"Error moving {item} to {dest_path}: {e}")
 
     def cleanup_temp_files(self, zip_path: Path, temp_cert_dir: Path):
         try:
-            # Remove the temporary certificate directory
             if temp_cert_dir.exists() and temp_cert_dir.is_dir():
                 shutil.rmtree(temp_cert_dir)
-                logger.info(f"Temporary directory {temp_cert_dir} has been removed.")
+                logger.debug(f"Temporary directory {temp_cert_dir} has been removed.")
             else:
                 logger.warning(f"Temporary directory {temp_cert_dir} does not exist or is not a directory.")
-
-            # Optionally, remove the ZIP file if it should not be kept
             if zip_path.exists() and zip_path.is_file():
                 zip_path.unlink()
-                logger.info(f"ZIP file {zip_path} has been removed.")
+                logger.debug(f"ZIP file {zip_path} has been removed.")
             else:
                 logger.warning(f"ZIP file {zip_path} does not exist or is not a file.")
-
         except Exception as e:
             logger.error(f"Error cleaning up temporary files: {e}")
             raise
