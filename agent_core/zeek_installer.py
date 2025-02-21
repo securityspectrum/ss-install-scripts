@@ -79,7 +79,7 @@ class ZeekInstaller:
         """
         # If quiet param is None, fall back to self.quiet
         if quiet is None:
-            quiet = self.quiet_install
+            quiet = quiet_install
 
         if require_root and os.geteuid() != 0:
             # Prepend 'sudo' if not already root
@@ -488,7 +488,7 @@ class ZeekInstaller:
             makecache_cmd = ['dnf', 'makecache', '--refresh']
             install_cmd = ['dnf', 'install', '-y', 'zeek', 'zeekctl', 'zeek-core']
             # Only refresh the metadata, avoiding full system update
-            if self.quiet_install:
+            if quiet_install:
                 makecache_cmd.insert(1, '-q')  # => dnf -q makecache --refresh
                 install_cmd.insert(1, '-q')  # => dnf -q install -y zeek ...
 
