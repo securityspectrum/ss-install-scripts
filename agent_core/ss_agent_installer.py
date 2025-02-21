@@ -319,14 +319,14 @@ class SSAgentInstaller:
 
                 # Reload systemd to recognize the new service
                 daemon_reload_command = ['sudo', 'systemctl', 'daemon-reload']
-                if SystemUtility.run_command_with_retries(daemon_reload_command, self.logger):
+                if SystemUtility.run_command_with_retries(daemon_reload_command, logger):
                     logger.debug("systemd daemon reloaded.")
                 else:
                     logger.error("Failed to reload systemd daemon.")
 
                 # Enable the service to start on boot
                 enable_command = ['sudo', 'systemctl', 'enable', service_name]
-                if SystemUtility.run_command_with_retries(enable_command, self.logger):
+                if SystemUtility.run_command_with_retries(enable_command, logger):
                     logger.debug(f"Service '{service_name}' enabled to start on boot.")
                 else:
                     logger.error(f"Failed to enable service '{service_name}'.")
@@ -334,7 +334,7 @@ class SSAgentInstaller:
 
                 # Start the service immediately
                 start_command = ['sudo', 'systemctl', 'start', service_name]
-                if SystemUtility.run_command_with_retries(start_command, self.logger):
+                if SystemUtility.run_command_with_retries(start_command, logger):
                     logger.debug(f"Service '{service_name}' started successfully.")
                 else:
                     logger.error(f"Failed to start service '{service_name}'. Check the service logs for details.")

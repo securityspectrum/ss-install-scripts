@@ -50,7 +50,7 @@ class FluentBitInstaller:
             if match:
                 return match.groupdict()
             else:
-                self.logger.debug(f"Unrecognized asset format: {asset_name}")
+                logger.debug(f"Unrecognized asset format: {asset_name}")
                 return None
 
     def get_latest_release_url(self):
@@ -73,11 +73,11 @@ class FluentBitInstaller:
 
     def select_asset(self, categorized_assets):
         system = platform.system().lower()
-        self.logger.debug(f"Detected system: {system}")
+        logger.debug(f"Detected system: {system}")
         if system == "linux":
             distro_name = distro.id().lower()
             version = distro.major_version()
-            self.logger.debug(f"Detected distro: {distro_name} {version}")
+            logger.debug(f"Detected distro: {distro_name} {version}")
 
             assets = None
 
@@ -90,7 +90,7 @@ class FluentBitInstaller:
                 try:
                     version_num = int(version)
                 except ValueError:
-                    self.logger.error(f"Invalid Fedora version: {version}")
+                    logger.error(f"Invalid Fedora version: {version}")
                     return None
                 if 28 <= version_num <= 33:
                     # Use CentOS 8 package for older Fedora versions
@@ -118,34 +118,34 @@ class FluentBitInstaller:
                 if ubuntu_version:
                     assets = categorized_assets.get(("ubuntu", ubuntu_version))
             else:
-                self.logger.error(f"No matching asset found for distro {distro_name} {version}")
+                logger.error(f"No matching asset found for distro {distro_name} {version}")
                 return None
 
             if assets:
-                self.logger.debug(f"Selected assets for {distro_name} {version}: {assets}")
+                logger.debug(f"Selected assets for {distro_name} {version}: {assets}")
                 return assets[0]  # Return the first matching asset
             else:
-                self.logger.error(f"No assets found for key corresponding to {distro_name} {version}")
+                logger.error(f"No assets found for key corresponding to {distro_name} {version}")
                 return None
 
         elif system == "darwin":
             key = ('macos', '')
             assets = categorized_assets.get(key)
             if assets:
-                self.logger.debug(f"Selected assets for macOS: {assets}")
+                logger.debug(f"Selected assets for macOS: {assets}")
                 return assets[0]
             else:
-                self.logger.error("No assets found for macOS.")
+                logger.error("No assets found for macOS.")
                 return None
 
         elif system == "windows":
             key = ('windows', '')
             assets = categorized_assets.get(key)
             if assets:
-                self.logger.debug(f"Selected assets for Windows: {assets}")
+                logger.debug(f"Selected assets for Windows: {assets}")
                 return assets[0]
             else:
-                self.logger.error("No assets found for Windows.")
+                logger.error("No assets found for Windows.")
                 return None
 
         else:
@@ -163,33 +163,33 @@ class FluentBitInstaller:
                 raise ValueError("No suitable asset found for your OS/distribution.")
 
             asset_name, download_url = selected_asset
-            self.logger.debug(f"Selected asset: {asset_name} from {download_url}")
+            logger.debug(f"Selected asset: {asset_name} from {download_url}")
 
             dest_path = get_temp_file_path(asset_name)
 
             # Check if file already exists
             if os.path.exists(dest_path):
-                self.logger.debug(f"File {asset_name} already exists at {dest_path}. Skipping download.")
+                logger.debug(f"File {asset_name} already exists at {dest_path}. Skipping download.")
             else:
-                self.logger.debug(f"Downloading {asset_name} from {download_url} to temporary directory...")
+                logger.debug(f"Downloading {asset_name} from {download_url} to temporary directory...")
                 self.download_binary(download_url, dest_path)
 
-            self.logger.debug(f"Installing {asset_name}...")
+            logger.debug(f"Installing {asset_name}...")
             self.run_installation_command(dest_path)
 
-            self.logger.debug("Installation complete.")
+            logger.debug("Installation complete.")
 
             # Attempt to delete the file
             try:
                 if os.path.exists(dest_path):
                     os.remove(dest_path)
-                    self.logger.debug(f"File {dest_path} deleted successfully.")
+                    logger.debug(f"File {dest_path} deleted successfully.")
                 else:
-                    self.logger.debug(f"File {dest_path} does not exist, no need to delete.")
+                    logger.debug(f"File {dest_path} does not exist, no need to delete.")
             except Exception as e:
-                self.logger.error(f"Failed to delete the file {dest_path}: {e}")
+                logger.error(f"Failed to delete the file {dest_path}: {e}")
         except Exception as e:
-            self.logger.error(f"An error occurred during the installation process: {e}")
+            logger.error(f"An error occurred during the installation process: {e}")
             raise
 
     def download_binary(self, download_url, dest_path=None):
@@ -210,7 +210,7 @@ class FluentBitInstaller:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
 
-        self.logger.debug(f"Downloaded file saved to: {dest_path}")
+        logger.debug(f"Downloaded file saved to: {dest_path}")
         return dest_path
 
     def run_installation_command(self, dest_path):
@@ -222,41 +222,41 @@ class FluentBitInstaller:
                 rpm_version = self.extract_rpm_version(dest_path)
 
                 if self.is_package_installed(package_name, rpm_version, package_type='rpm'):
-                    self.logger.debug(f"{package_name} version {rpm_version} is already installed. Skipping installation.")
+                    logger.debug(f"{package_name} version {rpm_version} is already installed. Skipping installation.")
                     return
                 elif self.is_newer_version_installed(package_name, rpm_version, package_type='rpm'):
-                    self.logger.debug(f"A newer version of {package_name} is installed. Skipping downgrade to version {rpm_version}.")
+                    logger.debug(f"A newer version of {package_name} is installed. Skipping downgrade to version {rpm_version}.")
                     return
                 else:
-                    self.logger.debug(f"A different version or no version of {package_name} is installed. Updating to version {rpm_version}.")
+                    logger.debug(f"A different version or no version of {package_name} is installed. Updating to version {rpm_version}.")
                     try:
                         subprocess.run(["sudo", "rpm", "--quiet", "-Uvh", str(dest_path)], check=True)
                     except subprocess.CalledProcessError as e:
-                        self.logger.error(f"RPM installation failed: {e}")
+                        logger.error(f"RPM installation failed: {e}")
                         raise
             elif dest_path.suffix == ".deb":
                 package_name = "fluent-bit"
                 deb_version = self.extract_deb_version(dest_path)
 
                 if self.is_package_installed(package_name, deb_version, package_type='deb'):
-                    self.logger.debug(f"{package_name} version {deb_version} is already installed. Skipping installation.")
+                    logger.debug(f"{package_name} version {deb_version} is already installed. Skipping installation.")
                     return
                 elif self.is_newer_version_installed(package_name, deb_version, package_type='deb'):
-                    self.logger.debug(f"A newer version of {package_name} is installed. Skipping downgrade to version {deb_version}.")
+                    logger.debug(f"A newer version of {package_name} is installed. Skipping downgrade to version {deb_version}.")
                     return
                 else:
-                    self.logger.debug(f"A different version or no version of {package_name} is installed. Updating to version {deb_version}.")
+                    logger.debug(f"A different version or no version of {package_name} is installed. Updating to version {deb_version}.")
                     try:
                         subprocess.run(["sudo", "dpkg", "-i", str(dest_path)], check=True)
                     except subprocess.CalledProcessError as e:
-                        self.logger.error(f"DEB installation failed: {e}")
+                        logger.error(f"DEB installation failed: {e}")
                         raise
         elif system == "darwin":
             try:
-                self.logger.debug(f"Installing {dest_path}...")
+                logger.debug(f"Installing {dest_path}...")
                 subprocess.run(["sudo", "installer", "-pkg", str(dest_path), "-target", "/"], check=True)
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Package installation on macOS failed: {e}")
+                logger.error(f"Package installation on macOS failed: {e}")
                 raise
         elif system == "windows":
             try:
@@ -265,7 +265,7 @@ class FluentBitInstaller:
                 elif dest_path.suffix == ".msi":
                     subprocess.run(["msiexec", "/i", str(dest_path), "/quiet", "/norestart"], check=True)
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Installation on Windows failed: {e}")
+                logger.error(f"Installation on Windows failed: {e}")
                 raise
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
@@ -282,7 +282,7 @@ class FluentBitInstaller:
         if match:
             return match.group(1)
         else:
-            self.logger.error(f"Could not extract version from RPM filename: {stem}")
+            logger.error(f"Could not extract version from RPM filename: {stem}")
             raise ValueError(f"Could not extract version from RPM filename: {stem}")
 
     def extract_deb_version(self, dest_path):
@@ -297,27 +297,27 @@ class FluentBitInstaller:
             match = re.match(r"(\d+\.\d+\.\d+(-\d+)?)", ver_release)
             if match:
                 extracted_version = match.group(1)
-                self.logger.debug(f"Extracted version from underscore format: {extracted_version}")
+                logger.debug(f"Extracted version from underscore format: {extracted_version}")
                 return extracted_version
             else:
-                self.logger.warning(f"Unexpected version format in DEB filename: {ver_release}")
+                logger.warning(f"Unexpected version format in DEB filename: {ver_release}")
 
         # Fallback: dash-based parsing
         match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)(?:\.[^.]+)?-\d+\..*", stem)
         if match:
             extracted_version = match.group(1)
-            self.logger.debug(f"Extracted version from dash format: {extracted_version}")
+            logger.debug(f"Extracted version from dash format: {extracted_version}")
             return extracted_version
         else:
             # Fallback to extracting version before first dot after 'fluent-bit-'
             match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)", stem)
             if match:
                 extracted_version = match.group(1)
-                self.logger.debug(f"Extracted version from fallback regex: {extracted_version}")
+                logger.debug(f"Extracted version from fallback regex: {extracted_version}")
                 return extracted_version
 
         # If all parsing attempts fail, raise an error
-        self.logger.error(f"Cannot parse the version from DEB filename: {dest_path.name}")
+        logger.error(f"Cannot parse the version from DEB filename: {dest_path.name}")
         raise ValueError(f"Cannot parse the version from DEB filename: {dest_path.name}")
 
     def is_rpm_based_system(self):
@@ -357,7 +357,7 @@ class FluentBitInstaller:
                             return installed_ver == version
                 return False
         except Exception as e:
-            self.logger.error(f"Failed to check installed package version: {e}")
+            logger.error(f"Failed to check installed package version: {e}")
             return False
 
     def is_different_version_installed(self, package_name, version, package_type='rpm'):
@@ -392,7 +392,7 @@ class FluentBitInstaller:
                             return installed_ver != version
                 return False
         except Exception as e:
-            self.logger.error(f"Failed to check installed package version: {e}")
+            logger.error(f"Failed to check installed package version: {e}")
             return False
 
     def is_newer_version_installed(self, package_name, version, package_type='rpm'):
@@ -432,7 +432,7 @@ class FluentBitInstaller:
                         return installed_ver > version
                 return False
         except Exception as e:
-            self.logger.error(f"Failed to check installed package version: {e}")
+            logger.error(f"Failed to check installed package version: {e}")
             return False
 
     def enable_and_start(self):
@@ -440,7 +440,7 @@ class FluentBitInstaller:
         Configures Fluent Bit based on the operating system and enables/starts the service.
         """
         os_system = platform.system().lower()
-        self.logger.debug(f"Detected operating system: {os_system}")
+        logger.debug(f"Detected operating system: {os_system}")
 
         try:
             if os_system == 'linux':
@@ -450,79 +450,79 @@ class FluentBitInstaller:
             elif os_system == 'windows':
                 self.configure_windows()
             else:
-                self.logger.error(f"Unsupported operating system: {os_system}")
+                logger.error(f"Unsupported operating system: {os_system}")
                 raise NotImplementedError("This installation script does not support the detected OS.")
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
-            self.logger.error(f"Error output: {e.stderr}")
+            logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            logger.error(f"Error output: {e.stderr}")
             raise
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            logger.error(f"An unexpected error occurred: {ex}")
             raise
 
-        self.logger.debug("Fluent Bit configuration and service start completed.")
+        logger.debug("Fluent Bit configuration and service start completed.")
 
     def configure_linux(self):
         try:
             # Log enabling Fluent Bit to start on boot
-            self.logger.debug("Enabling Fluent Bit service to start automatically on boot...")
+            logger.debug("Enabling Fluent Bit service to start automatically on boot...")
 
             # Enable Fluent Bit on boot
             result = subprocess.run(['sudo', 'systemctl', 'enable', FLUENT_BIT_SERVICE_NAME],
                                     check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.logger.debug(f"Enable command output: {result.stdout.strip()}")
-            self.logger.debug(f"Fluent Bit service enabled successfully.")
+            logger.debug(f"Enable command output: {result.stdout.strip()}")
+            logger.debug(f"Fluent Bit service enabled successfully.")
 
             # Log starting Fluent Bit service
-            self.logger.debug("Starting Fluent Bit service...")
+            logger.debug("Starting Fluent Bit service...")
 
             # Start Fluent Bit service
             result = subprocess.run(['sudo', 'systemctl', 'start', FLUENT_BIT_SERVICE_NAME],
                                     check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.logger.debug(f"Start command output: {result.stdout.strip()}")
-            self.logger.debug("Fluent Bit service started successfully.")
+            logger.debug(f"Start command output: {result.stdout.strip()}")
+            logger.debug("Fluent Bit service started successfully.")
 
         except subprocess.CalledProcessError as e:
             # Log the error details
-            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
-            self.logger.error(f"Error output: {e.stderr.strip() if e.stderr else 'No error output'}")
+            logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            logger.error(f"Error output: {e.stderr.strip() if e.stderr else 'No error output'}")
             raise
 
         except Exception as ex:
             # Log any unexpected error
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            logger.error(f"An unexpected error occurred: {ex}")
             raise
 
     def configure_macos(self):
         try:
             # Log loading the Fluent Bit service
-            self.logger.debug("Loading Fluent Bit service plist...")
+            logger.debug("Loading Fluent Bit service plist...")
 
             # Load the Fluent Bit service plist
             result = subprocess.run(['sudo', 'launchctl', 'load', FLUENT_BIT_SERVICE_MACOS],
                                     check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.logger.debug(f"Load command output: {result.stdout.strip()}")
-            self.logger.debug("Fluent Bit service loaded successfully.")
+            logger.debug(f"Load command output: {result.stdout.strip()}")
+            logger.debug("Fluent Bit service loaded successfully.")
 
             # Log enabling Fluent Bit service for automatic start
-            self.logger.debug("Enabling Fluent Bit service to start automatically on boot...")
+            logger.debug("Enabling Fluent Bit service to start automatically on boot...")
 
             # Enable Fluent Bit service to start automatically
             result = subprocess.run(['sudo', 'launchctl', 'enable', 'system/fluent-bit.plist'],
                                     check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.logger.debug(f"Enable command output: {result.stdout.strip()}")
-            self.logger.debug("Fluent Bit service enabled successfully.")
+            logger.debug(f"Enable command output: {result.stdout.strip()}")
+            logger.debug("Fluent Bit service enabled successfully.")
 
         except subprocess.CalledProcessError as e:
             # Log the error details
-            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
-            self.logger.error(f"Error output: {e.stderr.strip() if e.stderr else 'No error output'}")
+            logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            logger.error(f"Error output: {e.stderr.strip() if e.stderr else 'No error output'}")
             raise
 
         except Exception as ex:
             # Log any unexpected error
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            logger.error(f"An unexpected error occurred: {ex}")
             raise
 
     def configure_windows(self):
@@ -531,12 +531,12 @@ class FluentBitInstaller:
 
         # Verify that the Fluent Bit executable exists
         if not Path(FLUENT_BIT_EXE_WINDOWS).exists():
-            self.logger.error(f"Fluent Bit executable not found at: {FLUENT_BIT_EXE_WINDOWS}. Please verify the installation path.")
+            logger.error(f"Fluent Bit executable not found at: {FLUENT_BIT_EXE_WINDOWS}. Please verify the installation path.")
             raise FileNotFoundError(f"Fluent Bit executable not found at {FLUENT_BIT_EXE_WINDOWS}")
 
         try:
             # Step 1: Check if the service exists
-            self.logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists...")
+            logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists...")
             result = subprocess.run(
                 ['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
                 stdout=subprocess.PIPE,
@@ -547,27 +547,27 @@ class FluentBitInstaller:
 
             # Step 2: Create the service if it doesn't exist
             if not service_exists:
-                self.logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' not found. Creating the service...")
+                logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' not found. Creating the service...")
                 create_command = [
                     'sc.exe', 'create', FLUENT_BIT_SERVICE_NAME,
                     'binPath=', f'"{FLUENT_BIT_EXE_WINDOWS}" -c "{FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS}"',
                     'start=', 'auto',
                     'obj=', 'LocalSystem'
                 ]
-                self.logger.debug(f"Creating service with command: {' '.join(create_command)}")
+                logger.debug(f"Creating service with command: {' '.join(create_command)}")
                 subprocess.run(create_command, check=True)
-                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' created successfully.")
+                logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' created successfully.")
             else:
-                self.logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' already exists.")
+                logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' already exists.")
 
             # Step 3: Ensure the service uses the LocalSystem account and auto-starts on boot
-            self.logger.debug(f"Configuring service '{FLUENT_BIT_SERVICE_NAME}' to start with LocalSystem and auto-start on boot...")
+            logger.debug(f"Configuring service '{FLUENT_BIT_SERVICE_NAME}' to start with LocalSystem and auto-start on boot...")
             config_command = ['sc.exe', 'config', FLUENT_BIT_SERVICE_NAME, 'obj=', 'LocalSystem', 'start=', 'auto']
             subprocess.run(config_command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' configured successfully.")
+            logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' configured successfully.")
 
             # Step 4: Check the service status before attempting to start it
-            self.logger.debug(f"Checking the status of service '{FLUENT_BIT_SERVICE_NAME}' before starting...")
+            logger.debug(f"Checking the status of service '{FLUENT_BIT_SERVICE_NAME}' before starting...")
             query_result = subprocess.run(
                 ['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
                 stdout=subprocess.PIPE,
@@ -576,10 +576,10 @@ class FluentBitInstaller:
             )
 
             if "RUNNING" in query_result.stdout:
-                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' is already running. No need to start it.")
+                logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' is already running. No need to start it.")
             else:
                 # Step 5: Start the service if not already running
-                self.logger.debug(f"Starting service '{FLUENT_BIT_SERVICE_NAME}'...")
+                logger.debug(f"Starting service '{FLUENT_BIT_SERVICE_NAME}'...")
                 start_result = subprocess.run(
                     ['sc.exe', 'start', FLUENT_BIT_SERVICE_NAME],
                     check=True,
@@ -587,31 +587,31 @@ class FluentBitInstaller:
                     stderr=subprocess.PIPE,
                     text=True
                 )
-                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' started successfully.")
+                logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' started successfully.")
 
         except subprocess.CalledProcessError as e:
             if e.returncode == 1056:
-                self.logger.warning(f"Service '{FLUENT_BIT_SERVICE_NAME}' is already running. Skipping start.")
+                logger.warning(f"Service '{FLUENT_BIT_SERVICE_NAME}' is already running. Skipping start.")
             else:
-                self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
-                self.logger.error(f"stdout: {e.stdout.strip()}")
-                self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+                logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+                logger.error(f"stdout: {e.stdout.strip()}")
+                logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
                 raise
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            logger.error(f"An unexpected error occurred: {ex}")
             raise
 
     def stop_and_delete_windows_service(self):
 
         os_system = platform.system().lower()
         if os_system != 'windows':
-            self.logger.warning("The stop_and_delete_windows_service method is intended for Windows platforms.")
+            logger.warning("The stop_and_delete_windows_service method is intended for Windows platforms.")
             return
 
         SystemUtility.request_admin_access()
 
         try:
-            self.logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists before stopping and deleting...")
+            logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists before stopping and deleting...")
             result = subprocess.run(['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -619,40 +619,40 @@ class FluentBitInstaller:
             service_exists = 'SERVICE_NAME: ' + FLUENT_BIT_SERVICE_NAME in result.stdout
 
             if not service_exists:
-                self.logger.warning(f"Service '{FLUENT_BIT_SERVICE_NAME}' not found. Nothing to stop or delete.")
+                logger.warning(f"Service '{FLUENT_BIT_SERVICE_NAME}' not found. Nothing to stop or delete.")
                 return
 
             # Stop the service if it's running
-            self.logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service is running...")
+            logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service is running...")
             if "RUNNING" in result.stdout:
-                self.logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' is running. Attempting to stop it...")
+                logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' is running. Attempting to stop it...")
                 stop_command = ['sc.exe', 'stop', FLUENT_BIT_SERVICE_NAME]
                 stop_result = subprocess.run(stop_command,
                                              check=True,
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
                                              text=True)
-                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' stopped successfully.")
+                logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' stopped successfully.")
             else:
-                self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' is not running.")
+                logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' is not running.")
 
             # Delete the service
-            self.logger.debug(f"Deleting service '{FLUENT_BIT_SERVICE_NAME}'...")
+            logger.debug(f"Deleting service '{FLUENT_BIT_SERVICE_NAME}'...")
             delete_command = ['sc.exe', 'delete', FLUENT_BIT_SERVICE_NAME]
             delete_result = subprocess.run(delete_command,
                                            check=True,
                                            stdout=subprocess.PIPE,
                                            stderr=subprocess.PIPE,
                                            text=True)
-            self.logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' deleted successfully.")
+            logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' deleted successfully.")
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
-            self.logger.error(f"stdout: {e.stdout.strip()}")
-            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+            logger.error(f"stdout: {e.stdout.strip()}")
+            logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
             raise
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            logger.error(f"An unexpected error occurred: {ex}")
             raise
 
     def verify_permissions(self, path):
@@ -660,7 +660,7 @@ class FluentBitInstaller:
         Verifies that SYSTEM has full control over the provided path (Windows only).
         If not, attempts to fix the permissions.
         """
-        self.logger.debug(f"Verifying permissions for SYSTEM on {path}...")
+        logger.debug(f"Verifying permissions for SYSTEM on {path}...")
 
         try:
             result = subprocess.run(
@@ -672,13 +672,13 @@ class FluentBitInstaller:
             )
 
             if 'SYSTEM:(F)' not in result.stdout:
-                self.logger.error(f"SYSTEM does not have full control on {path}. Attempting to fix permissions...")
+                logger.error(f"SYSTEM does not have full control on {path}. Attempting to fix permissions...")
 
                 fix_permissions_command = ['icacls', path, '/grant', 'SYSTEM:F']
                 fix_result = subprocess.run(fix_permissions_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                             text=True, check=True)
 
-                self.logger.debug(f"Fix permissions command output: {fix_result.stdout.strip()}")
+                logger.debug(f"Fix permissions command output: {fix_result.stdout.strip()}")
 
                 # Re-check permissions after attempting to fix
                 result = subprocess.run(
@@ -689,24 +689,24 @@ class FluentBitInstaller:
                     check=True
                 )
                 if 'SYSTEM:(F)' not in result.stdout:
-                    self.logger.error(f"Failed to grant SYSTEM full control on {path}.")
+                    logger.error(f"Failed to grant SYSTEM full control on {path}.")
                     raise PermissionError(f"Failed to grant SYSTEM full control on {path}.")
                 else:
-                    self.logger.info(f"SYSTEM was successfully granted full control on {path}.")
+                    logger.info(f"SYSTEM was successfully granted full control on {path}.")
 
-            self.logger.info(f"SYSTEM has full control over {path}.")
+            logger.info(f"SYSTEM has full control over {path}.")
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to check or fix permissions for {path} using icacls.")
-            self.logger.error(f"stdout: {e.stdout.strip()}")
-            self.logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
+            logger.error(f"Failed to check or fix permissions for {path} using icacls.")
+            logger.error(f"stdout: {e.stdout.strip()}")
+            logger.error(f"stderr: {e.stderr.strip() if e.stderr else 'No error output'}")
             raise
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred while checking or fixing permissions: {ex}")
+            logger.error(f"An unexpected error occurred while checking or fixing permissions: {ex}")
             raise
 
     def uninstall(self):
-        self.logger.debug("Uninstalling Fluent Bit...")
+        logger.debug("Uninstalling Fluent Bit...")
         system = platform.system().lower()
 
         if system == "linux":
@@ -722,7 +722,7 @@ class FluentBitInstaller:
     def uninstall_linux(self):
         package_name = "fluent-bit"
         distro_id = distro.id().lower()
-        self.logger.debug(f"Detected Linux distribution: {distro_id}")
+        logger.debug(f"Detected Linux distribution: {distro_id}")
 
         try:
             if distro_id in ["ubuntu", "debian"]:
@@ -730,50 +730,50 @@ class FluentBitInstaller:
             elif distro_id in ["fedora", "centos", "rhel", "rocky", "almalinux"]:
                 self.uninstall_with_dnf_yum(package_name, distro_id)
             else:
-                self.logger.warning(f"Unsupported or unrecognized Linux distribution: {distro_id}. Attempting to use rpm or dpkg directly.")
+                logger.warning(f"Unsupported or unrecognized Linux distribution: {distro_id}. Attempting to use rpm or dpkg directly.")
                 self.uninstall_with_rpm_or_dpkg(package_name)
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall Fluent Bit: {e}")
+            logger.error(f"Failed to uninstall Fluent Bit: {e}")
             raise
 
     def uninstall_with_apt(self, package_name):
-        self.logger.debug(f"Using apt to uninstall {package_name}...")
+        logger.debug(f"Using apt to uninstall {package_name}...")
         try:
             subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
             subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
-            self.logger.debug(f"Fluent Bit has been successfully uninstalled using apt.")
+            logger.debug(f"Fluent Bit has been successfully uninstalled using apt.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"apt failed to uninstall {package_name}: {e}")
+            logger.error(f"apt failed to uninstall {package_name}: {e}")
             raise
 
     def uninstall_with_dnf_yum(self, package_name, distro_id):
         package_manager = "dnf" if distro_id in ["fedora", "rocky", "almalinux"] else "yum"
-        self.logger.debug(f"Using {package_manager} to uninstall {package_name}...")
+        logger.debug(f"Using {package_manager} to uninstall {package_name}...")
         try:
             subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
-            self.logger.debug(f"Fluent Bit has been successfully uninstalled using {package_manager}.")
+            logger.debug(f"Fluent Bit has been successfully uninstalled using {package_manager}.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
+            logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
             raise
 
     def uninstall_with_rpm_or_dpkg(self, package_name):
         if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
-            self.logger.debug(f"Using dpkg to purge {package_name}...")
+            logger.debug(f"Using dpkg to purge {package_name}...")
             subprocess.run(["sudo", "dpkg", "--purge", package_name], check=True)
         elif Path('/usr/bin/rpm').exists() or Path('/bin/rpm').exists():
-            self.logger.debug(f"Using rpm to erase {package_name}...")
+            logger.debug(f"Using rpm to erase {package_name}...")
             subprocess.run(["sudo", "rpm", "-e", package_name], check=True)
         else:
-            self.logger.error("Neither dpkg nor rpm package managers are available on this system.")
+            logger.error("Neither dpkg nor rpm package managers are available on this system.")
             raise EnvironmentError("No suitable package manager found for uninstallation.")
 
-        self.logger.debug(f"Fluent Bit has been successfully uninstalled using rpm/dpkg.")
+        logger.debug(f"Fluent Bit has been successfully uninstalled using rpm/dpkg.")
 
     def uninstall_macos(self):
         """
         Uninstall Fluent Bit from macOS.
         """
-        self.logger.debug("Starting Fluent Bit uninstallation process on macOS.")
+        logger.debug("Starting Fluent Bit uninstallation process on macOS.")
 
         try:
             # Step 1: Unload LaunchDaemon
@@ -788,9 +788,9 @@ class FluentBitInstaller:
             # Step 4: Remove package receipt
             self.forget_package_receipt()
 
-            self.logger.info("Fluent Bit has been successfully uninstalled from macOS.")
+            logger.info("Fluent Bit has been successfully uninstalled from macOS.")
         except Exception as e:
-            self.logger.error(f"Fluent Bit uninstallation failed: {e}")
+            logger.error(f"Fluent Bit uninstallation failed: {e}")
             raise RuntimeError("Fluent Bit uninstallation failed. Manual intervention may be required.") from e
 
     def unload_launchdaemon(self):
@@ -800,7 +800,7 @@ class FluentBitInstaller:
         launch_daemon = FLUENT_BIT_SERVICE_MACOS
         if Path(launch_daemon).exists():
             try:
-                self.logger.debug(f"Attempting to unload LaunchDaemon: {launch_daemon}")
+                logger.debug(f"Attempting to unload LaunchDaemon: {launch_daemon}")
                 result = subprocess.run(
                     ["sudo", "launchctl", "unload", launch_daemon],
                     check=True,
@@ -808,13 +808,13 @@ class FluentBitInstaller:
                     stderr=subprocess.PIPE,
                     text=True
                 )
-                self.logger.debug(f"Unload command output: {result.stdout.strip()}")
-                self.logger.info(f"Unloaded LaunchDaemon: {launch_daemon}")
+                logger.debug(f"Unload command output: {result.stdout.strip()}")
+                logger.info(f"Unloaded LaunchDaemon: {launch_daemon}")
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e.stderr.strip()}")
+                logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e.stderr.strip()}")
                 raise RuntimeError(f"Failed to unload LaunchDaemon {launch_daemon}: {e.stderr.strip()}") from e
         else:
-            self.logger.debug(f"LaunchDaemon plist does not exist, skipping: {launch_daemon}")
+            logger.debug(f"LaunchDaemon plist does not exist, skipping: {launch_daemon}")
 
     def remove_launchdaemon_plist(self):
         """
@@ -824,7 +824,7 @@ class FluentBitInstaller:
         path = Path(launch_daemon)
         if path.exists():
             try:
-                self.logger.debug(f"Attempting to remove LaunchDaemon plist: {launch_daemon}")
+                logger.debug(f"Attempting to remove LaunchDaemon plist: {launch_daemon}")
                 result = subprocess.run(
                     ["sudo", "rm", "-f", launch_daemon],
                     check=True,
@@ -832,13 +832,13 @@ class FluentBitInstaller:
                     stderr=subprocess.PIPE,
                     text=True
                 )
-                self.logger.debug(f"Remove command output: {result.stdout.strip()}")
-                self.logger.info(f"Removed LaunchDaemon plist: {launch_daemon}")
+                logger.debug(f"Remove command output: {result.stdout.strip()}")
+                logger.info(f"Removed LaunchDaemon plist: {launch_daemon}")
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to remove plist {launch_daemon}: {e.stderr.strip()}")
+                logger.error(f"Failed to remove plist {launch_daemon}: {e.stderr.strip()}")
                 raise RuntimeError(f"Failed to remove plist {launch_daemon}: {e.stderr.strip()}") from e
         else:
-            self.logger.debug(f"LaunchDaemon plist does not exist, skipping: {launch_daemon}")
+            logger.debug(f"LaunchDaemon plist does not exist, skipping: {launch_daemon}")
 
     def remove_installed_paths(self):
         """
@@ -858,7 +858,7 @@ class FluentBitInstaller:
             if path.exists():
                 if path.is_file() or path.is_symlink():
                     try:
-                        self.logger.debug(f"Attempting to remove file: {path}")
+                        logger.debug(f"Attempting to remove file: {path}")
                         result = subprocess.run(
                             ["sudo", "rm", "-f", path_str],
                             check=True,
@@ -866,14 +866,14 @@ class FluentBitInstaller:
                             stderr=subprocess.PIPE,
                             text=True
                         )
-                        self.logger.debug(f"Remove file command output: {result.stdout.strip()}")
-                        self.logger.info(f"Removed file: {path}")
+                        logger.debug(f"Remove file command output: {result.stdout.strip()}")
+                        logger.info(f"Removed file: {path}")
                     except subprocess.CalledProcessError as e:
-                        self.logger.error(f"Failed to remove file {path}: {e.stderr.strip()}")
+                        logger.error(f"Failed to remove file {path}: {e.stderr.strip()}")
                         raise RuntimeError(f"Failed to remove file {path}: {e.stderr.strip()}") from e
                 elif path.is_dir():
                     try:
-                        self.logger.debug(f"Attempting to remove directory: {path}")
+                        logger.debug(f"Attempting to remove directory: {path}")
                         result = subprocess.run(
                             ["sudo", "rm", "-rf", path_str],
                             check=True,
@@ -881,13 +881,13 @@ class FluentBitInstaller:
                             stderr=subprocess.PIPE,
                             text=True
                         )
-                        self.logger.debug(f"Remove directory command output: {result.stdout.strip()}")
-                        self.logger.info(f"Removed directory: {path}")
+                        logger.debug(f"Remove directory command output: {result.stdout.strip()}")
+                        logger.info(f"Removed directory: {path}")
                     except subprocess.CalledProcessError as e:
-                        self.logger.error(f"Failed to remove directory {path}: {e.stderr.strip()}")
+                        logger.error(f"Failed to remove directory {path}: {e.stderr.strip()}")
                         raise RuntimeError(f"Failed to remove directory {path}: {e.stderr.strip()}") from e
             else:
-                self.logger.debug(f"Path does not exist, skipping: {path}")
+                logger.debug(f"Path does not exist, skipping: {path}")
 
     def forget_package_receipt(self):
         """
@@ -896,7 +896,7 @@ class FluentBitInstaller:
         package_id = self.get_macos_package_id()
         if package_id:
             try:
-                self.logger.debug(f"Found Fluent Bit package ID: {package_id}. Removing package receipt...")
+                logger.debug(f"Found Fluent Bit package ID: {package_id}. Removing package receipt...")
                 result = subprocess.run(
                     ["sudo", "pkgutil", "--forget", package_id],
                     check=True,
@@ -904,13 +904,13 @@ class FluentBitInstaller:
                     stderr=subprocess.PIPE,
                     text=True
                 )
-                self.logger.debug(f"Forget package receipt command output: {result.stdout.strip()}")
-                self.logger.info(f"Package receipt removed: {package_id}")
+                logger.debug(f"Forget package receipt command output: {result.stdout.strip()}")
+                logger.info(f"Package receipt removed: {package_id}")
             except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to remove package receipt {package_id}: {e.stderr.strip()}")
+                logger.error(f"Failed to remove package receipt {package_id}: {e.stderr.strip()}")
                 raise RuntimeError(f"Failed to remove package receipt {package_id}: {e.stderr.strip()}") from e
         else:
-            self.logger.warning("Fluent Bit package ID not found. Skipping pkgutil --forget step.")
+            logger.warning("Fluent Bit package ID not found. Skipping pkgutil --forget step.")
 
     def get_macos_package_id(self):
         """
@@ -928,22 +928,22 @@ class FluentBitInstaller:
             packages = result.stdout.splitlines()
             for pkg in packages:
                 if "fluent-bit" in pkg.lower():
-                    self.logger.debug(f"Identified Fluent Bit package ID: {pkg}")
+                    logger.debug(f"Identified Fluent Bit package ID: {pkg}")
                     return pkg
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to list packages with pkgutil: {e.stderr.strip()}")
+            logger.error(f"Failed to list packages with pkgutil: {e.stderr.strip()}")
         return None
 
     def uninstall_windows(self):
-        self.logger.debug("Attempting to uninstall Fluent Bit on Windows...")
+        logger.debug("Attempting to uninstall Fluent Bit on Windows...")
         if not winreg:
-            self.logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
+            logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
             return
 
         try:
             uninstall_command = self.get_windows_uninstall_command("Fluent Bit")
             if uninstall_command:
-                self.logger.debug(f"Found uninstall command: {uninstall_command}. Executing...")
+                logger.debug(f"Found uninstall command: {uninstall_command}. Executing...")
                 # Determine if it's an MSI or EXE installer
                 if "msiexec" in uninstall_command.lower():
                     # Extract the product code
@@ -955,26 +955,26 @@ class FluentBitInstaller:
                             break
                     if product_code:
                         uninstall_cmd = ["msiexec", "/x", product_code, "/quiet", "/norestart"]
-                        self.logger.debug(f"Running MSI uninstall command: {' '.join(uninstall_cmd)}")
+                        logger.debug(f"Running MSI uninstall command: {' '.join(uninstall_cmd)}")
                         subprocess.run(uninstall_cmd, check=True)
                     else:
-                        self.logger.error("Product code not found in uninstall command.")
+                        logger.error("Product code not found in uninstall command.")
                         return
                 else:
                     # Assume it's an EXE with silent uninstall flags
                     uninstall_cmd = uninstall_command.split()
                     if not any(flag in uninstall_cmd for flag in ["/S", "/silent", "/quiet"]):
                         uninstall_cmd.append("/S")
-                    self.logger.debug(f"Running EXE uninstall command: {' '.join(uninstall_cmd)}")
+                    logger.debug(f"Running EXE uninstall command: {' '.join(uninstall_cmd)}")
                     subprocess.run(uninstall_cmd, check=True)
-                self.logger.debug("Fluent Bit has been successfully uninstalled from Windows.")
+                logger.debug("Fluent Bit has been successfully uninstalled from Windows.")
             else:
-                self.logger.warning("Uninstall command for Fluent Bit not found in the registry.")
+                logger.warning("Uninstall command for Fluent Bit not found in the registry.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall Fluent Bit on Windows: {e}")
+            logger.error(f"Failed to uninstall Fluent Bit on Windows: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred during Fluent Bit uninstallation on Windows: {e}")
+            logger.error(f"An unexpected error occurred during Fluent Bit uninstallation on Windows: {e}")
             raise
 
     def get_windows_uninstall_command(self, product_name):
@@ -1005,7 +1005,7 @@ class FluentBitInstaller:
                     except FileNotFoundError:
                         continue
                     except Exception as e:
-                        self.logger.error(f"Error accessing registry key: {e}")
+                        logger.error(f"Error accessing registry key: {e}")
                         continue
         return None
 
@@ -1047,5 +1047,5 @@ class FluentBitInstaller:
                 # Implement version retrieval for Windows if needed
                 pass
         except Exception as e:
-            self.logger.error(f"Failed to check installed package version: {e}")
+            logger.error(f"Failed to check installed package version: {e}")
         return None

@@ -36,20 +36,23 @@ REPO_OWNER = "osquery"
 REPO_NAME = "osquery"
 
 
+logger = logging.getLogger("InstallationLogger")
+quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
+
 class OsqueryInstaller:
 
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
+        pass
 
     def get_latest_release(self):
         """
         Fetches the latest release from the specified GitHub repository.
         """
         url = f"{GITHUB_API_URL}/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-        self.logger.debug(f"Fetching latest release from {url}")
+        logger.debug(f"Fetching latest release from {url}")
         response = requests.get(url)
         if response.status_code != 200:
-            self.logger.error(f"Failed to fetch latest release: {response.status_code} {response.text}")
+            logger.error(f"Failed to fetch latest release: {response.status_code} {response.text}")
             sys.exit(1)
         return response.json()
 
@@ -78,11 +81,11 @@ class OsqueryInstaller:
             lower_name = name.lower()
 
             # Debugging print statement to track the filename
-            self.logger.debug(f"Processing asset: {name}")
+            logger.debug(f"Processing asset: {name}")
 
             # Skip debug symbol and debuginfo packages entirely
             if '-dbgsym' in lower_name or '-dbg' in lower_name or '-debuginfo' in lower_name:
-                self.logger.debug(f"Skipping debug/debuginfo package: {name}")
+                logger.debug(f"Skipping debug/debuginfo package: {name}")
                 continue
 
             # Linux main packages
@@ -90,38 +93,38 @@ class OsqueryInstaller:
                     lower_name.endswith('.rpm') or lower_name.endswith('.deb') or lower_name.endswith('.tar.gz')
             ):
                 distributions['linux']['main'].append({'name': name, 'url': download_url})
-                self.logger.debug(f"Asset {name} added to Linux main group.")
+                logger.debug(f"Asset {name} added to Linux main group.")
             # Windows main packages
             elif 'windows' in lower_name or name.endswith('.msi') or name.endswith('.exe'):
                 distributions['windows']['main'].append({'name': name, 'url': download_url})
-                self.logger.debug(f"Asset {name} added to Windows main group.")
+                logger.debug(f"Asset {name} added to Windows main group.")
             # macOS main packages
             elif 'macos' in lower_name or 'darwin' in lower_name or name.endswith('.pkg') or name.endswith('.dmg'):
                 distributions['macos']['main'].append({'name': name, 'url': download_url})
-                self.logger.debug(f"Asset {name} added to macOS main group.")
+                logger.debug(f"Asset {name} added to macOS main group.")
             # Source code files
             elif 'source code' in lower_name:
                 distributions['source'].append({'name': name, 'url': download_url})
-                self.logger.debug(f"Asset {name} added to Source group.")
+                logger.debug(f"Asset {name} added to Source group.")
             else:
                 # If it's a .tar.gz or .zip file and hasn't matched yet, consider it source code
                 if name.endswith('.tar.gz') or name.endswith('.zip'):
                     distributions['source'].append({'name': name, 'url': download_url})
-                    self.logger.debug(f"Asset {name} added to Source group.")
+                    logger.debug(f"Asset {name} added to Source group.")
                 else:
-                    self.logger.debug(f"Asset {name} did not match any category and was skipped.")
+                    logger.debug(f"Asset {name} did not match any category and was skipped.")
 
         # Print grouped distributions for validation
         for distro, files in distributions.items():
-            self.logger.debug(f"Distribution: {distro}")
+            logger.debug(f"Distribution: {distro}")
             if isinstance(files, dict):
                 for pkg_type, pkg_files in files.items():
-                    self.logger.debug(f"  - {pkg_type}:")
+                    logger.debug(f"  - {pkg_type}:")
                     for file in pkg_files:
-                        self.logger.debug(f"    - {file['name']}")
+                        logger.debug(f"    - {file['name']}")
             else:
                 for file in files:
-                    self.logger.debug(f"  - {file['name']}")
+                    logger.debug(f"  - {file['name']}")
 
         return distributions
 
@@ -133,16 +136,16 @@ class OsqueryInstaller:
         if os_system.startswith('linux'):
             distro_info = distro.id().lower()
             version = distro.major_version()
-            self.logger.debug(f"Detected Linux distribution: {distro_info} {version}")
+            logger.debug(f"Detected Linux distribution: {distro_info} {version}")
             return 'linux', distro_info, version
         elif os_system.startswith('darwin'):
-            self.logger.debug("Detected macOS.")
+            logger.debug("Detected macOS.")
             return 'macos', None, None
         elif os_system.startswith('windows'):
-            self.logger.debug("Detected Windows.")
+            logger.debug("Detected Windows.")
             return 'windows', None, None
         else:
-            self.logger.error(f"Unsupported operating system: {os_system}")
+            logger.error(f"Unsupported operating system: {os_system}")
             sys.exit(1)
 
     def select_asset(self, distribution_assets, distro_info=None, version=None):
@@ -159,11 +162,11 @@ class OsqueryInstaller:
             dict: Selected asset with 'name' and 'url' keys.
         """
         if not distribution_assets:
-            self.logger.error("No assets found for the detected distribution.")
+            logger.error("No assets found for the detected distribution.")
             sys.exit(1)
 
         for asset in distribution_assets:
-            self.logger.debug(f"Asset available: {asset}")
+            logger.debug(f"Asset available: {asset}")
 
         os_system = platform.system().lower()
         selected_asset = None
@@ -179,11 +182,11 @@ class OsqueryInstaller:
         is_debian_based = distro_info in debian_based_distros
         is_rpm_based = distro_info in rpm_based_distros
 
-        self.logger.debug(f"Operating System: {os_system}")
-        self.logger.debug(f"Distribution Info: {distro_info}")
-        self.logger.debug(f"System Architecture: {system_arch}")
-        self.logger.debug(f"Is Debian-Based: {is_debian_based}")
-        self.logger.debug(f"Is RPM-Based: {is_rpm_based}")
+        logger.debug(f"Operating System: {os_system}")
+        logger.debug(f"Distribution Info: {distro_info}")
+        logger.debug(f"System Architecture: {system_arch}")
+        logger.debug(f"Is Debian-Based: {is_debian_based}")
+        logger.debug(f"Is RPM-Based: {is_rpm_based}")
 
         # Prioritize asset selection based on OS type
         for asset in distribution_assets:
@@ -192,34 +195,34 @@ class OsqueryInstaller:
             # The debug packages are already skipped in the grouping function,
             # but we can add an extra check to be safe.
             if '-dbgsym' in name or '-dbg' in name or '-debuginfo' in name:
-                self.logger.debug(f"Skipping debug/debuginfo package: {name}")
+                logger.debug(f"Skipping debug/debuginfo package: {name}")
                 continue
 
             # macOS: prioritize .pkg files
             if os_system == 'darwin' and ('macos' in name or 'darwin' in name):
                 if system_arch in name and name.endswith('.pkg'):
                     selected_asset = asset
-                    self.logger.debug(f"Selected macOS pkg asset: {name}")
+                    logger.debug(f"Selected macOS pkg asset: {name}")
                     break
                 elif 'x86_64' in name and name.endswith('.pkg'):
                     selected_asset = asset
-                    self.logger.debug(f"Selected macOS x86_64 pkg asset: {name}")
+                    logger.debug(f"Selected macOS x86_64 pkg asset: {name}")
                 elif 'arm64' in name and name.endswith('.pkg'):
                     selected_asset = asset
-                    self.logger.debug(f"Selected macOS arm64 pkg asset: {name}")
+                    logger.debug(f"Selected macOS arm64 pkg asset: {name}")
 
             # Windows: prioritize .msi files
             elif os_system == 'windows':
                 if 'x86_64' in name or 'amd64' in name:
                     if name.endswith('.msi'):
                         selected_asset = asset
-                        self.logger.debug(f"Selected Windows MSI asset: {name}")
+                        logger.debug(f"Selected Windows MSI asset: {name}")
                         break
                     elif name.endswith('.exe'):
                         selected_asset = asset
-                        self.logger.debug(f"Selected Windows EXE asset: {name}")
+                        logger.debug(f"Selected Windows EXE asset: {name}")
                 elif 'arm64' in name:
-                    self.logger.debug(f"Skipping ARM64 Windows asset: {name}")
+                    logger.debug(f"Skipping ARM64 Windows asset: {name}")
 
             # Linux: prioritize based on distribution and architecture
             elif os_system == 'linux':
@@ -227,14 +230,14 @@ class OsqueryInstaller:
                 if is_debian_based and name.endswith('.deb'):
                     if system_arch in name or 'amd64' in name or 'x86_64' in name:
                         selected_asset = asset
-                        self.logger.debug(f"Selected Debian-based DEB asset: {name}")
+                        logger.debug(f"Selected Debian-based DEB asset: {name}")
                         break
 
                 # RPM-Based: prefer .rpm packages
                 elif is_rpm_based and name.endswith('.rpm'):
                     if system_arch in name or 'amd64' in name or 'x86_64' in name:
                         selected_asset = asset
-                        self.logger.debug(f"Selected RPM-based RPM asset: {name}")
+                        logger.debug(f"Selected RPM-based RPM asset: {name}")
                         break
 
         # Fallback: Select the first available main asset if no specific format is found
@@ -246,22 +249,22 @@ class OsqueryInstaller:
                 if os_system == 'linux':
                     if is_debian_based and name.endswith('.deb'):
                         selected_asset = asset
-                        self.logger.debug(f"Fallback selection: DEB asset for Debian-based distro: {name}")
+                        logger.debug(f"Fallback selection: DEB asset for Debian-based distro: {name}")
                         break
                     elif is_rpm_based and name.endswith('.rpm'):
                         selected_asset = asset
-                        self.logger.debug(f"Fallback selection: RPM asset for RPM-based distro: {name}")
+                        logger.debug(f"Fallback selection: RPM asset for RPM-based distro: {name}")
                         break
                 else:
                     selected_asset = asset
-                    self.logger.debug(f"Fallback selection: {name}")
+                    logger.debug(f"Fallback selection: {name}")
                     break
 
         if selected_asset:
-            self.logger.debug(f"Final selected asset: {selected_asset['name']}")
+            logger.debug(f"Final selected asset: {selected_asset['name']}")
             return selected_asset
         else:
-            self.logger.error("No suitable asset found for installation.")
+            logger.error("No suitable asset found for installation.")
             sys.exit(1)
 
     def download_asset(self, asset):
@@ -272,12 +275,12 @@ class OsqueryInstaller:
         download_dir.mkdir(parents=True, exist_ok=True)
         file_path = download_dir / asset['name']
 
-        self.logger.debug(f"Downloading {asset['name']} from {asset['url']} to {file_path}")
+        logger.debug(f"Downloading {asset['name']} from {asset['url']} to {file_path}")
         with requests.get(asset['url'], stream=True) as r:
             r.raise_for_status()
             with open(file_path, 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
-        self.logger.debug(f"Downloaded {asset['name']} successfully.")
+        logger.debug(f"Downloaded {asset['name']} successfully.")
         return file_path
 
     def extract_archive(self, file_path, extract_to):
@@ -290,15 +293,15 @@ class OsqueryInstaller:
         extract_to.mkdir(parents=True, exist_ok=True)
 
         if file_path.suffixes[-2:] == ['.tar', '.gz'] or file_path.suffix == '.tgz':
-            self.logger.debug(f"Extracting {file_path} to {extract_to}")
+            logger.debug(f"Extracting {file_path} to {extract_to}")
             with tarfile.open(file_path, 'r:gz') as tar:
                 tar.extractall(path=extract_to)
         elif file_path.suffix == '.zip':
-            self.logger.debug(f"Extracting {file_path} to {extract_to}")
+            logger.debug(f"Extracting {file_path} to {extract_to}")
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(path=extract_to)
         else:
-            self.logger.debug(f"No extraction needed for {file_path}")
+            logger.debug(f"No extraction needed for {file_path}")
 
     def get_installed_version(self, package_name):
         """
@@ -320,74 +323,74 @@ class OsqueryInstaller:
         """
         system = platform.system().lower()
         file_path = Path(file_path)
-        self.logger.debug(f"osquery package : {file_path}")
+        logger.debug(f"osquery package : {file_path}")
 
         try:
             if system == "linux":
                 if file_path.suffix == ".rpm":
                     package_name = "osquery"
-                    self.logger.debug(f"Checking if {package_name} is already installed...")
+                    logger.debug(f"Checking if {package_name} is already installed...")
 
                     installed_version = self.get_installed_version(package_name)
 
                     if installed_version:
                         rpm_version = file_path.stem.split('-')[1]
                         if installed_version == rpm_version:
-                            self.logger.debug(f"{package_name} version {installed_version} is already up-to-date.")
+                            logger.debug(f"{package_name} version {installed_version} is already up-to-date.")
                             return
                         else:
-                            self.logger.debug(f"{package_name} is already installed, updating from version {installed_version} to {rpm_version}.")
-                            self.logger.debug(f"Running command: sudo rpm -Uvh {file_path}")
+                            logger.debug(f"{package_name} is already installed, updating from version {installed_version} to {rpm_version}.")
+                            logger.debug(f"Running command: sudo rpm -Uvh {file_path}")
                             subprocess.run(["sudo", "rpm", "-Uvh", str(file_path)], check=True)
-                            self.logger.debug(f"Successfully updated {package_name} to version {rpm_version}.")
+                            logger.debug(f"Successfully updated {package_name} to version {rpm_version}.")
                     else:
-                        self.logger.debug(f"{package_name} is not installed, installing the package.")
-                        self.logger.debug(f"Running command: sudo rpm -ivh {file_path}")
+                        logger.debug(f"{package_name} is not installed, installing the package.")
+                        logger.debug(f"Running command: sudo rpm -ivh {file_path}")
                         subprocess.run(["sudo", "rpm", "-ivh", str(file_path)], check=True)
-                        self.logger.debug(f"Successfully installed {package_name}.")
+                        logger.debug(f"Successfully installed {package_name}.")
                 elif file_path.suffix == ".deb":
-                    self.logger.debug(f"Installing DEB package: {file_path}")
-                    self.logger.debug(f"Running command: sudo dpkg -i {file_path}")
+                    logger.debug(f"Installing DEB package: {file_path}")
+                    logger.debug(f"Running command: sudo dpkg -i {file_path}")
                     subprocess.run(["sudo", "dpkg", "-i", str(file_path)], check=True)
-                    self.logger.debug("Running command: sudo apt-get -f install")
+                    logger.debug("Running command: sudo apt-get -f install")
                     subprocess.run(["sudo", "apt-get", "-f", "install"], check=True)
-                    self.logger.debug(f"Successfully installed {file_path}.")
+                    logger.debug(f"Successfully installed {file_path}.")
                 else:
-                    self.logger.warning(f"Unsupported Linux package format: {file_path.suffix}")
+                    logger.warning(f"Unsupported Linux package format: {file_path.suffix}")
             elif system == "darwin":
-                self.logger.debug(f"file_path.suffix : {file_path.suffix}")
+                logger.debug(f"file_path.suffix : {file_path.suffix}")
                 if file_path.suffix == ".pkg":
-                    self.logger.debug(f"Installing PKG package: {file_path}")
-                    self.logger.debug(f"Running command: sudo installer -pkg {file_path} -target /")
+                    logger.debug(f"Installing PKG package: {file_path}")
+                    logger.debug(f"Running command: sudo installer -pkg {file_path} -target /")
                     subprocess.run(["sudo", "installer", "-pkg", str(file_path), "-target", "/"], check=True)
-                    self.logger.debug(f"Successfully installed {file_path}.")
+                    logger.debug(f"Successfully installed {file_path}.")
                 else:
-                    self.logger.warning(f"Unsupported macOS package format: {file_path.suffix}")
+                    logger.warning(f"Unsupported macOS package format: {file_path.suffix}")
             elif system == "windows":
                 if file_path.suffix == ".msi":
-                    self.logger.debug(f"Installing MSI package: {file_path}")
-                    self.logger.debug(f"Running command: msiexec /i {file_path} /quiet /norestart")
+                    logger.debug(f"Installing MSI package: {file_path}")
+                    logger.debug(f"Running command: msiexec /i {file_path} /quiet /norestart")
                     try:
                         subprocess.run(["msiexec", "/i", str(file_path), "/quiet", "/norestart"], check=True)
-                        self.logger.debug(f"Successfully installed {file_path}.")
+                        logger.debug(f"Successfully installed {file_path}.")
                     except subprocess.CalledProcessError as e:
-                        self.logger.error(f"Failed to install MSI package: {e}")
+                        logger.error(f"Failed to install MSI package: {e}")
                         raise
                 elif file_path.suffix == ".exe":
-                    self.logger.debug(f"Running executable installer: {file_path}")
-                    self.logger.debug(f"Running command: {file_path} /S")
+                    logger.debug(f"Running executable installer: {file_path}")
+                    logger.debug(f"Running command: {file_path} /S")
                     try:
                         subprocess.run([str(file_path), "/S"], check=True)
-                        self.logger.debug(f"Successfully installed {file_path}.")
+                        logger.debug(f"Successfully installed {file_path}.")
                     except subprocess.CalledProcessError as e:
-                        self.logger.error(f"Failed to install EXE package: {e}")
+                        logger.error(f"Failed to install EXE package: {e}")
                         raise
                 else:
-                    self.logger.warning(f"Unsupported Windows package format: {file_path.suffix}")
+                    logger.warning(f"Unsupported Windows package format: {file_path.suffix}")
                     sys.exit(1)
-            self.logger.info("osquery installation completed successfully.")
+            logger.info("osquery installation completed successfully.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Subprocess failed with error: {e}")
+            logger.error(f"Subprocess failed with error: {e}")
             sys.exit(1)
 
     def install(self, extract_dir=OSQUERY_EXTRACT_DIR):
@@ -398,7 +401,7 @@ class OsqueryInstaller:
         assets = latest_release.get('assets', [])
 
         if not assets:
-            self.logger.error("No assets found in the latest release.")
+            logger.error("No assets found in the latest release.")
             sys.exit(1)
 
         grouped_assets = self.group_assets_by_distribution(assets)
@@ -416,7 +419,7 @@ class OsqueryInstaller:
             distribution_assets = grouped_assets['windows']['main']
             selected_asset = self.select_asset(distribution_assets)
         else:
-            self.logger.error(f"Unsupported operating system: {os_type}")
+            logger.error(f"Unsupported operating system: {os_type}")
             sys.exit(1)
 
         downloaded_file = self.download_asset(selected_asset)
@@ -434,21 +437,21 @@ class OsqueryInstaller:
             if installer_file:
                 self.install_osquery(installer_file)
             else:
-                self.logger.warning("No installer file found after extraction.")
+                logger.warning("No installer file found after extraction.")
         else:
             # If it's an installer package, install directly
             self.install_osquery(downloaded_file)
 
-        self.logger.debug("osquery setup process completed successfully.")
-        self.logger.debug(f"Downloaded files are located in: {Path(downloaded_file).resolve()}")
-        self.logger.debug(f"Extracted files are located in: {Path(extract_dir).resolve()}")
+        logger.debug("osquery setup process completed successfully.")
+        logger.debug(f"Downloaded files are located in: {Path(downloaded_file).resolve()}")
+        logger.debug(f"Extracted files are located in: {Path(extract_dir).resolve()}")
 
     def configure_and_start(self):
         """
         Configures osquery based on the operating system.
         """
         os_system = platform.system().lower()
-        self.logger.debug(f"Detected operating system: {os_system}")
+        logger.debug(f"Detected operating system: {os_system}")
 
         try:
             if os_system == 'linux':
@@ -458,27 +461,27 @@ class OsqueryInstaller:
             elif os_system == 'windows':
                 self.configure_windows()
             else:
-                self.logger.error(f"Unsupported operating system: {os_system}")
+                logger.error(f"Unsupported operating system: {os_system}")
                 raise NotImplementedError("This installation script does not support the detected OS.")
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
-            self.logger.error(f"Error output: {e.stderr}")
+            logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            logger.error(f"Error output: {e.stderr}")
             raise
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            logger.error(f"An unexpected error occurred: {ex}")
             raise
 
-        self.logger.debug("osquery configuration and service start completed.")
+        logger.debug("osquery configuration and service start completed.")
 
     def log_subprocess_result(self, result):
         """
         Logs the output and errors from subprocess commands.
         """
         if result.stdout:
-            self.logger.debug(f"Subprocess output: {result.stdout}")
+            logger.debug(f"Subprocess output: {result.stdout}")
         if result.stderr:
-            self.logger.error(f"Subprocess error: {result.stderr}")
+            logger.error(f"Subprocess error: {result.stderr}")
 
     def configure_linux(self):
         # Linux-specific installation commands
@@ -488,7 +491,7 @@ class OsqueryInstaller:
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(['sudo', 'systemctl', 'start', 'osqueryd'],
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        self.logger.debug("osquery installed and started on Linux.")
+        logger.debug("osquery installed and started on Linux.")
 
     def configure_macos(self):
         # macOS-specific installation commands
@@ -500,7 +503,7 @@ class OsqueryInstaller:
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(['sudo', 'launchctl', 'enable', 'system/io.osquery.agent'],
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        self.logger.debug("osquery installed and started on macOS.")
+        logger.debug("osquery installed and started on macOS.")
 
     def get_service_state(self, service_name):
         """
@@ -522,7 +525,7 @@ class OsqueryInstaller:
                         return state_text.upper()
             return 'UNKNOWN'
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to query service {service_name}: {e}")
+            logger.error(f"Failed to query service {service_name}: {e}")
             return 'UNKNOWN'
 
     def configure_windows(self):
@@ -536,13 +539,13 @@ class OsqueryInstaller:
 
             # Handle configuration file
             if config_path.exists():
-                self.logger.debug(f"Config file already exists at {config_path}. No need to copy.")
+                logger.debug(f"Config file already exists at {config_path}. No need to copy.")
             else:
                 if example_config_path.exists():
                     shutil.copyfile(example_config_path, config_path)
-                    self.logger.debug(f"Copied osquery example config to {config_path}")
+                    logger.debug(f"Copied osquery example config to {config_path}")
                 else:
-                    self.logger.warning(
+                    logger.warning(
                         f"Example config file not found: {example_config_path}. Creating a default osquery.conf"
                     )
                     default_config = {
@@ -558,31 +561,31 @@ class OsqueryInstaller:
                     try:
                         with open(config_path, 'w') as f:
                             json.dump(default_config, f, indent=2)
-                        self.logger.debug(f"Created default osquery config at {config_path}")
+                        logger.debug(f"Created default osquery config at {config_path}")
                     except Exception as e:
-                        self.logger.error(f"Failed to create default osquery config: {e}")
+                        logger.error(f"Failed to create default osquery config: {e}")
                         raise
 
             # Check if the osqueryd service exists
             if self.service_exists(OSQUERY_SERVICE_NAME):
                 service_state = self.get_service_state(OSQUERY_SERVICE_NAME)
-                self.logger.debug(f"osqueryd service state: {service_state}")
+                logger.debug(f"osqueryd service state: {service_state}")
 
                 if service_state == 'RUNNING':
-                    self.logger.debug("osqueryd service is already running.")
+                    logger.debug("osqueryd service is already running.")
                 elif service_state in ['START_PENDING', 'STOP_PENDING']:
-                    self.logger.debug(f"osqueryd service is in state {service_state}. Waiting before attempting to start.")
+                    logger.debug(f"osqueryd service is in state {service_state}. Waiting before attempting to start.")
                     self.wait_for_service_state(OSQUERY_SERVICE_NAME, desired_states=['RUNNING'], timeout=30)
                 elif service_state == 'STOPPED':
-                    self.logger.debug("osqueryd service is stopped. Attempting to start.")
+                    logger.debug("osqueryd service is stopped. Attempting to start.")
                     self.start_service(OSQUERY_SERVICE_NAME)
                 else:
-                    self.logger.warning(f"osqueryd service is in an unexpected state: {service_state}")
+                    logger.warning(f"osqueryd service is in an unexpected state: {service_state}")
             else:
-                self.logger.info(f"osqueryd service does not exist. Creating service '{OSQUERY_SERVICE_NAME}'.")
+                logger.info(f"osqueryd service does not exist. Creating service '{OSQUERY_SERVICE_NAME}'.")
                 osqueryd_path = self.locate_osqueryd_executable()
                 if not osqueryd_path:
-                    self.logger.error("osqueryd executable not found. Cannot create the service.")
+                    logger.error("osqueryd executable not found. Cannot create the service.")
                     raise FileNotFoundError("osqueryd executable not found.")
 
                 self.create_service(OSQUERY_SERVICE_NAME, osqueryd_path)
@@ -592,14 +595,14 @@ class OsqueryInstaller:
             self.enable_event_log_support()
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
-            self.logger.error(f"Error output: {e.stderr}")
+            logger.error(f"Command '{' '.join(e.cmd)}' failed with exit status {e.returncode}")
+            logger.error(f"Error output: {e.stderr}")
             raise
         except FileNotFoundError as ex:
-            self.logger.error(f"An expected file was not found: {ex}")
+            logger.error(f"An expected file was not found: {ex}")
             raise
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred: {ex}")
+            logger.error(f"An unexpected error occurred: {ex}")
             raise
 
     def wait_for_service_state(self, service_name, desired_states, timeout=30, interval=5):
@@ -610,18 +613,18 @@ class OsqueryInstaller:
         while time.time() - start_time < timeout:
             state = self.get_service_state(service_name)
             if state in desired_states:
-                self.logger.debug(f"Service '{service_name}' reached desired state: {state}")
+                logger.debug(f"Service '{service_name}' reached desired state: {state}")
                 return
-            self.logger.debug(f"Waiting for service '{service_name}' to reach states {desired_states}. Current state: {state}")
+            logger.debug(f"Waiting for service '{service_name}' to reach states {desired_states}. Current state: {state}")
             time.sleep(interval)
-        self.logger.error(f"Service '{service_name}' did not reach desired states {desired_states} within {timeout} seconds.")
+        logger.error(f"Service '{service_name}' did not reach desired states {desired_states} within {timeout} seconds.")
         raise TimeoutError(f"Service '{service_name}' did not reach desired states {desired_states} within {timeout} seconds.")
 
     def start_service(self, service_name):
         """
         Attempts to start a Windows service.
         """
-        self.logger.debug(f"Starting service '{service_name}'...")
+        logger.debug(f"Starting service '{service_name}'...")
         result = subprocess.run(
             ['sc.exe', 'start', service_name],
             stdout=subprocess.PIPE,
@@ -629,15 +632,15 @@ class OsqueryInstaller:
             text=True
         )
         if result.returncode == 0:
-            self.logger.debug(f"Service '{service_name}' started successfully.")
+            logger.debug(f"Service '{service_name}' started successfully.")
             self.wait_for_service_state(service_name, desired_states=['RUNNING'], timeout=30)
         else:
-            self.logger.error(f"Failed to start service '{service_name}'. Error: {result.stderr.strip()}")
+            logger.error(f"Failed to start service '{service_name}'. Error: {result.stderr.strip()}")
             if '1060' in result.stderr or 'does not exist' in result.stderr.lower():
-                self.logger.warning(f"Service '{service_name}' does not exist. Attempting to create the service.")
+                logger.warning(f"Service '{service_name}' does not exist. Attempting to create the service.")
                 osqueryd_path = self.locate_osqueryd_executable()
                 if not osqueryd_path:
-                    self.logger.error("osqueryd executable not found. Cannot create the service.")
+                    logger.error("osqueryd executable not found. Cannot create the service.")
                     raise FileNotFoundError("osqueryd executable not found.")
 
                 self.create_service(service_name, osqueryd_path)
@@ -661,10 +664,10 @@ class OsqueryInstaller:
             text=True
         )
         if result.returncode == 0:
-            self.logger.debug(f"Service '{service_name}' exists.")
+            logger.debug(f"Service '{service_name}' exists.")
             return True
         else:
-            self.logger.debug(f"Service '{service_name}' does not exist. Error: {result.stderr.strip()}")
+            logger.debug(f"Service '{service_name}' does not exist. Error: {result.stderr.strip()}")
             return False
 
     def create_service(self, service_name, executable_path):
@@ -676,7 +679,7 @@ class OsqueryInstaller:
             'binPath=', f'"{executable_path}"',
             'start=', 'auto'
         ]
-        self.logger.debug(f"Creating service with command: {' '.join(create_cmd)}")
+        logger.debug(f"Creating service with command: {' '.join(create_cmd)}")
         result = subprocess.run(
             create_cmd,
             stdout=subprocess.PIPE,
@@ -684,9 +687,9 @@ class OsqueryInstaller:
             text=True
         )
         if result.returncode == 0:
-            self.logger.debug(f"Service '{service_name}' created successfully.")
+            logger.debug(f"Service '{service_name}' created successfully.")
         else:
-            self.logger.error(f"Failed to create service '{service_name}'. Error: {result.stderr.strip()}")
+            logger.error(f"Failed to create service '{service_name}'. Error: {result.stderr.strip()}")
             raise subprocess.CalledProcessError(
                 result.returncode,
                 create_cmd,
@@ -700,7 +703,7 @@ class OsqueryInstaller:
         """
         wevtutil_path = r'C:\Program Files\osquery\osquery.man'
         if Path(wevtutil_path).exists():
-            self.logger.debug(f"Enabling Windows Event Log support using {wevtutil_path}...")
+            logger.debug(f"Enabling Windows Event Log support using {wevtutil_path}...")
             result = subprocess.run(
                 ['wevtutil', 'im', wevtutil_path],
                 stdout=subprocess.PIPE,
@@ -708,9 +711,9 @@ class OsqueryInstaller:
                 text=True
             )
             if result.returncode == 0:
-                self.logger.debug("Windows Event Log support enabled for osquery.")
+                logger.debug("Windows Event Log support enabled for osquery.")
             else:
-                self.logger.error(f"Failed to enable Windows Event Log support: {result.stderr.strip()}")
+                logger.error(f"Failed to enable Windows Event Log support: {result.stderr.strip()}")
                 raise subprocess.CalledProcessError(
                     result.returncode,
                     ['wevtutil', 'im', wevtutil_path],
@@ -718,7 +721,7 @@ class OsqueryInstaller:
                     stderr=result.stderr
                 )
         else:
-            self.logger.warning(f"Windows Event Log support file not found: {wevtutil_path}")
+            logger.warning(f"Windows Event Log support file not found: {wevtutil_path}")
 
     def locate_osqueryd_executable(self):
         """
@@ -732,16 +735,16 @@ class OsqueryInstaller:
 
         for path in possible_paths:
             if path.exists():
-                self.logger.debug(f"osqueryd executable found at: {path}")
+                logger.debug(f"osqueryd executable found at: {path}")
                 return str(path)
-        self.logger.error("osqueryd executable not found in standard installation directories.")
+        logger.error("osqueryd executable not found in standard installation directories.")
         return None
 
     def uninstall(self):
         """
         Orchestrates the uninstallation of osquery based on the operating system.
         """
-        self.logger.debug("Starting osquery uninstallation process...")
+        logger.debug("Starting osquery uninstallation process...")
         system = platform.system().lower()
 
         if system == "linux":
@@ -751,7 +754,7 @@ class OsqueryInstaller:
         elif system == "windows":
             self.uninstall_windows()
         else:
-            self.logger.error(f"Unsupported OS for uninstallation: {system}")
+            logger.error(f"Unsupported OS for uninstallation: {system}")
             sys.exit(1)
 
     def stop_and_disable_service_linux(self):
@@ -759,7 +762,7 @@ class OsqueryInstaller:
         Stops and disables the osqueryd service on Linux. It first checks if the service exists,
         then attempts to stop and disable it. Detailed logging is provided for each step.
         """
-        self.logger.debug("Checking if osqueryd service exists before attempting to stop and disable it.")
+        logger.debug("Checking if osqueryd service exists before attempting to stop and disable it.")
 
         # Check if osqueryd service exists
         try:
@@ -769,60 +772,60 @@ class OsqueryInstaller:
                                            stdout=subprocess.PIPE,
                                            stderr=subprocess.PIPE)
             if result_status.returncode != 0:
-                self.logger.warning(f"osqueryd service is not loaded or does not exist: {result_status.stderr}")
+                logger.warning(f"osqueryd service is not loaded or does not exist: {result_status.stderr}")
                 return  # If the service doesn't exist, no need to proceed further
             else:
-                self.logger.debug("osqueryd service exists. Proceeding with stop and disable steps.")
+                logger.debug("osqueryd service exists. Proceeding with stop and disable steps.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to check osqueryd service status: {e.stderr}")
+            logger.error(f"Failed to check osqueryd service status: {e.stderr}")
             raise
 
         # Stop the service
         try:
-            self.logger.debug("Stopping osqueryd service...")
+            logger.debug("Stopping osqueryd service...")
             result_stop = subprocess.run(['sudo', 'systemctl', 'stop', OSQUERY_SERVICE_NAME],
                                          check=False,
                                          text=True,
                                          stdout=subprocess.PIPE,
                                          stderr=subprocess.PIPE)
             if result_stop.returncode == 0:
-                self.logger.debug("osqueryd service stopped successfully.")
+                logger.debug("osqueryd service stopped successfully.")
             else:
-                self.logger.warning(f"Failed to stop osqueryd service: {result_stop.stderr}")
+                logger.warning(f"Failed to stop osqueryd service: {result_stop.stderr}")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error while stopping osqueryd service: {e.stderr}")
+            logger.error(f"Error while stopping osqueryd service: {e.stderr}")
             raise
 
         # Disable the service
         try:
-            self.logger.debug("Disabling osqueryd service...")
+            logger.debug("Disabling osqueryd service...")
             result_disable = subprocess.run(['sudo', 'systemctl', 'disable', OSQUERY_SERVICE_NAME],
                                             check=False,
                                             text=True,
                                             stdout=subprocess.PIPE,
                                             stderr=subprocess.PIPE)
             if result_disable.returncode == 0:
-                self.logger.debug("osqueryd service disabled successfully.")
+                logger.debug("osqueryd service disabled successfully.")
             else:
-                self.logger.warning(f"Failed to disable osqueryd service: {result_disable.stderr}")
+                logger.warning(f"Failed to disable osqueryd service: {result_disable.stderr}")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error while disabling osqueryd service: {e.stderr}")
+            logger.error(f"Error while disabling osqueryd service: {e.stderr}")
             raise
 
         # Reload systemd to ensure changes are applied
         try:
-            self.logger.debug("Reloading systemd daemon to apply changes...")
+            logger.debug("Reloading systemd daemon to apply changes...")
             result_reload = subprocess.run(['sudo', 'systemctl', 'daemon-reload'],
                                            check=False,
                                            text=True,
                                            stdout=subprocess.PIPE,
                                            stderr=subprocess.PIPE)
             if result_reload.returncode == 0:
-                self.logger.debug("Systemd daemon reloaded successfully.")
+                logger.debug("Systemd daemon reloaded successfully.")
             else:
-                self.logger.warning(f"Failed to reload systemd daemon: {result_reload.stderr}")
+                logger.warning(f"Failed to reload systemd daemon: {result_reload.stderr}")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error while reloading systemd daemon: {e.stderr}")
+            logger.error(f"Error while reloading systemd daemon: {e.stderr}")
             raise
 
     def uninstall_linux(self):
@@ -831,7 +834,7 @@ class OsqueryInstaller:
         """
         package_name = "osquery"
         distro_id = distro.id().lower()
-        self.logger.debug(f"Detected Linux distribution: {distro_id}")
+        logger.debug(f"Detected Linux distribution: {distro_id}")
 
         self.stop_and_disable_service_linux()
 
@@ -841,23 +844,23 @@ class OsqueryInstaller:
             elif distro_id in ["fedora", "centos", "rhel", "rocky", "almalinux"]:
                 self.uninstall_with_dnf_yum(package_name, distro_id)
             else:
-                self.logger.warning(f"Unsupported or unrecognized Linux distribution: {distro_id}. Attempting to use rpm or dpkg directly.")
+                logger.warning(f"Unsupported or unrecognized Linux distribution: {distro_id}. Attempting to use rpm or dpkg directly.")
                 self.uninstall_with_rpm_or_dpkg(package_name)
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall osquery: {e}")
+            logger.error(f"Failed to uninstall osquery: {e}")
             raise
 
     def uninstall_with_apt(self, package_name):
         """
         Uninstalls osquery using apt on Debian-based systems.
         """
-        self.logger.debug(f"Using apt to uninstall {package_name}...")
+        logger.debug(f"Using apt to uninstall {package_name}...")
         try:
             subprocess.run(["sudo", "apt-get", "remove", "--purge", "-y", package_name], check=True)
             subprocess.run(["sudo", "apt-get", "autoremove", "-y"], check=True)
-            self.logger.debug(f"{package_name} has been successfully uninstalled using apt.")
+            logger.debug(f"{package_name} has been successfully uninstalled using apt.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"apt failed to uninstall {package_name}: {e}")
+            logger.error(f"apt failed to uninstall {package_name}: {e}")
             raise
 
     def uninstall_with_dnf_yum(self, package_name, distro_id):
@@ -865,12 +868,12 @@ class OsqueryInstaller:
         Uninstalls osquery using dnf or yum on Fedora-based systems.
         """
         package_manager = "dnf" if distro_id in ["fedora", "rocky", "almalinux"] else "yum"
-        self.logger.debug(f"Using {package_manager} to uninstall {package_name}...")
+        logger.debug(f"Using {package_manager} to uninstall {package_name}...")
         try:
             subprocess.run(["sudo", package_manager, "remove", "-y", package_name], check=True)
-            self.logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
+            logger.debug(f"{package_name} has been successfully uninstalled using {package_manager}.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
+            logger.error(f"{package_manager} failed to uninstall {package_name}: {e}")
             raise
 
     def uninstall_with_rpm_or_dpkg(self, package_name):
@@ -878,37 +881,37 @@ class OsqueryInstaller:
         Fallback method to uninstall osquery using rpm or dpkg directly.
         """
         if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
-            self.logger.debug(f"Using dpkg to purge {package_name}...")
+            logger.debug(f"Using dpkg to purge {package_name}...")
             subprocess.run(["sudo", "dpkg", "--purge", package_name], check=True)
         elif Path('/usr/bin/rpm').exists() or Path('/bin/rpm').exists():
-            self.logger.debug(f"Using rpm to erase {package_name}...")
+            logger.debug(f"Using rpm to erase {package_name}...")
             subprocess.run(["sudo", "rpm", "-e", package_name], check=True)
         else:
-            self.logger.error("Neither dpkg nor rpm package managers are available on this system.")
+            logger.error("Neither dpkg nor rpm package managers are available on this system.")
             raise EnvironmentError("No suitable package manager found for uninstallation.")
 
-        self.logger.debug(f"{package_name} has been successfully uninstalled using rpm/dpkg.")
+        logger.debug(f"{package_name} has been successfully uninstalled using rpm/dpkg.")
 
     def stop_and_disable_service_macos(self):
         """
         Stops and disables the osqueryd service on macOS.
         """
-        self.logger.debug("Stopping and disabling osquery agent on macOS.")
+        logger.debug("Stopping and disabling osquery agent on macOS.")
         try:
             subprocess.run(['sudo', 'launchctl', 'unload', '/Library/LaunchDaemons/io.osquery.agent.plist'],
                            check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             subprocess.run(['sudo', 'launchctl', 'disable', 'system/io.osquery.agent'],
                            check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.logger.debug("osquery agent service stopped and disabled on macOS.")
+            logger.debug("osquery agent service stopped and disabled on macOS.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to stop or disable osquery agent on macOS: {e.stderr}")
+            logger.error(f"Failed to stop or disable osquery agent on macOS: {e.stderr}")
             raise
 
     def uninstall_macos(self):
         """
         Uninstalls osquery on macOS by removing package receipts, binaries, configuration files, and launch daemons.
         """
-        self.logger.debug("Attempting to uninstall osquery on macOS...")
+        logger.debug("Attempting to uninstall osquery on macOS...")
 
         self.stop_and_disable_service_macos()
 
@@ -916,21 +919,21 @@ class OsqueryInstaller:
             # Step 1: Remove the package receipt using pkgutil
             package_id = self.get_macos_package_id()
             if package_id:
-                self.logger.debug(f"Found osquery package ID: {package_id}. Removing package receipt...")
+                logger.debug(f"Found osquery package ID: {package_id}. Removing package receipt...")
                 subprocess.run(["sudo", "pkgutil", "--forget", package_id], check=True)
-                self.logger.debug("Package receipt removed.")
+                logger.debug("Package receipt removed.")
             else:
-                self.logger.warning("osquery package ID not found. Skipping pkgutil --forget step.")
+                logger.warning("osquery package ID not found. Skipping pkgutil --forget step.")
 
             # Step 2: Stop and remove LaunchDaemon
             launch_daemon = "/Library/LaunchDaemons/io.osquery.agent.plist"
             if Path(launch_daemon).exists():
                 try:
-                    self.logger.debug(f"Unloading LaunchDaemon: {launch_daemon}")
+                    logger.debug(f"Unloading LaunchDaemon: {launch_daemon}")
                     subprocess.run(["sudo", "launchctl", "unload", launch_daemon], check=True)
-                    self.logger.debug(f"Removed LaunchDaemon: {launch_daemon}")
+                    logger.debug(f"Removed LaunchDaemon: {launch_daemon}")
                 except subprocess.CalledProcessError as e:
-                    self.logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e}")
+                    logger.error(f"Failed to unload LaunchDaemon {launch_daemon}: {e}")
 
             # Step 3: Remove installed files and directories
             installed_paths = ["/usr/local/bin/osqueryd", "/usr/local/bin/osqueryi", "/usr/local/etc/osquery/",
@@ -943,24 +946,24 @@ class OsqueryInstaller:
                     if path.is_file() or path.is_symlink():
                         try:
                             path.unlink()
-                            self.logger.debug(f"Removed file: {path}")
+                            logger.debug(f"Removed file: {path}")
                         except Exception as e:
-                            self.logger.error(f"Failed to remove file {path}: {e}")
+                            logger.error(f"Failed to remove file {path}: {e}")
                     elif path.is_dir():
                         try:
                             shutil.rmtree(path)
-                            self.logger.debug(f"Removed directory: {path}")
+                            logger.debug(f"Removed directory: {path}")
                         except Exception as e:
-                            self.logger.error(f"Failed to remove directory {path}: {e}")
+                            logger.error(f"Failed to remove directory {path}: {e}")
                 else:
-                    self.logger.debug(f"Path does not exist, skipping: {path}")
+                    logger.debug(f"Path does not exist, skipping: {path}")
 
-            self.logger.debug("osquery has been successfully uninstalled from macOS.")
+            logger.debug("osquery has been successfully uninstalled from macOS.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall osquery on macOS: {e}")
+            logger.error(f"Failed to uninstall osquery on macOS: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred during osquery uninstallation on macOS: {e}")
+            logger.error(f"An unexpected error occurred during osquery uninstallation on macOS: {e}")
             raise
 
     def stop_and_disable_service_windows(self):
@@ -972,7 +975,7 @@ class OsqueryInstaller:
         try:
             # Check if the service exists
             check_cmd = f'sc query {service_name}'
-            self.logger.debug(f"Checking if {service_name} service exists with command: {check_cmd}")
+            logger.debug(f"Checking if {service_name} service exists with command: {check_cmd}")
             check_result = subprocess.run(check_cmd,
                                           shell=True,
                                           stdout=subprocess.PIPE,
@@ -980,12 +983,12 @@ class OsqueryInstaller:
                                           text=True)
 
             if "FAILED" in check_result.stdout or "does not exist" in check_result.stdout:
-                self.logger.debug(f"{service_name} service does not exist. No need to stop or delete.")
+                logger.debug(f"{service_name} service does not exist. No need to stop or delete.")
                 return
 
             # Stop the service
             stop_cmd = f'sc stop {service_name}'
-            self.logger.debug(f"Stopping {service_name} service with command: {stop_cmd}")
+            logger.debug(f"Stopping {service_name} service with command: {stop_cmd}")
             stop_result = subprocess.run(stop_cmd,
                                          shell=True,
                                          stdout=subprocess.PIPE,
@@ -993,16 +996,16 @@ class OsqueryInstaller:
                                          text=True)
 
             if stop_result.returncode == 0:
-                self.logger.debug(f"{service_name} service stopped successfully.")
+                logger.debug(f"{service_name} service stopped successfully.")
             else:
-                self.logger.error(f"Failed to stop {service_name} service: {stop_result.stderr}")
+                logger.error(f"Failed to stop {service_name} service: {stop_result.stderr}")
 
             # Wait a few seconds to ensure the service stops
             time.sleep(5)
 
             # Delete the service
             delete_cmd = f'sc delete {service_name}'
-            self.logger.debug(f"Deleting {service_name} service with command: {delete_cmd}")
+            logger.debug(f"Deleting {service_name} service with command: {delete_cmd}")
             delete_result = subprocess.run(delete_cmd,
                                            shell=True,
                                            stdout=subprocess.PIPE,
@@ -1010,26 +1013,26 @@ class OsqueryInstaller:
                                            text=True)
 
             if delete_result.returncode == 0:
-                self.logger.debug(f"{service_name} service deleted successfully.")
+                logger.debug(f"{service_name} service deleted successfully.")
             else:
-                self.logger.error(f"Failed to delete {service_name} service: {delete_result.stderr}")
+                logger.error(f"Failed to delete {service_name} service: {delete_result.stderr}")
                 raise RuntimeError(f"Failed to delete {service_name} service.")
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
-            self.logger.error(f"Error output: {e.stderr}")
+            logger.error(f"Command '{e.cmd}' failed with exit status {e.returncode}")
+            logger.error(f"Error output: {e.stderr}")
             raise
         except Exception as ex:
-            self.logger.error(f"An unexpected error occurred while stopping and deleting {service_name}: {ex}")
+            logger.error(f"An unexpected error occurred while stopping and deleting {service_name}: {ex}")
             raise
 
     def uninstall_windows(self):
         """
         Uninstalls osquery on Windows by executing the uninstall command from the registry.
         """
-        self.logger.debug("Attempting to uninstall osquery on Windows...")
+        logger.debug("Attempting to uninstall osquery on Windows...")
         if not winreg:
-            self.logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
+            logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
             return
 
         self.stop_and_disable_service_windows()
@@ -1037,7 +1040,7 @@ class OsqueryInstaller:
         try:
             uninstall_command = self.get_windows_uninstall_command(OSQUERY_PRODUCT_NAME)
             if uninstall_command:
-                self.logger.debug(f"Found uninstall command: {uninstall_command}. Executing...")
+                logger.debug(f"Found uninstall command: {uninstall_command}. Executing...")
                 # Determine if it's an MSI or EXE installer
                 if "msiexec" in uninstall_command.lower():
                     # Extract the product code
@@ -1049,10 +1052,10 @@ class OsqueryInstaller:
                             break
                     if product_code:
                         uninstall_cmd = ["msiexec", "/x", product_code, "/quiet", "/norestart"]
-                        self.logger.debug(f"Running MSI uninstall command: {' '.join(uninstall_cmd)}")
+                        logger.debug(f"Running MSI uninstall command: {' '.join(uninstall_cmd)}")
                         subprocess.run(uninstall_cmd, check=True)
                     else:
-                        self.logger.error("Product code not found in uninstall command.")
+                        logger.error("Product code not found in uninstall command.")
                         return
                 else:
                     # Assume it's an EXE with silent uninstall flags
@@ -1060,16 +1063,16 @@ class OsqueryInstaller:
                     # Append silent flags if not already present
                     if not any(flag in uninstall_cmd for flag in ["/S", "/silent", "/quiet"]):
                         uninstall_cmd.append("/S")
-                    self.logger.debug(f"Running EXE uninstall command: {' '.join(uninstall_cmd)}")
+                    logger.debug(f"Running EXE uninstall command: {' '.join(uninstall_cmd)}")
                     subprocess.run(uninstall_cmd, check=True)
-                self.logger.debug("osquery has been successfully uninstalled from Windows.")
+                logger.debug("osquery has been successfully uninstalled from Windows.")
             else:
-                self.logger.warning("Uninstall command for osquery not found in the registry.")
+                logger.warning("Uninstall command for osquery not found in the registry.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to uninstall osquery on Windows: {e}")
+            logger.error(f"Failed to uninstall osquery on Windows: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred during osquery uninstallation on Windows: {e}")
+            logger.error(f"An unexpected error occurred during osquery uninstallation on Windows: {e}")
             raise
 
     def get_macos_package_id(self):
@@ -1088,7 +1091,7 @@ class OsqueryInstaller:
                 if "osquery" in pkg.lower():
                     return pkg
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to list packages with pkgutil: {e}")
+            logger.error(f"Failed to list packages with pkgutil: {e}")
         return None
 
     def get_windows_uninstall_command(self, product_name):
@@ -1117,6 +1120,6 @@ class OsqueryInstaller:
                     except FileNotFoundError:
                         continue
                     except Exception as e:
-                        self.logger.error(f"Error accessing registry key: {e}")
+                        logger.error(f"Error accessing registry key: {e}")
                         continue
         return None
