@@ -134,13 +134,26 @@ $repoUrl = "https://github.com/securityspectrum/ss-install-scripts.git"
 $repoDir = "ss-install-scripts"
 
 if (Test-Path $repoDir) {
-    Log "INFO" "Repository already cloned. Pulling the latest changes..."
+    Log "INFO" "Repository already cloned. Pulling latest changes..."
     Set-Location $repoDir
-    git pull
+    if ($Verbose) {
+        git pull
+    }
+    else {
+        # Suppress detailed output in non-verbose mode.
+        $null = git pull 2>&1
+    }
 } else {
-    Log "INFO" "Cloning the repository..."
-    git clone $repoUrl
+    Log "INFO" "Cloning repository 'ss-install-scripts'..."
+    if ($Verbose) {
+        git clone $repoUrl
+    }
+    else {
+        # Use git's quiet mode to reduce output.
+        git clone -q $repoUrl | Out-Null
+    }
     Set-Location $repoDir
+    Log "INFO" "Repository cloned successfully."
 }
 
 # Check if requirements.txt exists

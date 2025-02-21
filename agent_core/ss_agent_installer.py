@@ -31,9 +31,10 @@ SS_AGENT_ASSET_PATTERNS = {"linux": "ss-agent-linux", "darwin": "ss-agent-darwin
 
 class SSAgentInstaller:
 
-    def __init__(self):
+    def __init__(self, logger=None, quiet_install=False):
         self.repo = SS_AGENT_REPO
-        self.logger = logging.getLogger(__name__)
+        self.logger = logger or logging.getLogger(__name__)
+        self.quiet_install = quiet_install
 
     def get_latest_release_url(self):
         url = f"https://api.github.com/repos/{self.repo}/releases"
@@ -445,10 +446,12 @@ class SSAgentInstaller:
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE,
                                     text=True)
+            if result.returncode == 1060:
+                self.logger.debug(f"Service '{service_name}' not found (error 1060). Nothing to stop or delete.")
+                return
             service_exists = f"SERVICE_NAME: {service_name}" in result.stdout
-
             if not service_exists:
-                self.logger.warning(f"Service '{service_name}' not found. Nothing to stop or delete.")
+                self.logger.debug(f"Service '{service_name}' not found. Nothing to stop or delete.")
                 return
 
             # Step 2: Stop the service if it's running
@@ -542,15 +545,16 @@ class SSAgentInstaller:
     def stop_windows_service(self, service_name):
         try:
             # Step 1: Check if the service exists
-            self.logger.debug(f"Checking if the '{service_name}' service exists before stopping and deleting...")
             result = subprocess.run(['sc.exe', 'query', service_name],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True)
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True)
+            if result.returncode == 1060:
+                self.logger.debug(f"Service '{service_name}' not found (error 1060). Nothing to stop or delete.")
+                return
             service_exists = 'SERVICE_NAME: ' + service_name in result.stdout
-
             if not service_exists:
-                self.logger.warning(f"Service '{service_name}' not found. Nothing to stop or delete.")
+                self.logger.debug(f"Service '{service_name}' not found. Nothing to stop or delete.")
                 return
 
             # Step 2: Stop the service if it's running

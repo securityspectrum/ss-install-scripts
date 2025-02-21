@@ -49,7 +49,7 @@ def install(args, logger):
         SystemUtility.elevate_privileges()
 
         # Example usage of your classes:
-        ss_agent_installer = SSAgentInstaller()
+        ss_agent_installer = SSAgentInstaller(logger=logger, quiet_install=quiet_install)
         ss_agent_installer.stop_all_services_ss_agent()
         ss_agent_installer.stop_ss_agent()
 
@@ -115,7 +115,7 @@ def uninstall(args, logger):
         confirm_uninstallation(logger)
         logger.info("Starting ss-agent uninstallation process...")
 
-        ss_agent_installer = SSAgentInstaller()
+        ss_agent_installer = SSAgentInstaller(logger=logger, quiet_install=quiet_install)
         ss_agent_installer.stop_all_services_ss_agent()
         ss_agent_installer.stop_and_delete_windows_service()
         ss_agent_installer.stop_ss_agent()

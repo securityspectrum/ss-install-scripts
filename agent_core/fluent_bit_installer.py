@@ -32,7 +32,6 @@ class FluentBitInstaller:
 
     def __init__(self, logger=None, quiet_install=False):
         self.repo = FLUENT_BIT_REPO
-        self.logger = logging.getLogger(__name__)
         self.logger = logger or logging.getLogger(__name__)
         self.quiet_install = quiet_install
 
