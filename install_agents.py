@@ -37,7 +37,8 @@ def get_platform_specific_paths():
 
 def confirm_uninstallation():
     logger = logging.getLogger("InstallationLogger")
-    confirmation = input("Are you sure you want to uninstall SS Agent? [y/N]: ").strip().lower()
+    confirmation = input(
+        "Are you sure you want to uninstall all services (fluent-bit, zeek, osquery, ss-agent, ...) ? [y/N]: ").strip().lower()
     if confirmation != 'y':
         logger.info("Uninstallation aborted by the user.")
         sys.exit(0)
