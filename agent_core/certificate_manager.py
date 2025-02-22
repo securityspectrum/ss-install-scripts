@@ -113,7 +113,7 @@ class CertificateManager:
         except requests.exceptions.RequestException as e:
             logger.error(f"An unexpected error occurred while downloading certificates: {e}")
             raise RuntimeError("An unexpected error occurred while downloading certificates.") from e
-        logger.debug("Successfully downloaded the certificate ZIP file from the server.")
+        logger.info("Successfully downloaded the certificate ZIP file from the server.")
         zip_path = Path("agent-service-certificates.zip")
         try:
             with zip_path.open("wb") as f:
@@ -126,6 +126,7 @@ class CertificateManager:
             logger.error(f"An unexpected error occurred while saving the ZIP file: {e}")
             raise RuntimeError("Failed to save certificates due to an unexpected error.") from e
         self.extract_certificates(zip_path)
+        logger.info("Successfully extracted certificates from the ZIP file.")
 
     def extract_certificates(self, zip_path):
         logger.debug("Extracting certificate ZIP file to a temporary directory...")

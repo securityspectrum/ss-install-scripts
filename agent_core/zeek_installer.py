@@ -123,6 +123,7 @@ class ZeekInstaller:
         - Administrative privileges are required for Windows installations.
         - No root privileges should be used for macOS installations.
         """
+        logger.debug("Checking script privileges for OS: %s", self.os_system)
         if self.os_system == 'windows':
             # Check if the user has administrative privileges on Windows
             try:
@@ -189,6 +190,7 @@ class ZeekInstaller:
         """
         Checks if Zeek is already installed and exits if it is.
         """
+        logger.debug("Checking if zeek is already installed...")
         if self.command_exists('zeek'):
             zeek_version = self.run_command(['zeek', '--version'], capture_output=True).splitlines()[0]
             logger.debug(f"Zeek is already installed: {zeek_version}")
@@ -1257,8 +1259,7 @@ make install
         """
         Configures Zeek after installation, handling both Linux and macOS, and detects the correct network interface.
         """
-        logger.debug("Configuring Zeek...")
-
+        logger.info("Configuring zeek")
         # Find the Zeek installation path
         zeek_install_dir = self.find_zeek_installation()
         if not zeek_install_dir:
@@ -1353,7 +1354,7 @@ make install
         """
         Deploys Zeek using zeekctl and handles any errors.
         """
-        logger.debug("Deploying Zeek...")
+        logger.info("deploying zeek...")
 
         try:
             # Capture the output of the zeekctl deploy command
@@ -1361,10 +1362,9 @@ make install
 
             # Log the output
             logger.debug("Zeek deploy output:\n" + result)
-            print("Zeek deploy output:\n" + result)
 
             # Check the status after deployment
-            logger.debug("Checking Zeek status...")
+            logger.debug("Checking zeek status...")
             status_output = self.run_command([str(zeekctl_path), 'status'],
                                              capture_output=True,
                                              check=True,
@@ -1611,7 +1611,6 @@ make install
         # Check privileges based on OS
         self.check_privileges()
 
-        logger.info("Checking if Zeek is already installed...")
         if self.check_zeek_installed():
             self.configure_zeek()
         self.detect_distro_and_install()
@@ -1620,7 +1619,7 @@ make install
         """
         Orchestrates the uninstallation of Zeek based on the detected OS and distribution.
         """
-        logger.info("Starting Zeek uninstallation process...")
+        logger.info("Uninstalling Zeek...")
 
         if self.os_system == "darwin":
             self.uninstall_zeek_macos()
@@ -2099,6 +2098,7 @@ make install
         Configures and starts the Zeek service based on the operating system.
         Only executes on Windows platforms.
         """
+        logger.info("Configuring and starting Zeek service...")
         os_system = platform.system().lower()
         if os_system == 'windows':
             SystemUtility.request_admin_access()  # Assumes a method to elevate privileges if not already admin

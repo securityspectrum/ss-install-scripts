@@ -32,6 +32,7 @@ class SecretsManager:
         jwt_token = os.getenv("JWT_TOKEN")
         master_key = os.getenv("MASTER_KEY")
 
+        logger.info("Loading secrets from environment variables...")
         if not all([org_key, api_access_key, api_secret_key, jwt_token, master_key]):
             raise EnvironmentError("One or more required environment variables are missing for secrets.")
 
@@ -43,6 +44,8 @@ class SecretsManager:
             ContextName.JWT_TOKEN: jwt_token,
             ContextName.MASTER_KEY: master_key
         }
+
+        logger.info("Secrets loaded successfully.")
 
         return self.context
 

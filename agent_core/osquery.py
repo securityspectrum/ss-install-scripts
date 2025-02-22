@@ -397,6 +397,7 @@ class OsqueryInstaller:
         """
         Orchestrates the download, extraction, and installation of osquery.
         """
+        logger.info("installing osquery..")
         latest_release = self.get_latest_release()
         assets = latest_release.get('assets', [])
 
@@ -442,7 +443,7 @@ class OsqueryInstaller:
             # If it's an installer package, install directly
             self.install_osquery(downloaded_file)
 
-        logger.debug("osquery setup process completed successfully.")
+        logger.info("osquery setup process completed successfully.")
         logger.debug(f"Downloaded files are located in: {Path(downloaded_file).resolve()}")
         logger.debug(f"Extracted files are located in: {Path(extract_dir).resolve()}")
 
@@ -451,8 +452,7 @@ class OsqueryInstaller:
         Configures osquery based on the operating system.
         """
         os_system = platform.system().lower()
-        logger.debug(f"Detected operating system: {os_system}")
-
+        logger.info(f"configuring osquery for OS: {os_system}..")
         try:
             if os_system == 'linux':
                 self.configure_linux()
@@ -471,8 +471,7 @@ class OsqueryInstaller:
         except Exception as ex:
             logger.error(f"An unexpected error occurred: {ex}")
             raise
-
-        logger.debug("osquery configuration and service start completed.")
+        logger.info("osquery configuration completed successfully.")
 
     def log_subprocess_result(self, result):
         """
@@ -491,7 +490,7 @@ class OsqueryInstaller:
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(['sudo', 'systemctl', 'start', 'osqueryd'],
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        logger.debug("osquery installed and started on Linux.")
+        logger.info("osquery installed and started on Linux.")
 
     def configure_macos(self):
         # macOS-specific installation commands
@@ -503,7 +502,7 @@ class OsqueryInstaller:
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(['sudo', 'launchctl', 'enable', 'system/io.osquery.agent'],
                        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        logger.debug("osquery installed and started on macOS.")
+        logger.info("osquery installed and started on macOS.")
 
     def get_service_state(self, service_name):
         """
@@ -582,7 +581,7 @@ class OsqueryInstaller:
                 else:
                     logger.warning(f"osqueryd service is in an unexpected state: {service_state}")
             else:
-                logger.info(f"osqueryd service does not exist. Creating service '{OSQUERY_SERVICE_NAME}'.")
+                logger.debug(f"osqueryd service does not exist. Creating service '{OSQUERY_SERVICE_NAME}'.")
                 osqueryd_path = self.locate_osqueryd_executable()
                 if not osqueryd_path:
                     logger.error("osqueryd executable not found. Cannot create the service.")
@@ -624,7 +623,7 @@ class OsqueryInstaller:
         """
         Attempts to start a Windows service.
         """
-        logger.debug(f"Starting service '{service_name}'...")
+        logger.info(f"Starting service '{service_name}'...")
         result = subprocess.run(
             ['sc.exe', 'start', service_name],
             stdout=subprocess.PIPE,
@@ -744,7 +743,7 @@ class OsqueryInstaller:
         """
         Orchestrates the uninstallation of osquery based on the operating system.
         """
-        logger.debug("Starting osquery uninstallation process...")
+        logger.info("Uninstalling osquery...")
         system = platform.system().lower()
 
         if system == "linux":

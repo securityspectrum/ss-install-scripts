@@ -25,7 +25,7 @@ class SSAgentConfigurator:
         """
         Configures the ss-agent by generating a config.json from a template.
         """
-        logger.debug(f"Configuring ss-agent using template: {template_path}")
+        logger.info(f"Configuring ss-agent using template: {template_path}")
         try:
             with open(template_path) as f:
                 template = Template(f.read())

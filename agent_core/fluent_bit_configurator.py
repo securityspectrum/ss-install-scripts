@@ -61,7 +61,7 @@ class FluentBitConfigurator:
         return response.json()
 
     def configure_fluent_bit(self, api_url, context):
-        logger.debug("Configuring Fluent Bit...")
+        logger.info("Configuring fluent-bit...")
         hostname = platform.node()
 
         # Fetch configuration data
@@ -188,7 +188,7 @@ class FluentBitConfigurator:
             logger.error(f"Error during post-configuration steps: {e}")
             return
 
-        logger.info("Fluent Bit configuration successfully generated and applied.")
+        logger.info("fluent-bit configuration successfully generated and applied.")
 
     def download_and_extract_fluent_bit_certificates(self, api_url, context, config_data, certs_path: Path):
         temp_certs_path = Path(tempfile.mkdtemp())

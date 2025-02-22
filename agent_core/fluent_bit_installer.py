@@ -152,6 +152,7 @@ class FluentBitInstaller:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
     def install(self):
+        logger.info("Installing fluent-bit...")
         try:
             release_urls = self.get_latest_release_url()
             categorized_assets = self.categorize_assets(release_urls)
@@ -163,7 +164,7 @@ class FluentBitInstaller:
                 raise ValueError("No suitable asset found for your OS/distribution.")
 
             asset_name, download_url = selected_asset
-            logger.debug(f"Selected asset: {asset_name} from {download_url}")
+            logger.info(f"Selected asset: {asset_name} from {download_url}")
 
             dest_path = get_temp_file_path(asset_name)
 
@@ -177,7 +178,7 @@ class FluentBitInstaller:
             logger.debug(f"Installing {asset_name}...")
             self.run_installation_command(dest_path)
 
-            logger.debug("Installation complete.")
+            logger.info("fluent-bit has been successfully installed.")
 
             # Attempt to delete the file
             try:
@@ -440,7 +441,7 @@ class FluentBitInstaller:
         Configures Fluent Bit based on the operating system and enables/starts the service.
         """
         os_system = platform.system().lower()
-        logger.debug(f"Detected operating system: {os_system}")
+        logger.debug(f"configuring fluent-bit for OS: {os_system}")
 
         try:
             if os_system == 'linux':
@@ -461,7 +462,7 @@ class FluentBitInstaller:
             logger.error(f"An unexpected error occurred: {ex}")
             raise
 
-        logger.debug("Fluent Bit configuration and service start completed.")
+        logger.info("Fluent Bit configuration and service start completed.")
 
     def configure_linux(self):
         try:
@@ -706,7 +707,7 @@ class FluentBitInstaller:
             raise
 
     def uninstall(self):
-        logger.debug("Uninstalling Fluent Bit...")
+        logger.info("Uninstalling fluent-bit...")
         system = platform.system().lower()
 
         if system == "linux":

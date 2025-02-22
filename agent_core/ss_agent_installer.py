@@ -79,6 +79,8 @@ class SSAgentInstaller:
 
         system = platform.system().lower()
 
+        logger.info(f"Installing ss-agent {asset_name}..")
+
         # Determine the appropriate download directory based on the OS
         if system == "linux":
             dest_path = DOWNLOAD_DIR_LINUX / asset_name
@@ -99,7 +101,7 @@ class SSAgentInstaller:
 
         #self.setup_systemd_service(final_executable_path)
 
-        logger.debug("Installation complete.")
+        logger.info("Installation completed for ss-agent.")
 
     def download_binary(self, download_url, dest_path=None):
         # Expand the ~ to the user's home directory
@@ -186,6 +188,7 @@ class SSAgentInstaller:
 
     def enable_and_start(self, executable_path):
         system = platform.system().lower()
+        logger.info(f"Enabling and starting the service: {executable_path} for {system}..")
         if system == 'linux':
             self.setup_systemd_service(executable_path)
         elif system == 'darwin':
@@ -733,7 +736,7 @@ class SSAgentInstaller:
         """
         Orchestrates the uninstallation of the SS Agent based on the operating system.
         """
-        logger.info("Starting ss-agent uninstallation process...")
+        logger.info("Uninstalling the ss-agent..")
         system = platform.system().lower()
 
         if system == "linux":

@@ -76,7 +76,6 @@ def install(args):
 
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
         cert_manager.download_and_extract_certificates(context[ContextName.JWT_TOKEN])
-        logger.debug("Certificate downloaded and extracted successfully.")
 
         if current_os == "windows":
             npcap_installer = NpcapInstaller(download_url=NPCAP_URL_WINDOWS)
@@ -101,11 +100,9 @@ def install(args):
         zeek_installer.install()
         zeek_installer.configure_and_start_windows()
 
-        logger.info("Starting osquery setup...")
         osquery_installer = OsqueryInstaller()
         osquery_installer.install(extract_dir=OSQUERY_EXTRACT_DIR)
         osquery_installer.configure_and_start()
-        logger.info("osquery setup completed successfully.")
 
         final_executable_path = ss_agent_installer.determine_executable_installation_path()
         ss_agent_installer.enable_and_start(final_executable_path)
@@ -122,7 +119,7 @@ def uninstall(args):
     quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
     try:
         confirm_uninstallation()
-        logger.info("Starting ss-agent uninstallation process...")
+        logger.info("Starting uninstallation process for all services.")
 
         ss_agent_installer = SSAgentInstaller()
         ss_agent_installer.stop_all_services_ss_agent()

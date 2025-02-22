@@ -224,33 +224,20 @@ install_python_and_modules() {
         else
             SELECTED_PYTHON=$(command -v python3)
             PYTHON_VERSION=$("$SELECTED_PYTHON" --version 2>&1 | awk '{print $2}')
-            log "INFO" "Detected python3 version: $PYTHON_VERSION"
-
             if version_ge "$PYTHON_VERSION" "3.8"; then
-                log "INFO" "Python3 version is sufficient: $PYTHON_VERSION"
-                # Ensure venv and pip are available
+                log "INFO" "Detected python3 version: $PYTHON_VERSION (ok)"
                 if ! "$SELECTED_PYTHON" -m venv -h &> /dev/null || ! "$SELECTED_PYTHON" -m pip -V &> /dev/null; then
-                    log "INFO" "Required Python modules not available. Installing..."
+                    log "INFO" "Required Python modules not available. Installing Python3 and modules..."
                     install_python_on_linux
-                else
-                    log "INFO" "venv and pip modules are available."
                 fi
             else
-                log "INFO" "Python3 version is below 3.8 ($PYTHON_VERSION). Installing a newer version..."
+                log "INFO" "Detected python3 version: $PYTHON_VERSION (requires at least 3.8)"
                 install_python_on_linux
             fi
         fi
     else
         error_exit "Unsupported operating system: $OSTYPE"
     fi
-
-    # Verify Python installation
-    if [ -z "${SELECTED_PYTHON:-}" ]; then
-        error_exit "Python installation failed."
-    fi
-
-    # Print Python version for verification
-    "$SELECTED_PYTHON" --version
 }
 
 install_python_and_modules
@@ -297,11 +284,18 @@ if [ -d "$REPO_DIR" ]; then
         error_exit "Failed to pull latest changes from repository."
     fi
 else
-    log "INFO" "Cloning the repository..."
-    if ! git clone "$REPO_URL"; then
-        error_exit "Failed to clone repository."
+    log "INFO" "Cloning the repository from $REPO_URL"
+    if [ "$VERBOSE" = true ]; then
+        if ! git clone "$REPO_URL"; then
+            error_exit "Failed to clone repository."
+        fi
+    else
+        if ! git clone "$REPO_URL" > /dev/null 2>&1; then
+            error_exit "Failed to clone repository."
+        fi
     fi
     cd "$REPO_DIR"
+    log "INFO" "Repository cloned successfully from $REPO_URL"
 fi
 
 # Navigate to the scripts directory
@@ -313,10 +307,10 @@ if [ ! -f requirements.txt ]; then
 fi
 
 # Install requirements (use $PIP_QUIET)
-log "INFO" "Installing Python dependencies..."
+log "INFO" "Installing Python packages from requirements.txt..."
 pip install $PIP_QUIET -r requirements.txt
 if [ $? -ne 0 ]; then
-    error_exit "Failed to install dependencies."
+    error_exit "Failed to install packages."
 fi
 
 # Run the Python script with the selected action
@@ -332,7 +326,6 @@ if [ -f "install_agents.py" ]; then
                 log "ERROR" "Environment variable $var is not set."
                 exit 1
             else
-                # Only show "var is set" if VERBOSE=true (i.e. LOG_LEVEL=DEBUG)
                 if [ "$VERBOSE" = true ]; then
                     log "INFO" "$var is set."
                 fi
@@ -340,7 +333,6 @@ if [ -f "install_agents.py" ]; then
         done
     fi
 
-    # Use the determined LOG_LEVEL for the Python script
     python install_agents.py --log-level "$LOG_LEVEL" --"$ACTION"
     if [ $? -ne 0 ]; then
         error_exit "Failed to run install_agents.py."
