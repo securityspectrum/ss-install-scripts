@@ -67,7 +67,7 @@ class ZeekInstaller:
                 sys.exit(1)
 
     def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None, require_root=False,
-                    quiet=None, use_quiet_flag=False):
+                    quiet=None):
         """
         Executes a system command with optional quiet behavior and root privileges.
 
@@ -79,15 +79,10 @@ class ZeekInstaller:
             input_data (str): Input data for the command.
             require_root (bool): Prepend 'sudo' if not running as root.
             quiet (bool): If None, falls back to global quiet_install.
-            use_quiet_flag (bool): If True and quiet mode is enabled, append a built‑in quiet flag
-                                   to commands that support it (e.g. '--quiet' for rpm, '-qq' for apt).
 
         Returns:
             str or bool: Captured stdout (if capture_output=True) or True on success.
         """
-        # Determine quiet mode.
-        if quiet is None:
-            quiet = quiet_install
 
         # Prepend 'sudo' if root privileges are required.
         if require_root and os.geteuid() != 0:
@@ -98,12 +93,13 @@ class ZeekInstaller:
             command = ' '.join(command)
 
         # Optionally add built-in quiet flags if supported.
-        if use_quiet_flag and quiet:
+        if quiet:
             if isinstance(command, list):
                 cmd_name = command[0]
                 quiet_option = None
                 # Map command names to their quiet flags.
-                quiet_flags = {'rpm': '--quiet', 'apt': '-qq', 'apt-get': '-qq', 'curl': '-s', 'dnf': '-q'}
+                quiet_flags = {'rpm': '--quiet', 'apt': '-qq', 'apt-get': '-qq', 'curl': '-s', 'dnf': '-q',
+                               'zypper': '--quiet'}
                 if cmd_name in quiet_flags:
                     quiet_option = quiet_flags[cmd_name]
                 if quiet_option and quiet_option not in command:
@@ -215,7 +211,7 @@ class ZeekInstaller:
         """
         logger.debug("Checking if zeek is already installed...")
         if self.command_exists('zeek'):
-            zeek_version = self.run_command(['zeek', '--version'], capture_output=True).splitlines()[0]
+            zeek_version = self.run_command(['zeek', '--version'], capture_output=True, quiet=quiet_install).splitlines()[0]
             logger.debug(f"Zeek is already installed: {zeek_version}")
             return True
         else:
@@ -356,16 +352,16 @@ class ZeekInstaller:
         try:
             if self.os_id in ['ubuntu', 'debian'] or 'debian' in self.os_like:
                 self.run_command(['apt', 'install', '-y', 'apt-transport-https', 'curl', 'gnupg', 'lsb-release'],
-                                 use_quiet_flag=True)
+                                 quiet=quiet_install)
             elif self.os_id in ['centos', 'rhel'] or 'rhel' in self.os_like:
                 self.run_command(['yum', 'install', '-y', 'epel-release', 'curl', 'gnupg'],
-                                 use_quiet_flag=True)
+                                 quiet=quiet_install)
             elif self.os_id == 'fedora':
                 self.run_command(['dnf', 'install', '-y', 'curl', 'redhat-lsb-core', 'gnupg'],
-                                 use_quiet_flag=True)
+                                 quiet=quiet_install)
             elif self.os_id in ['opensuse', 'sles'] or 'suse' in self.os_like:
                 self.run_command(['zypper', 'install', '-y', 'curl', 'lsb-release', 'gnupg'],
-                                 use_quiet_flag=True)
+                                 quiet=quiet_install)
             else:
                 logger.error("Unsupported distribution for installing utilities.")
                 sys.exit(1)
@@ -378,11 +374,11 @@ class ZeekInstaller:
         """
         Installs Zeek on Ubuntu reliably with minimal system-wide updates.
         """
-        logger.debug("Detected Ubuntu. Proceeding with Zeek installation...")
+        logger.info("Installing Zeek for network monitoring...")
         self.install_utilities()
 
         # Detect Ubuntu release version
-        distro_version = self.run_command(['lsb_release', '-rs'], capture_output=True).strip()
+        distro_version = self.run_command(['lsb_release', '-rs'], capture_output=True, quiet=quiet_install).strip()
         logger.debug(f"Ubuntu version detected: {distro_version}")
 
         # Ensure universe repository is enabled (needed for some dependencies, such as libmaxminddb-dev)
@@ -391,7 +387,7 @@ class ZeekInstaller:
 
         # Update package lists after enabling universe
         logger.debug("Updating package lists after enabling universe repository...")
-        self.run_command(['apt', 'update'], use_quiet_flag=True)
+        self.run_command(['apt', 'update'], quiet=quiet_install)
 
         # Prepare to add Zeek repository
         gpg_key_url = f"https://download.opensuse.org/repositories/security:zeek/xUbuntu_{distro_version}/Release.key"
@@ -404,19 +400,19 @@ class ZeekInstaller:
         # Download the GPG key
         logger.debug(f"Downloading Zeek GPG key from {gpg_key_url}")
         gpg_key_data = self.run_command(['curl', '-fsSL', gpg_key_url],
-                                        capture_output=True, use_quiet_flag=True)
+                                        capture_output=True, quiet=quiet_install)
         # Write key to a temporary file
         with open('/tmp/Release.key', 'wb') as key_file:
             key_file.write(gpg_key_data.encode('utf-8'))
 
         # Dearmor and store the GPG key
         logger.debug("Storing the GPG key...")
-        self.run_command(['gpg', '--batch', '--yes', '--dearmor', '-o', keyring_path, '/tmp/Release.key'])
+        self.run_command(['gpg', '--batch', '--yes', '--dearmor', '-o', keyring_path, '/tmp/Release.key'], quiet=quiet_install)
 
         # Add the Zeek repository
         repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/xUbuntu_{distro_version}/ /"
         logger.debug(f"Adding Zeek repository: {repo_entry}")
-        self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'])
+        self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'], quiet=quiet_install)
 
         # Option 1: Update all package lists (safer, ensures all dependencies can be found)
         # logger.debug("Updating package lists with new Zeek repository...")
@@ -427,26 +423,26 @@ class ZeekInstaller:
         # Useful if you don't want to refresh all package indices system-wide
         logger.debug("Updating only the Zeek repository lists...")
         self.run_command(['apt', 'update', '-o', 'Dir::Etc::sourcelist="sources.list.d/zeek.list"', '-o',
-            'APT::Get::List-Cleanup="0"'])
+            'APT::Get::List-Cleanup="0"'], quiet=quiet_install)
 
         # Fix any broken dependencies if present
         logger.debug("Attempting to fix any broken dependencies before installation...")
-        self.run_command(['apt', '--fix-broken', 'install', '-y'])
+        self.run_command(['apt', '--fix-broken', 'install', '-y'], quiet=quiet_install)
 
         # Attempt to install Zeek and Zeekctl
         logger.debug("Installing Zeek and Zeekctl...")
         try:
-            self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
+            self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'], quiet=quiet_install)
             logger.debug("Zeek installed successfully via apt.")
         except Exception as e:
             logger.error(f"Package installation failed: {e}. Attempting to fix broken packages and retry...")
 
             # Fix broken packages if any
-            self.run_command(['apt', '--fix-broken', 'install', '-y'])
+            self.run_command(['apt', '--fix-broken', 'install', '-y'], quiet=quiet_install)
 
             # Retry installation once
             try:
-                self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
+                self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'], quiet=quiet_install)
                 logger.debug("Zeek installed successfully on retry.")
             except Exception as e2:
                 logger.error(f"Second attempt to install Zeek failed: {e2}. Falling back to source installation.")
@@ -463,7 +459,7 @@ class ZeekInstaller:
         self.install_utilities()
 
         # Clean up the distro version to avoid issues with minor version numbers
-        distro_version = self.run_command(['lsb_release', '-rs'], capture_output=True).strip().split('.')[0]
+        distro_version = self.run_command(['lsb_release', '-rs'], capture_output=True, quiet=quiet_install).strip().split('.')[0]
         logger.debug(f"Configuring repository for Debian {distro_version}...")
 
         try:
@@ -473,28 +469,28 @@ class ZeekInstaller:
 
             # Download and store the GPG key
             logger.debug(f"Downloading GPG key from {gpg_key_url}...")
-            gpg_key_data = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
+            gpg_key_data = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True, quiet=quiet_install)
 
             # Store the GPG key using gpg
             logger.debug(f"Storing GPG key at {keyring_path}...")
             with open('/tmp/zeek_release.key', 'wb') as key_file:
                 key_file.write(gpg_key_data.encode('utf-8'))
 
-            self.run_command(['gpg', '--dearmor', '-o', keyring_path, '/tmp/zeek_release.key'])
+            self.run_command(['gpg', '--dearmor', '-o', keyring_path, '/tmp/zeek_release.key'], quiet=quiet_install)
 
             # Add Zeek repository
             repo_entry = f"deb [signed-by={keyring_path}] http://download.opensuse.org/repositories/security:/zeek/Debian_{distro_version}/ /"
             logger.debug(f"Adding Zeek repository to /etc/apt/sources.list.d/zeek.list...")
-            self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'])
+            self.run_command(['bash', '-c', f'echo "{repo_entry}" > /etc/apt/sources.list.d/zeek.list'], quiet=quiet_install)
 
             # Update only the Zeek repository
             logger.debug("Updating the Zeek repository...")
             self.run_command(['apt', 'update', '-o', f'Dir::Etc::sourcelist="sources.list.d/zeek.list"', '-o',
-                              'APT::Get::List-Cleanup="0"'])
+                              'APT::Get::List-Cleanup="0"'], quiet=quiet_install)
 
             # Install Zeek and Zeekctl without updating other packages
             logger.debug("Installing Zeek and Zeekctl...")
-            self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'])
+            self.run_command(['apt', 'install', '-y', 'zeek', 'zeekctl'], quiet=quiet_install)
             logger.debug("Zeek installed successfully via apt.")
 
         except Exception as e:
@@ -529,9 +525,9 @@ class ZeekInstaller:
         except Exception as e:
             logger.debug("Zeek package not found in default repositories. Adding Zeek OBS repository...")
             try:
-                fedora_version = self.run_command(['rpm', '-E', '%fedora'], capture_output=True)
+                fedora_version = self.run_command(['rpm', '-E', '%fedora'], capture_output=True, quiet=quiet_install)
                 gpg_key_url = f"https://download.opensuse.org/repositories/security:/zeek/Fedora_{fedora_version}/repodata/repomd.xml.key"
-                self.run_command(['rpm', '--import', gpg_key_url])
+                self.run_command(['rpm', '--import', gpg_key_url], quiet=quiet_install)
 
                 # Add Zeek repository
                 zeek_repo_content = f"""[zeek]
@@ -546,12 +542,12 @@ class ZeekInstaller:
                     repo_file.write(zeek_repo_content)
 
                 # Clean and refresh the Zeek repository only
-                self.run_command(['dnf', 'clean', 'metadata', '--disablerepo="*"', '--enablerepo="zeek"'])
-                self.run_command(['dnf', 'makecache', '--disablerepo="*"', '--enablerepo="zeek"'])
+                self.run_command(['dnf', 'clean', 'metadata', '--disablerepo="*"', '--enablerepo="zeek"'], quiet=quiet_install)
+                self.run_command(['dnf', 'makecache', '--disablerepo="*"', '--enablerepo="zeek"'], quiet=quiet_install)
 
                 # Install Zeek and Zeekctl from the Zeek repository only
                 self.run_command(['dnf', 'install', '-y', '--disablerepo="*"', '--enablerepo="zeek"', 'zeek',
-                                  'zeekctl'])
+                                  'zeekctl'], quiet=quiet_install)
 
                 logger.debug("Zeek installed successfully via added repository.")
 
@@ -570,13 +566,13 @@ class ZeekInstaller:
         try:
             # Import Zeek GPG key for RHEL 8
             gpg_key_url = "https://download.opensuse.org/repositories/security:zeek/RHEL_8/repodata/repomd.xml.key"
-            self.run_command(['rpm', '--import', gpg_key_url])
+            self.run_command(['rpm', '--import', gpg_key_url], quiet=quiet_install)
             # Add Zeek repository for RHEL 8
             zeek_repo_url = "https://download.opensuse.org/repositories/security:zeek/RHEL_8/security:zeek.repo"
-            self.run_command(['curl', '-fsSL', '-o', '/etc/yum.repos.d/zeek.repo', zeek_repo_url])
+            self.run_command(['curl', '-fsSL', '-o', '/etc/yum.repos.d/zeek.repo', zeek_repo_url], quiet=quiet_install)
             # Update system and install Zeek
-            self.run_command(['yum', 'update', '-y'])
-            self.run_command(['yum', 'install', '-y', 'zeek', 'zeekctl'])
+            self.run_command(['yum', 'update', '-y'], quiet=quiet_install)
+            self.run_command(['yum', 'install', '-y', 'zeek', 'zeekctl'], quiet=quiet_install)
             logger.debug("Zeek installed successfully via yum.")
         except Exception as e:
             logger.error("Package installation failed, attempting to install from source...")
@@ -589,7 +585,7 @@ class ZeekInstaller:
         Determines CentOS/RHEL version and installs Zeek accordingly.
         """
         logger.debug("Detected CentOS/RHEL. Proceeding with installation...")
-        os_version = self.run_command(['rpm', '-E', '%rhel'], capture_output=True)
+        os_version = self.run_command(['rpm', '-E', '%rhel'], capture_output=True, quiet=quiet_install)
         if os_version == '8':
             self.install_zeek_rhel8()
         else:
@@ -604,7 +600,7 @@ class ZeekInstaller:
         self.install_utilities()
         # Determine if it's CentOS 8 Stream or CentOS 8
         try:
-            centos_version_info = self.run_command(['centos-release'], capture_output=True)
+            centos_version_info = self.run_command(['centos-release'], capture_output=True, quiet=quiet_install)
             if 'Stream' in centos_version_info:
                 logger.debug("Installing Zeek on CentOS 8 Stream...")
                 # Import Zeek GPG key for CentOS 8 Stream
@@ -671,7 +667,7 @@ class ZeekInstaller:
         """
         Returns appropriate repository URLs based on the detected openSUSE version.
         """
-        os_release = self.run_command(['cat', '/etc/os-release'], capture_output=True)
+        os_release = self.run_command(['cat', '/etc/os-release'], capture_output=True, quiet=quiet_install)
         name = ""
         version_id = ""
 
@@ -705,23 +701,23 @@ class ZeekInstaller:
         # Add Zeek and Python repositories
         logger.debug("Adding the Zeek and Python repositories.")
         self.run_command(['zypper', '--non-interactive', 'addrepo', '--check', '--refresh', '--name',
-                          'Zeek Security Repository', repo_urls['zeek'], 'security_zeek'])
+                          'Zeek Security Repository', repo_urls['zeek'], 'security_zeek'], quiet=quiet_install)
         self.run_command(['zypper', '--non-interactive', 'addrepo', '--check', '--refresh', '--name',
-                          'devel:languages:python', repo_urls['python'], 'devel_languages_python'])
+                          'devel:languages:python', repo_urls['python'], 'devel_languages_python'], quiet=quiet_install)
 
         # Refresh the repositories with auto-import of GPG keys
         self.run_command(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'refresh', 'security_zeek',
-                          'devel_languages_python'])
+                          'devel_languages_python'], quiet=quiet_install)
 
         # Install the required packages
         logger.debug("Installing required packages via zypper.")
         try:
             # Use the correct package name here
             self.run_command(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'install', '-y',
-                              'python3-GitPython'])
+                              'python3-GitPython'], quiet=quiet_install)
             logger.debug("python3-GitPython installed successfully.")
             self.run_command(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'install', '--no-recommends',
-                              '-y', 'zeek'])
+                              '-y', 'zeek'], quiet=quiet_install)
             logger.debug("Zeek installed successfully via zypper.")
         except Exception as e:
             logger.error(f"Failed to install Zeek from repository: {e}")
@@ -737,7 +733,7 @@ class ZeekInstaller:
         logger.debug("Installing build dependencies...")
         self.run_command(['zypper', '--non-interactive', 'install', '-y', 'make', 'cmake', 'flex', 'bison',
                           'libpcap-devel', 'libopenssl-devel', 'python3', 'python3-devel', 'swig', 'zlib-devel', 'wget',
-                          'tar', 'gzip', 'gcc10', 'gcc10-c++'])
+                          'tar', 'gzip', 'gcc10', 'gcc10-c++'], quiet=quiet_install)
 
         # Set GCC to version 10
         logger.debug("Setting GCC to version 10...")
@@ -949,7 +945,7 @@ class ZeekInstaller:
         zeek_version = self.zeek_version
         # Create non-root user if not exists
         try:
-            self.run_command(['id', self.builder_user], capture_output=True)
+            self.run_command(['id', self.builder_user], capture_output=True, quiet=quiet_install)
             logger.debug(f"User '{self.builder_user}' already exists.")
         except subprocess.CalledProcessError:
             logger.debug(f"Creating user '{self.builder_user}'...")
@@ -1226,7 +1222,7 @@ make install
         logger.debug("Updating node.cfg for macOS...")
         try:
             # Extract the interface used by the default route
-            route_output = self.run_command(['route', 'get', 'default'], capture_output=True)
+            route_output = self.run_command(['route', 'get', 'default'], capture_output=True, quiet=quiet_install)
             interface = None
             for line in route_output.splitlines():
                 if 'interface:' in line:
@@ -1315,7 +1311,7 @@ make install
         try:
             if platform.system().lower() == 'darwin':
                 # macOS uses 'route' to detect the default network interface
-                route_output = self.run_command(['route', 'get', 'default'], capture_output=True)
+                route_output = self.run_command(['route', 'get', 'default'], capture_output=True, quiet=quiet_install)
                 interface = None
                 for line in route_output.splitlines():
                     if 'interface:' in line:
@@ -1323,7 +1319,7 @@ make install
                         break
             else:
                 # Linux uses 'ip route' to detect the default network interface
-                ip_output = self.run_command(['ip', 'route'], capture_output=True)
+                ip_output = self.run_command(['ip', 'route'], capture_output=True, quiet=quiet_install)
                 interface = next((line.split()[line.split().index('dev') + 1] for line in ip_output.splitlines() if
                                   'default' in line), None)
 
@@ -2186,7 +2182,7 @@ make install
 
         if system == 'darwin':
             # macOS uses 'route' to detect the default network interface
-            route_output = self.run_command(['route', 'get', 'default'], capture_output=True)
+            route_output = self.run_command(['route', 'get', 'default'], capture_output=True, quiet=quiet_install)
             for line in route_output.splitlines():
                 if 'interface:' in line:
                     interface = line.split(':')[1].strip()
@@ -2194,7 +2190,7 @@ make install
 
         elif system == 'linux':
             # Linux uses 'ip route' to detect the default network interface
-            ip_output = self.run_command(['ip', 'route'], capture_output=True)
+            ip_output = self.run_command(['ip', 'route'], capture_output=True, quiet=quiet_install)
             for line in ip_output.splitlines():
                 if 'default' in line:
                     parts = line.split()
@@ -2213,7 +2209,7 @@ make install
                 "Select-Object InterfaceAlias, InterfaceIndex | "
                 "ConvertTo-Json"
             )
-            route_output = self.run_command(['powershell', '-Command', ps_command], capture_output=True)
+            route_output = self.run_command(['powershell', '-Command', ps_command], capture_output=True, quiet=quiet_install)
 
             try:
                 route_data = json.loads(route_output)
@@ -2226,7 +2222,7 @@ make install
                     ps_guid_command = (
                         f"Get-NetAdapter -InterfaceIndex {interface_index} | Select-Object -ExpandProperty InterfaceGuid | ConvertTo-Json"
                     )
-                    guid_output = self.run_command(['powershell', '-Command', ps_guid_command], capture_output=True).strip()
+                    guid_output = self.run_command(['powershell', '-Command', ps_guid_command], capture_output=True, quiet=quiet_install).strip()
                     interface_guid = json.loads(guid_output) if guid_output else None
 
                     if interface_guid:
@@ -2262,7 +2258,7 @@ make install
         Returns the \\Device\\NPF_{GUID} if possible.
         """
         # Get the routing table
-        route_output = self.run_command(['route', 'print'], capture_output=True)
+        route_output = self.run_command(['route', 'print'], capture_output=True, quiet=quiet_install)
         interface_ip = None
         in_ipv4_section = False
 
@@ -2294,7 +2290,7 @@ make install
         ps_guid_command = (
             f"Get-WmiObject Win32_NetworkAdapter | Where-Object {{ $_.IPAddress -contains '{interface_ip}' }} | Select-Object -ExpandProperty GUID | ConvertTo-Json"
         )
-        guid_output = self.run_command(['powershell', '-Command', ps_guid_command], capture_output=True).strip()
+        guid_output = self.run_command(['powershell', '-Command', ps_guid_command], capture_output=True, quiet=quiet_install).strip()
         try:
             interface_guid = json.loads(guid_output) if guid_output else None
             if interface_guid:
@@ -2404,6 +2400,36 @@ make install
                 sys.exit(1)
         else:
             logger.info("No updates made to the config file: %s", config_path)
+
+    def download_zeek_source(self, version="4.0.3", user=None):
+        source_url = f"https://download.zeek.org/zeek-{version}.tar.gz"
+        src_dir = Path("/usr/local/src")
+        zeek_tar = src_dir / f"zeek-{version}.tar.gz"
+        
+        logger.debug(f"Downloading Zeek source code:")
+        logger.debug(f"  - Version: {version}")
+        logger.debug(f"  - Source URL: {source_url}")
+        logger.debug(f"  - Download target: {zeek_tar}")
+        
+        try:
+            if not src_dir.exists():
+                logger.debug(f"Creating source directory: {src_dir}")
+                self.run_command(['sudo', 'mkdir', '-p', str(src_dir)])
+                
+            if not zeek_tar.exists():
+                logger.debug(f"Downloading Zeek source tarball...")
+                self.run_command(['sudo', 'curl', '-L', source_url, '-o', str(zeek_tar)])
+                logger.debug(f"Download completed successfully")
+            else:
+                logger.debug(f"Source tarball already exists at {zeek_tar}, skipping download")
+                
+            zeek_dir = src_dir / f"zeek-{version}"
+            logger.debug(f"Zeek source will be extracted to: {zeek_dir}")
+            
+            return zeek_tar, zeek_dir, src_dir
+        except Exception as e:
+            logger.error(f"Failed to download Zeek source: {e}")
+            raise
 
 
 if __name__ == "__main__":

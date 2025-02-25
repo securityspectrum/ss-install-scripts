@@ -61,13 +61,13 @@ class FluentBitConfigurator:
         return response.json()
 
     def configure_fluent_bit(self, api_url, context):
-        logger.info("Configuring fluent-bit...")
+        logger.info("Configuring fluent-bit logging service...")
         hostname = platform.node()
 
         # Fetch configuration data
         try:
             config_data = self.fetch_fluent_bit_config(api_url, context[ContextName.JWT_TOKEN])
-            logger.debug(f"Config data fetched: {config_data}")
+            logger.debug(f"Config data fetched successfully")
         except Exception as e:
             logger.error(f"Error fetching Fluent Bit configuration: {e}")
             return
@@ -192,43 +192,58 @@ class FluentBitConfigurator:
 
     def download_and_extract_fluent_bit_certificates(self, api_url, context, config_data, certs_path: Path):
         temp_certs_path = Path(tempfile.mkdtemp())
+        logger.debug(f"Created temporary directory for certificates: {temp_certs_path}")
+        
         try:
             self.platform_context.create_directory(certs_path)
-            logger.debug(f"Created Fluent Bit certs directory: {certs_path}")
+            logger.debug(f"Ensuring fluent-bit certificates directory exists: {certs_path}")
         except Exception as e:
-            logger.error(f"Error creating Fluent Bit certs directory: {certs_path}: {e}")
+            logger.error(f"Error creating fluent-bit certificates directory {certs_path}: {e}")
 
         certificate_uuid = config_data["certificates"][0]["certificate_uuid"]
         cert_url = f"{api_url}/kafka/pki-certs/{certificate_uuid}/"
-        logger.debug(f"Downloading Fluent Bit certificates ZIP file from URL: {cert_url}")
-        response = requests.get(cert_url, headers={"Authorization": f"Bearer {context[ContextName.JWT_TOKEN]}"}, stream=True, verify=False)
-        logger.debug(f"Response Status Code: {response.status_code}")
-        logger.debug(f"Response Content Length: {len(response.content)} bytes")
+        logger.debug(f"Downloading fluent-bit certificates:")
+        logger.debug(f"  - Certificate UUID: {certificate_uuid}")
+        logger.debug(f"  - Download URL: {cert_url}")
+        
+        response = requests.get(
+            cert_url, 
+            headers={"Authorization": f"Bearer {context[ContextName.JWT_TOKEN]}"}, 
+            stream=True, 
+            verify=False
+        )
+        
+        logger.debug(f"Download response status code: {response.status_code}")
+        content_size = int(response.headers.get('content-length', 0))
+        logger.debug(f"Download size: {content_size/1024/1024:.2f} MB")
 
         response.raise_for_status()
-        logger.debug(f"Successfully downloaded Fluent Bit certificates ZIP file from URL: {cert_url}")
+        logger.debug(f"Certificate download completed successfully")
 
         zip_path = temp_certs_path / f"fluent-bit-certificates-{context[ContextName.ORG_SLUG]}.zip"
         try:
+            logger.debug(f"Saving certificate ZIP to: {zip_path}")
             with zip_path.open("wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
-            logger.debug(f"Downloaded Fluent Bit certificates ZIP file to {zip_path}")
+            logger.debug(f"Certificate ZIP saved successfully: {os.path.getsize(zip_path)/1024:.2f} KB")
         except Exception as e:
-            logger.error(f"Error downloading Fluent Bit certificates ZIP file: {e}")
+            logger.error(f"Error saving fluent-bit certificates ZIP file: {e}")
             return
 
-        logger.debug(f"Extracting Fluent Bit certificates ZIP file: {zip_path}")
+        logger.debug(f"Extracting certificates from ZIP file: {zip_path}")
         try:
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                file_list = zip_ref.namelist()
+                logger.debug(f"ZIP file contains {len(file_list)} files: {file_list}")
                 zip_ref.extractall(temp_certs_path)
-            logger.debug(f"Extracted Fluent Bit certificates to {temp_certs_path}")
+            logger.debug(f"Certificates extracted to: {temp_certs_path}")
         except zipfile.BadZipFile:
             logger.debug("Bad zip file encountered, attempting to handle multipart.")
             shutil.unpack_archive(str(zip_path), str(temp_certs_path))
-            logger.debug(f"Extracted Fluent Bit certificates to {temp_certs_path}")
+            logger.debug(f"Extraction via shutil.unpack_archive successful")
         except Exception as e:
-            logger.error(f"Error extracting Fluent Bit certificates ZIP file: {e}")
+            logger.error(f"Error extracting fluent-bit certificates ZIP file: {e}")
             return
 
         cacert_path = temp_certs_path / CACERT_FILENAME

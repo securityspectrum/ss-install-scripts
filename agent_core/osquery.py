@@ -272,12 +272,21 @@ class OsqueryInstaller:
         download_dir.mkdir(parents=True, exist_ok=True)
         file_path = download_dir / asset['name']
 
-        logger.debug(f"Downloading {asset['name']} from {asset['url']} to {file_path}")
+        logger.debug(f"Downloading osquery package:")
+        logger.debug(f"  - Package name: {asset['name']}")
+        logger.debug(f"  - Download URL: {asset['url']}")
+        logger.debug(f"  - Download target: {file_path}")
+        
         with requests.get(asset['url'], stream=True) as r:
             r.raise_for_status()
+            content_size = int(r.headers.get('content-length', 0))
+            logger.debug(f"  - Package size: {content_size/1024/1024:.2f} MB")
+            
             with open(file_path, 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
-        logger.debug(f"Downloaded {asset['name']} successfully.")
+            
+        logger.debug(f"Downloaded successfully to {file_path}")
+        logger.debug(f"File size on disk: {os.path.getsize(file_path)/1024/1024:.2f} MB")
         return file_path
 
     def extract_archive(self, file_path, extract_to):
@@ -289,16 +298,26 @@ class OsqueryInstaller:
         extract_to = Path(extract_to)
         extract_to.mkdir(parents=True, exist_ok=True)
 
+        logger.debug(f"Extracting package:")
+        logger.debug(f"  - Source file: {file_path}")
+        logger.debug(f"  - Extract destination: {extract_to}")
+        
         if file_path.suffixes[-2:] == ['.tar', '.gz'] or file_path.suffix == '.tgz':
-            logger.debug(f"Extracting {file_path} to {extract_to}")
+            logger.debug(f"Detected tar.gz archive format")
             with tarfile.open(file_path, 'r:gz') as tar:
+                file_count = len(tar.getmembers())
+                logger.debug(f"Archive contains {file_count} files/directories")
                 tar.extractall(path=extract_to)
         elif file_path.suffix == '.zip':
-            logger.debug(f"Extracting {file_path} to {extract_to}")
+            logger.debug(f"Detected zip archive format")
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                file_count = len(zip_ref.namelist())
+                logger.debug(f"Archive contains {file_count} files/directories")
                 zip_ref.extractall(path=extract_to)
         else:
-            logger.debug(f"No extraction needed for {file_path}")
+            logger.debug(f"No extraction needed for {file_path.suffix} format")
+        
+        logger.debug(f"Extraction completed successfully")
 
     def get_installed_version(self, package_name):
         """
@@ -394,7 +413,7 @@ class OsqueryInstaller:
         """
         Orchestrates the download, extraction, and installation of osquery.
         """
-        logger.info("installing osquery..")
+        logger.info("Installing osquery for system monitoring...")
         latest_release = self.get_latest_release()
         assets = latest_release.get('assets', [])
 

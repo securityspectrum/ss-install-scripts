@@ -152,7 +152,7 @@ class FluentBitInstaller:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
     def install(self):
-        logger.info("Installing fluent-bit...")
+        logger.info("Installing fluent-bit log collector...")
         try:
             release_urls = self.get_latest_release_url()
             categorized_assets = self.categorize_assets(release_urls)
@@ -164,7 +164,7 @@ class FluentBitInstaller:
                 raise ValueError("No suitable asset found for your OS/distribution.")
 
             asset_name, download_url = selected_asset
-            logger.info(f"Selected asset: {asset_name} from {download_url}")
+            logger.debug(f"Selected asset: {asset_name} from {download_url}")
 
             dest_path = get_temp_file_path(asset_name)
 
@@ -178,7 +178,7 @@ class FluentBitInstaller:
             logger.debug(f"Installing {asset_name}...")
             self.run_installation_command(dest_path)
 
-            logger.info("fluent-bit has been successfully installed.")
+            logger.debug("fluent-bit has been successfully installed.")
 
             # Attempt to delete the file
             try:
@@ -203,37 +203,52 @@ class FluentBitInstaller:
             dest_path = os.path.expanduser(dest_path)
 
         # Download the file
+        logger.debug(f"Starting download from URL: {download_url}")
+        logger.debug(f"Target download location: {os.path.abspath(dest_path)}")
+        
         response = requests.get(download_url, stream=True)
         response.raise_for_status()
+        
+        # Get content size for logging
+        content_size = int(response.headers.get('content-length', 0))
+        logger.debug(f"Download size: {content_size/1024/1024:.2f} MB")
 
         # Write the file in chunks
         with open(dest_path, 'wb') as file:
+            bytes_downloaded = 0
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
-
-        logger.debug(f"Downloaded file saved to: {dest_path}")
+                bytes_downloaded += len(chunk)
+                
+        logger.debug(f"Download completed successfully: {os.path.abspath(dest_path)}")
+        logger.debug(f"File size on disk: {os.path.getsize(dest_path)/1024/1024:.2f} MB")
         return dest_path
 
     def run_installation_command(self, dest_path):
         system = platform.system().lower()
         dest_path = Path(os.path.expanduser(dest_path))
+        logger.debug(f"Installing fluent-bit from: {os.path.abspath(dest_path)}")
+        
         if system == "linux":
             if dest_path.suffix == ".rpm":
                 package_name = "fluent-bit"
                 rpm_version = self.extract_rpm_version(dest_path)
+                logger.debug(f"Package type: RPM | Version: {rpm_version}")
 
                 if self.is_package_installed(package_name, rpm_version, package_type='rpm'):
-                    logger.debug(f"{package_name} version {rpm_version} is already installed. Skipping installation.")
+                    logger.debug(f"{package_name} version {rpm_version} is already installed at system locations. Skipping installation.")
                     return
                 elif self.is_newer_version_installed(package_name, rpm_version, package_type='rpm'):
-                    logger.debug(f"A newer version of {package_name} is installed. Skipping downgrade to version {rpm_version}.")
+                    logger.debug(f"A newer version of {package_name} is installed in the system. Skipping downgrade to version {rpm_version}.")
                     return
                 else:
-                    logger.debug(f"A different version or no version of {package_name} is installed. Updating to version {rpm_version}.")
+                    logger.debug(f"Installing/updating {package_name} to version {rpm_version} using rpm command.")
                     try:
+                        logger.debug(f"Executing: sudo rpm --quiet -Uvh {str(dest_path)}")
                         subprocess.run(["sudo", "rpm", "--quiet", "-Uvh", str(dest_path)], check=True)
+                        logger.debug(f"RPM installation completed successfully. Package installed to system locations.")
                     except subprocess.CalledProcessError as e:
-                        logger.error(f"RPM installation failed: {e}")
+                        logger.error(f"RPM installation failed with exit code {e.returncode}: {e}")
                         raise
             elif dest_path.suffix == ".deb":
                 package_name = "fluent-bit"
@@ -543,14 +558,11 @@ class FluentBitInstaller:
             raise
 
     def configure_windows(self):
-
         SystemUtility.request_admin_access()
-
         # Verify that the Fluent Bit executable exists
         if not Path(FLUENT_BIT_EXE_WINDOWS).exists():
             logger.error(f"Fluent Bit executable not found at: {FLUENT_BIT_EXE_WINDOWS}. Please verify the installation path.")
             raise FileNotFoundError(f"Fluent Bit executable not found at {FLUENT_BIT_EXE_WINDOWS}")
-
         try:
             # Step 1: Check if the service exists
             logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists...")
@@ -573,7 +585,7 @@ class FluentBitInstaller:
                 ]
                 logger.debug(f"Creating service with command: {' '.join(create_command)}")
                 subprocess.run(create_command, check=True)
-                logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' created successfully.")
+                logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' created successfully.")
             else:
                 logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' already exists.")
 

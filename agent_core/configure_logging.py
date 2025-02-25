@@ -15,13 +15,14 @@ def configure_logging(log_dir_path: str, console_level: str) -> logging.Logger:
     # File handler (captures all logs)
     file_handler = RotatingFileHandler(str(log_file), maxBytes=5 * 1024 * 1024, backupCount=2)
     file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
     # Console handler
     console_handler = logging.StreamHandler()
     console_handler.setLevel(getattr(logging, console_level.upper(), logging.INFO))
-    console_formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
+    console_formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
     return logger

@@ -79,7 +79,7 @@ class SSAgentInstaller:
 
         system = platform.system().lower()
 
-        logger.info(f"Installing ss-agent {asset_name}..")
+        logger.info("Installing Security Spectrum agent...")
 
         # Determine the appropriate download directory based on the OS
         if system == "linux":
@@ -99,24 +99,34 @@ class SSAgentInstaller:
         final_executable_path = self.determine_executable_installation_path()
         self.install_and_verify_binary(dest_path, final_executable_path)
 
-        #self.setup_systemd_service(final_executable_path)
-
-        logger.info("Installation completed for ss-agent.")
+        logger.debug("Security Spectrum agent installation completed.")
 
     def download_binary(self, download_url, dest_path=None):
         # Expand the ~ to the user's home directory
         dest_path = os.path.expanduser(dest_path)
         # Ensure the directory exists
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        
         # Download the file
+        logger.debug(f"Starting download of Security Spectrum agent from URL: {download_url}")
+        logger.debug(f"Target download location: {os.path.abspath(dest_path)}")
+        
         response = requests.get(download_url, stream=True)
         response.raise_for_status()
+        
+        # Get content size for logging
+        content_size = int(response.headers.get('content-length', 0))
+        logger.debug(f"Download size: {content_size/1024/1024:.2f} MB")
+        
         # Write the file in chunks
         with open(dest_path, 'wb') as file:
+            bytes_downloaded = 0
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
-
-        logger.debug(f"Downloaded file saved to: {dest_path}")
+                bytes_downloaded += len(chunk)
+            
+        logger.debug(f"Download completed successfully: {os.path.abspath(dest_path)}")
+        logger.debug(f"File size on disk: {os.path.getsize(dest_path)/1024/1024:.2f} MB")
         return dest_path
 
     def determine_executable_installation_path(self):
@@ -150,40 +160,51 @@ class SSAgentInstaller:
 
         # Expand the ~ in the source_binary_path if present
         source_binary_path = os.path.expanduser(source_binary_path)
+        source_binary_path_abs = os.path.abspath(source_binary_path)
+        final_executable_path_abs = os.path.abspath(str(final_executable_path))
+
+        logger.debug(f"Installing Security Spectrum agent binary:")
+        logger.debug(f"  - Source: {source_binary_path_abs}")
+        logger.debug(f"  - Destination: {final_executable_path_abs}")
+        logger.debug(f"  - Operating system: {current_os}")
 
         # Check if the downloaded file actually exists
         if not Path(source_binary_path).exists():
+            logger.error(f"Source file not found: {source_binary_path_abs}")
             raise FileNotFoundError(f"Source file not found: {source_binary_path}")
 
         # Ensure the target directory exists
         if not final_executable_path.parent.exists():
+            logger.debug(f"Creating destination directory: {final_executable_path.parent}")
             final_executable_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Move the binary to the final location
         try:
-            logger.debug(f"Moving {source_binary_path} to {final_executable_path}..")
+            logger.debug(f"Moving file from {source_binary_path_abs} to {final_executable_path_abs}")
             shutil.move(str(source_binary_path), str(final_executable_path))
-            logger.debug(f"{final_executable_path} has been installed successfully.")
+            logger.debug(f"File moved successfully")
         except Exception as e:
-            logger.error(f"Failed to move the file to {final_executable_path}: {e}")
+            logger.error(f"Failed to move the file to {final_executable_path_abs}: {e}")
             raise
 
         # Make the binary executable on Linux and macOS
         if current_os in ["linux", "darwin"]:  # Case-insensitive OS comparison
             try:
+                logger.debug(f"Setting executable permissions (chmod 755) on {final_executable_path_abs}")
                 final_executable_path.chmod(0o755)
-                logger.debug(f"{final_executable_path} is now executable.")
+                logger.debug(f"Permissions set successfully")
             except Exception as e:
-                logger.error(f"Failed to change permissions for {final_executable_path}: {e}")
+                logger.error(f"Failed to change permissions for {final_executable_path_abs}: {e}")
                 raise
 
         # Run the binary to verify installation
         try:
-            logger.debug(f"Running {final_executable_path} to verify installation..")
+            logger.debug(f"Verifying installation by running: {final_executable_path_abs} version")
             result = subprocess.run([str(final_executable_path), "version"], check=True, capture_output=True, text=True)
-            logger.debug(f"Installed binary version: {result.stdout.strip()}")
+            logger.debug(f"Verification successful - binary version: {result.stdout.strip()}")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Running {final_executable_path} failed: {e}")
+            logger.error(f"Verification failed for {final_executable_path_abs}: {e}")
+            logger.error(f"Command stderr: {e.stderr}")
             raise
 
     def enable_and_start(self, executable_path):
@@ -722,7 +743,7 @@ class SSAgentInstaller:
                 if system == 'linux':
                     self.stop_linux_service(SS_AGENT_SERVICE_NAME)
                 elif system == 'darwin':
-                    self.stop_macos_service(SS_AGENT_SERVICE_NAME)
+                    self.stop_macos_service(SS_AGENT_SERVICE_MACOS)
                 elif system == 'windows':
                     self.stop_and_delete_windows_service()
                 logger.info("Service stopped successfully.")

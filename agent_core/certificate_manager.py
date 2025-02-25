@@ -21,138 +21,80 @@ class CertificateManager:
 
 
     def download_and_extract_certificates(self, jwt_token):
-        logger.info("Starting the process to download and extract certificates.")
+        logger.info("Downloading security certificates...")
         headers = {"Authorization": f"Bearer {jwt_token}"}
-        logger.debug(f"Creating certificate directory: {self.cert_dir}")
-        logger.debug("Using Authorization header for API requests.")
+        logger.debug(f"API URL: {self.api_url} | Certificate directory: {self.cert_dir}")
+        
+        # Step 1: Get the certificate list to find the certificate UUID
         cert_list_url = f"{self.api_url}/kafka/agent-certs/"
-        logger.debug(f"Fetching certificate list from {cert_list_url}")
+        logger.debug(f"Fetching certificate list from: {cert_list_url}")
         try:
             response = requests.get(cert_list_url, headers=headers, verify=False)
-            logger.debug(
-                f"Received response with status code: {response.status_code} - content length ({len(response.content)}) bytes"
-            )
             response.raise_for_status()
-        except requests.exceptions.SSLError as ssl_err:
-            logger.error("SSL verification failed. Please check your SSL certificates.")
-            raise RuntimeError("SSL verification failed. Please check your SSL certificates.") from ssl_err
-        except requests.exceptions.HTTPError as http_err:
-            if response.status_code == 401:
-                logger.error("Authentication failed: Unauthorized access.")
-                logger.error("Please verify that your JWT token is correct and has not expired.")
-                raise RuntimeError("Failed to authenticate with the server. Ensure your JWT token is correct.") from http_err
-            elif response.status_code == 403:
-                logger.error("Access forbidden: You do not have the necessary permissions.")
-                logger.error("Contact your administrator to obtain the required permissions.")
-                raise RuntimeError("Access forbidden. Contact your administrator for necessary permissions.") from http_err
-            elif response.status_code == 404:
-                logger.error("Resource not found: The certificate endpoint does not exist.")
-                logger.error("Ensure that the API URL is correct and the server is configured properly.")
-                raise RuntimeError("Certificate endpoint not found. Verify the API URL and server configuration.") from http_err
-            else:
-                logger.error(f"HTTP error occurred: {http_err}")
-                logger.error("Please check the server logs for more details or contact support.")
-                raise RuntimeError("An HTTP error occurred while fetching certificates.") from http_err
-        except requests.exceptions.ConnectionError:
-            logger.error("Connection error: Unable to reach the server at localhost.")
-            logger.error("Please ensure that the API service is running and accessible.")
-            raise RuntimeError("Failed to connect to the server. Ensure the API service is running and accessible.") from None
-        except requests.exceptions.Timeout:
-            logger.error("Request timed out: The server took too long to respond.")
-            logger.error("Try again later or contact support if the issue persists.")
-            raise RuntimeError("The request timed out. Try again later.") from None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"An unexpected error occurred: {e}")
-            raise RuntimeError("An unexpected error occurred while fetching certificates.") from e
-        logger.debug("Successfully fetched the certificate list from the server.")
-        try:
             cert_body = response.json()
-            logger.debug(f"Certificate List Response JSON: {cert_body}")
             cert_uuid = cert_body['certificates'][0]['uuid']
+            
             if not cert_uuid:
-                logger.error("No certificates found in the response.")
-                raise RuntimeError("No certificates available for download.")
-        except (ValueError, KeyError, IndexError) as e:
-            logger.error(f"Error parsing certificate data: {e}")
-            raise RuntimeError("Invalid certificate data received from the server.") from e
-        cert_url = f"{cert_list_url}{cert_uuid}/"
-        logger.debug(f"Downloading certificate ZIP file from URL: {cert_url}")
-        try:
+                logger.error("No valid certificates found")
+                raise RuntimeError("No certificates available for download")
+            
+            # Step 2: Download the certificate ZIP with the UUID
+            cert_url = f"{cert_list_url}{cert_uuid}/"
+            logger.debug(f"Downloading certificate from: {cert_url}")
             response = requests.get(cert_url, headers=headers, verify=False)
-            logger.debug(f"Received response with status code: {response.status_code}")
-            logger.debug(f"Response content length: {len(response.content)} bytes")
             response.raise_for_status()
-        except requests.exceptions.SSLError as ssl_err:
-            logger.error("SSL verification failed while downloading certificates.")
-            raise RuntimeError("SSL verification failed during certificate download. Check your SSL certificates.") from ssl_err
-        except requests.exceptions.HTTPError as http_err:
-            if response.status_code == 401:
-                logger.error("Authentication failed while downloading the certificate ZIP.")
-                logger.error("Please verify that your JWT token is correct and has not expired.")
-                raise RuntimeError("Failed to authenticate while downloading certificates. Check your JWT token.") from http_err
-            elif response.status_code == 403:
-                logger.error("Access forbidden: Cannot download the certificate ZIP.")
-                logger.error("Ensure you have the necessary permissions to download certificates.")
-                raise RuntimeError("Access forbidden. Ensure you have the necessary permissions to download certificates.") from http_err
-            elif response.status_code == 404:
-                logger.error("Certificate ZIP not found at the specified URL.")
-                logger.error("Verify the certificate UUID and API endpoint.")
-                raise RuntimeError("Certificate ZIP not found. Verify the certificate UUID and API endpoint.") from http_err
-            else:
-                logger.error(f"HTTP error occurred while downloading certificates: {http_err}")
-                logger.error("Please check the server logs for more details or contact support.")
-                raise RuntimeError("An HTTP error occurred while downloading certificates.") from http_err
-        except requests.exceptions.ConnectionError:
-            logger.error("Connection error: Unable to reach the server at localhost while downloading certificates.")
-            logger.error("Please ensure that the API service is running and accessible.")
-            raise RuntimeError("Failed to connect to the server for certificate download.") from None
-        except requests.exceptions.Timeout:
-            logger.error("Request timed out while downloading the certificate ZIP.")
-            logger.error("Try again later or contact support if the issue persists.")
-            raise RuntimeError("The certificate download request timed out. Try again later.") from None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"An unexpected error occurred while downloading certificates: {e}")
-            raise RuntimeError("An unexpected error occurred while downloading certificates.") from e
-        logger.info("Successfully downloaded the certificate ZIP file from the server.")
-        zip_path = Path("agent-service-certificates.zip")
-        try:
+            
+            # Step 3: Save ZIP file
+            zip_path = Path("agent-service-certificates.zip")
             with zip_path.open("wb") as f:
                 f.write(response.content)
-            logger.debug(f"Downloaded certificates ZIP file to {zip_path}")
-        except IOError as e:
-            logger.error(f"Failed to write ZIP file to disk: {e}")
-            raise RuntimeError("Failed to save the certificate ZIP file.") from e
-        except Exception as e:
-            logger.error(f"An unexpected error occurred while saving the ZIP file: {e}")
-            raise RuntimeError("Failed to save certificates due to an unexpected error.") from e
-        self.extract_certificates(zip_path)
-        logger.info("Successfully extracted certificates from the ZIP file.")
-
-    def extract_certificates(self, zip_path):
-        logger.debug("Extracting certificate ZIP file to a temporary directory...")
-        try:
+            
+            # Step 4: Extract and process certificates
+            logger.debug("Extracting certificates...")
             temp_cert_dir = Path(tempfile.mkdtemp())
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 zip_ref.extractall(temp_cert_dir)
-            logger.debug(f"Extracted certificates to temporary directory: {temp_cert_dir}")
-        except zipfile.BadZipFile as e:
-            logger.error(f"The ZIP file is corrupted or not a valid ZIP archive: {e}")
-            raise RuntimeError("Failed to extract certificates. The ZIP file is invalid.") from e
-        except Exception as e:
-            logger.error(f"An unexpected error occurred during extraction: {e}")
-            raise RuntimeError("Failed to extract certificates due to an unexpected error.") from e
-        self.move_certificates(temp_cert_dir)
-        for path in self.cert_dir.rglob("*"):
-            try:
-                logger.debug(f"Setting permissions for {path}")
+            
+            self.move_certificates(temp_cert_dir)
+            
+            # Step 5: Set appropriate permissions
+            for path in self.cert_dir.rglob("*"):
                 if platform.system() == "Windows":
                     self.set_windows_permissions(path)
                 else:
                     self.set_unix_permissions(path)
-                logger.debug(f"Permissions set successfully for {path}")
-            except Exception as e:
-                logger.error(f"Error setting permissions for {path}: {e}")
-        self.cleanup_temp_files(zip_path, temp_cert_dir)
+            
+            # Step 6: Clean up temporary files
+            self.cleanup_temp_files(zip_path, temp_cert_dir)
+            logger.info("Security certificates installed successfully")
+            
+        except requests.exceptions.HTTPError as http_err:
+            error_msg = self._get_http_error_message(http_err, response.status_code)
+            logger.error(f"HTTP error: {error_msg}")
+            raise RuntimeError(f"Certificate download failed: {error_msg}")
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as conn_err:
+            logger.error(f"Connection error: {conn_err}")
+            raise RuntimeError("Failed to connect to the server. Check your network connection and that the service is running.")
+        except (KeyError, ValueError, IndexError) as parse_err:
+            logger.error(f"Error parsing certificate data: {parse_err}")
+            raise RuntimeError("Invalid certificate data received from server")
+        except zipfile.BadZipFile:
+            logger.error("The downloaded file is not a valid ZIP archive")
+            raise RuntimeError("Certificate archive is corrupted or invalid")
+        except Exception as e:
+            logger.error(f"Unexpected error during certificate processing: {e}")
+            raise RuntimeError(f"Certificate installation failed: {str(e)}")
+
+    def _get_http_error_message(self, error, status_code):
+        """Helper to provide clear error messages based on HTTP status codes"""
+        if status_code == 401:
+            return "Authentication failed. Check that your JWT token is valid and not expired."
+        elif status_code == 403:
+            return "Access forbidden. You don't have permission to download certificates."
+        elif status_code == 404:
+            return "Certificate endpoint not found. Verify the API URL is correct."
+        else:
+            return f"HTTP error {status_code}: {str(error)}"
 
     def set_windows_permissions(self, path):
         try:
