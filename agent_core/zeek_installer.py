@@ -46,21 +46,14 @@ quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
 class ZeekInstaller:
     def __init__(self):
         """
+        Initialize installer parameters and import OS-specific modules.
         """
-
-        # Fetch distribution info as a dictionary
         self.os_info = distro.info()
-
-        # Use dictionary keys to access the OS details
         self.os_id = self.os_info.get('id', '').lower()
         self.os_like = self.os_info.get('like', '').lower()
         self.zeek_version = "7.0.1"  # Current LTS version
         self.builder_user = "builder"
-
-        # Flag to indicate if Zeek is installed from source or package/repo
         self.source_install = False
-
-        # Determine the operating system
         self.os_system = platform.system().lower()
 
         if self.os_system == 'windows':
@@ -73,25 +66,57 @@ class ZeekInstaller:
                 logger.error("Failed to import Windows-specific modules: {}".format(e))
                 sys.exit(1)
 
-    def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None, require_root=False, quiet=None):
+    def run_command(self, command, check=True, capture_output=False, shell=False, input_data=None, require_root=False,
+                    quiet=None, use_quiet_flag=False):
         """
         Executes a system command with optional quiet behavior and root privileges.
+
+        Parameters:
+            command (list or str): Command to execute.
+            check (bool): Whether to raise an exception on non-zero exit.
+            capture_output (bool): Capture stdout/stderr.
+            shell (bool): Run command via shell.
+            input_data (str): Input data for the command.
+            require_root (bool): Prepend 'sudo' if not running as root.
+            quiet (bool): If None, falls back to global quiet_install.
+            use_quiet_flag (bool): If True and quiet mode is enabled, append a built‑in quiet flag
+                                   to commands that support it (e.g. '--quiet' for rpm, '-qq' for apt).
+
+        Returns:
+            str or bool: Captured stdout (if capture_output=True) or True on success.
         """
-        # If quiet param is None, fall back to self.quiet
+        # Determine quiet mode.
         if quiet is None:
             quiet = quiet_install
 
+        # Prepend 'sudo' if root privileges are required.
         if require_root and os.geteuid() != 0:
-            # Prepend 'sudo' if not already root
             command = ['sudo'] + (command if isinstance(command, list) else command.split())
 
-        # If shell=True but command is a list, join it
+        # If shell=True and command is a list, join it.
         if shell and isinstance(command, list):
             command = ' '.join(command)
 
-        # Only log the full command if not quiet
+        # Optionally add built-in quiet flags if supported.
+        if use_quiet_flag and quiet:
+            if isinstance(command, list):
+                cmd_name = command[0]
+                quiet_option = None
+                # Map command names to their quiet flags.
+                quiet_flags = {'rpm': '--quiet', 'apt': '-qq', 'apt-get': '-qq', 'curl': '-s', 'dnf': '-q'}
+                if cmd_name in quiet_flags:
+                    quiet_option = quiet_flags[cmd_name]
+                if quiet_option and quiet_option not in command:
+                    # Insert quiet flag as the second element.
+                    command.insert(1,
+                                   quiet_option)  # For string commands, you might need to modify the command string manually.
+
+        # Log the command if not in quiet mode.
         if not quiet:
-            logger.debug("Executing command: %s", command if isinstance(command, str) else ' '.join(command))
+            if isinstance(command, list):
+                logger.debug("Executing command: %s", ' '.join(command))
+            else:
+                logger.debug("Executing command: %s", command)
 
         try:
             result = subprocess.run(command,
@@ -100,15 +125,13 @@ class ZeekInstaller:
                                     text=True,
                                     shell=shell,
                                     input=input_data)
-            # If capturing output, log it only when not quiet
             if capture_output and not quiet:
                 logger.debug("Command output: %s", result.stdout.strip())
             return result.stdout.strip() if capture_output else True
-
         except subprocess.CalledProcessError as e:
-            # Log minimal or verbose message depending on quiet
             if not quiet:
-                logger.error("Command failed: %s", command if isinstance(command, str) else ' '.join(command))
+                cmd_str = command if isinstance(command, str) else ' '.join(command)
+                logger.error("Command failed: %s", cmd_str)
                 logger.error("Return code: %s", e.returncode)
                 if e.stdout:
                     logger.error("Output: %s", e.stdout)
@@ -332,13 +355,17 @@ class ZeekInstaller:
         logger.info("Installing required utilities...")
         try:
             if self.os_id in ['ubuntu', 'debian'] or 'debian' in self.os_like:
-                self.run_command(['apt', 'install', '-y', 'apt-transport-https', 'curl', 'gnupg', 'lsb-release'])
+                self.run_command(['apt', 'install', '-y', 'apt-transport-https', 'curl', 'gnupg', 'lsb-release'],
+                                 use_quiet_flag=True)
             elif self.os_id in ['centos', 'rhel'] or 'rhel' in self.os_like:
-                self.run_command(['yum', 'install', '-y', 'epel-release', 'curl', 'gnupg'])
+                self.run_command(['yum', 'install', '-y', 'epel-release', 'curl', 'gnupg'],
+                                 use_quiet_flag=True)
             elif self.os_id == 'fedora':
-                self.run_command(['dnf', 'install', '-y', 'curl', 'redhat-lsb-core', 'gnupg'])
+                self.run_command(['dnf', 'install', '-y', 'curl', 'redhat-lsb-core', 'gnupg'],
+                                 use_quiet_flag=True)
             elif self.os_id in ['opensuse', 'sles'] or 'suse' in self.os_like:
-                self.run_command(['zypper', 'install', '-y', 'curl', 'lsb-release', 'gnupg'])
+                self.run_command(['zypper', 'install', '-y', 'curl', 'lsb-release', 'gnupg'],
+                                 use_quiet_flag=True)
             else:
                 logger.error("Unsupported distribution for installing utilities.")
                 sys.exit(1)
@@ -364,7 +391,7 @@ class ZeekInstaller:
 
         # Update package lists after enabling universe
         logger.debug("Updating package lists after enabling universe repository...")
-        self.run_command(['apt', 'update'])
+        self.run_command(['apt', 'update'], use_quiet_flag=True)
 
         # Prepare to add Zeek repository
         gpg_key_url = f"https://download.opensuse.org/repositories/security:zeek/xUbuntu_{distro_version}/Release.key"
@@ -376,8 +403,8 @@ class ZeekInstaller:
 
         # Download the GPG key
         logger.debug(f"Downloading Zeek GPG key from {gpg_key_url}")
-        gpg_key_data = self.run_command(['curl', '-fsSL', gpg_key_url], capture_output=True)
-
+        gpg_key_data = self.run_command(['curl', '-fsSL', gpg_key_url],
+                                        capture_output=True, use_quiet_flag=True)
         # Write key to a temporary file
         with open('/tmp/Release.key', 'wb') as key_file:
             key_file.write(gpg_key_data.encode('utf-8'))

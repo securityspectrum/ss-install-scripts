@@ -36,9 +36,6 @@ REPO_OWNER = "osquery"
 REPO_NAME = "osquery"
 
 
-logger = logging.getLogger("InstallationLogger")
-quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
-
 class OsqueryInstaller:
 
     def __init__(self):

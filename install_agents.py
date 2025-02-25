@@ -150,7 +150,7 @@ if __name__ == "__main__":
     parser.add_argument('--install', action='store_true', help='Install SS Agent')
     parser.add_argument('--uninstall', action='store_true', help='Uninstall SS Agent')
     parser.add_argument('--log-level',
-                        default='ERROR',
+                        default='INFO',
                         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set the console logging level')
     args = parser.parse_args()

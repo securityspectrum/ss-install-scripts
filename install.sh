@@ -85,7 +85,7 @@ if [ "$VERBOSE" = true ]; then
 else
     APT_QUIET="-qq"
     PIP_QUIET="-q"
-    LOG_LEVEL="ERROR"
+    LOG_LEVEL="INFO"
 fi
 
 # Load environment variables from .env file if it exists

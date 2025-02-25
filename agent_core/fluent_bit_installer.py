@@ -332,29 +332,45 @@ class FluentBitInstaller:
         return distro_id in ["ubuntu", "debian"]
 
     def is_package_installed(self, package_name, version, package_type='rpm'):
-        """Check if the specific version of a package is already installed."""
+        """
+        Check if a specific version of a package is already installed.
+
+        Parameters:
+            package_name (str): The name of the package.
+            version (str): The exact version to check.
+            package_type (str): 'rpm' (default) or 'deb' to indicate which package
+                                system is used.
+
+        Returns:
+            bool: True if the package with the given version is installed, else False.
+        """
         try:
             if package_type == 'rpm':
-                # For RPM: Check exact version
-                result = subprocess.run(
-                    ["rpm", "-q", f"{package_name}-{version}"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
+                # Construct the RPM command; append --quiet if quiet_install is True.
+                cmd = ["rpm", "-q", f"{package_name}-{version}"]
+                if quiet_install:
+                    cmd.append("--quiet")
+                if not quiet_install:
+                    logger.debug("Executing command: " + " ".join(cmd))
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if not quiet_install:
+                    logger.debug("RPM command stdout: " + result.stdout.strip())
+                    logger.debug("RPM command stderr: " + result.stderr.strip())
                 return result.returncode == 0
             else:
-                # For DEB: We have the package_name and version. Check dpkg -s
-                result = subprocess.run(
-                    ["dpkg", "-s", package_name],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
+                # For dpkg, use 'dpkg -s' to check package status.
+                cmd = ["dpkg", "-s", package_name]
+                if not quiet_install:
+                    logger.debug("Executing command: " + " ".join(cmd))
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if not quiet_install:
+                    logger.debug("dpkg command stdout: " + result.stdout.strip())
+                    logger.debug("dpkg command stderr: " + result.stderr.strip())
+                # Check that the package is installed and then compare versions.
                 if result.returncode == 0 and "Status: install ok installed" in result.stdout:
-                    for line in result.stdout.split('\n'):
+                    for line in result.stdout.splitlines():
                         if line.startswith("Version:"):
-                            installed_ver = line.split(':', 1)[1].strip()
+                            installed_ver = line.split(":", 1)[1].strip()
                             return installed_ver == version
                 return False
         except Exception as e:
