@@ -413,7 +413,7 @@ class OsqueryInstaller:
         """
         Orchestrates the download, extraction, and installation of osquery.
         """
-        logger.info("Installing osquery for system monitoring...")
+        logger.info("Installing osquery...")
         latest_release = self.get_latest_release()
         assets = latest_release.get('assets', [])
 

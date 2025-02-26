@@ -91,15 +91,15 @@ class SSAgentInstaller:
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
-        logger.debug(f"Downloading {asset_name} from {download_url}..")
+        logger.info(f"Downloading {asset_name} from {download_url}..")
         self.download_binary(download_url, dest_path)
 
-        logger.debug(f"Installing {asset_name}..")
+        logger.info(f"Installing {asset_name}..")
 
         final_executable_path = self.determine_executable_installation_path()
         self.install_and_verify_binary(dest_path, final_executable_path)
 
-        logger.debug("Security Spectrum agent installation completed.")
+        logger.info(f"{asset_name} installation completed.")
 
     def download_binary(self, download_url, dest_path=None):
         # Expand the ~ to the user's home directory

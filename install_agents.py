@@ -67,7 +67,6 @@ def install(args):
         ss_agent_installer.stop_all_services_ss_agent()
         ss_agent_installer.stop_ss_agent()
 
-        logger.info("Loading configuration settings...")
         secrets_manager = SecretsManager()
         context = secrets_manager.load_secrets_from_var_envs()
         organization_slug = secrets_manager.get_organization_slug()
@@ -75,45 +74,36 @@ def install(args):
         api_url = f"{API_URL_DOMAIN}{API_VERSION_PATH}/r/{organization_slug}"
         (fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path) = get_platform_specific_paths()
 
-        logger.info("Downloading security certificates...")
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
         cert_manager.download_and_extract_certificates(context[ContextName.JWT_TOKEN])
 
         if current_os == "windows":
-            logger.info("Installing Npcap for network capture...")
             npcap_installer = NpcapInstaller(download_url=NPCAP_URL_WINDOWS)
             npcap_installer.install_npcap()
 
-        logger.info("Installing fluent-bit for log collection...")
         fluent_bit_installer = FluentBitInstaller()
         fluent_bit_installer.install()
         fluent_bit_installer.enable_and_start()
 
-        logger.info("Configuring fluent-bit...")
         fluent_bit_configurator = FluentBitConfigurator(API_URL_DOMAIN,
                                                         fluent_bit_config_dir,
                                                         ss_agent_ssl_dir,
                                                         organization_slug)
         fluent_bit_configurator.configure_fluent_bit(api_url, context)
 
-        logger.info("Configuring Security Spectrum agent...")
         ss_agent_configurator = SSAgentConfigurator(API_URL_DOMAIN, ss_agent_config_dir, ss_agent_ssl_dir)
         ss_agent_configurator.configure_ss_agent(context, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
 
-        logger.info("Installing Security Spectrum agent...")
         ss_agent_installer.install()
 
-        logger.info("Installing Zeek for network traffic analysis...")
         zeek_installer = ZeekInstaller()
         zeek_installer.install()
         zeek_installer.configure_and_start_windows()
 
-        logger.info("Installing OSQuery for endpoint monitoring...")
         osquery_installer = OsqueryInstaller()
         osquery_installer.install(extract_dir=OSQUERY_EXTRACT_DIR)
         osquery_installer.configure_and_start()
 
-        logger.info("Starting Security Spectrum agent services...")
         final_executable_path = ss_agent_installer.determine_executable_installation_path()
         ss_agent_installer.enable_and_start(final_executable_path)
         ss_agent_installer.start_all_services_ss_agent()
