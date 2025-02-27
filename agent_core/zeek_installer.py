@@ -854,7 +854,6 @@ class ZeekInstaller:
         Selects the appropriate asset for the current operating system.
         """
         system = platform.system().lower()
-        logger.info(f"Detected system: {system}")
         if system == "linux":
             return categorized_assets.get("linux")
         elif system == "darwin":

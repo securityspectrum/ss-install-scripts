@@ -58,7 +58,7 @@ def install(args):
 
         logger.info("Starting installation process...")
         logger.debug(f"ss-install-script version: {INSTALL_SCRIPT_VERSION}")
-        logger.debug(f"Operating system: {current_os} ({architecture})")
+        logger.info(f"Operating system: {current_os} ({architecture})")
 
         SystemUtility.elevate_privileges()
 

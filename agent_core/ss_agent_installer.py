@@ -9,7 +9,7 @@ from agent_core import SystemUtility
 from agent_core.constants import (SS_AGENT_REPO, DOWNLOAD_DIR_LINUX, DOWNLOAD_DIR_WINDOWS, DOWNLOAD_DIR_MACOS,
                                   SS_AGENT_SERVICE_MACOS, SS_AGENT_SERVICE_NAME, SS_AGENT_CONFIG_DIR_WINDOWS,
                                   SS_AGENT_CONFIG_DIR_MACOS, SS_AGENT_CONFIG_DIR_LINUX, SS_AGENT_SERVICE_LINUX,
-                                  SS_AGENT_SERVICE_BINARY_WINDOWS, )
+                                  SS_AGENT_SERVICE_BINARY_WINDOWS, SS_AGENT_PRODUCT_NAME, )
 import shutil
 import platform
 import subprocess
@@ -57,7 +57,6 @@ class SSAgentInstaller:
 
     def select_asset(self, categorized_assets):
         system = platform.system().lower()
-        logger.debug(f"Detected system: {system}")
         if system == "linux":
             return categorized_assets.get("linux")
         elif system == "darwin":
@@ -309,10 +308,10 @@ class SSAgentInstaller:
         if self.service_exists(service_name):
             logger.debug(f"Service {service_name} already exists. Skipping creation.")
         else:
-            logger.debug("Setting up systemd service for SS Agent..")
+            logger.debug("Setting up systemd service for ss-agent..")
             service_content = textwrap.dedent(f"""\
                 [Unit]
-                Description=SS Agent Service
+                Description=ss-agent Service
                 After=network.target
 
                 [Service]
@@ -372,14 +371,14 @@ class SSAgentInstaller:
 
     def setup_launchd_service(self, executable_path):
         """
-        Sets up a launchd service for the SS Agent on macOS.
+        Sets up a launchd service for the ss-agent on macOS.
         The service uses the 'ss-agent --debug start' command to start.
         """
         service_name = "com.ss-agent"
         if self.service_exists(service_name):
             logger.debug(f"Service {service_name} already exists. Skipping creation.")
         else:
-            logger.debug("Setting up launchd service for SS Agent..")
+            logger.debug("Setting up launchd service for ss-agent..")
             plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple Inc//DTD PLIST 1.0//EN" \
         "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -416,7 +415,7 @@ class SSAgentInstaller:
                 # Load and enable the launchd service
                 subprocess.run(['sudo', 'launchctl', 'load', SS_AGENT_SERVICE_MACOS], check=True)
                 subprocess.run(['sudo', 'launchctl', 'enable', 'system/com.ss-agent'], check=True)
-                logger.debug("SS Agent service installed and started (launchd).")
+                logger.debug("ss-agent service installed and started (launchd).")
 
             except Exception as e:
                 logger.error(f"Failed to set up launchd service: {e}")
@@ -424,7 +423,7 @@ class SSAgentInstaller:
 
     def setup_windows_service(self, executable_path):
         """
-        Sets up a Windows service for the SS Agent.
+        Sets up a Windows service for the ss-agent.
         The service uses the 'ss-agent --debug start' command to start.
         """
         service_name = SS_AGENT_SERVICE_NAME
@@ -436,23 +435,51 @@ class SSAgentInstaller:
                 # Install the service using sc.exe with the '--debug start' command
                 install_cmd = f'sc create {service_name} binPath= "{executable_path} --debug start" start= auto'
                 logger.debug(f"Running command: {install_cmd}")
-                subprocess.run(install_cmd, shell=True, check=True)
-                logger.debug(f"Service {service_name} created successfully.")
+                install_proc = subprocess.run(
+                    install_cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                    text=True
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Service creation output:\n{install_proc.stdout.strip()}")
+                else:
+                    logger.info("Service created successfully.")
 
                 # Configure the service to restart automatically on failure
                 failure_cmd = f'sc failure {service_name} reset= 60 actions= restart/6000/restart/6000/restart/6000'
                 logger.debug(f"Setting up automatic restart: {failure_cmd}")
-                subprocess.run(failure_cmd, shell=True, check=True)
-                logger.debug(f"Service {service_name} configured for automatic restarts.")
+                failure_proc = subprocess.run(
+                    failure_cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                    text=True
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Automatic restart configuration output:\n{failure_proc.stdout.strip()}")
 
                 # Start the service
                 start_cmd = f'sc start {service_name}'
                 logger.debug(f"Starting service: {start_cmd}")
-                subprocess.run(start_cmd, shell=True, check=True)
-                logger.debug(f"Service {service_name} started successfully.")
+                start_proc = subprocess.run(
+                    start_cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                    text=True
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Service start output:\n{start_proc.stdout.strip()}")
+                else:
+                    logger.info("Service started successfully.")
 
             except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to set up Windows service for SS Agent: {e}")
+                logger.error(f"Failed to set up Windows service for ss-agent: {e}")
                 raise
 
     def stop_and_delete_windows_service(self):
@@ -734,7 +761,7 @@ class SSAgentInstaller:
 
     def stop_ss_agent(self):
         """
-        Stop the SS Agent service.
+        Stop the ss-agent service.
         """
         if self.is_service_running(SS_AGENT_SERVICE_NAME):
             logger.info(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop the service..")
@@ -755,7 +782,7 @@ class SSAgentInstaller:
 
     def uninstall(self):
         """
-        Orchestrates the uninstallation of the SS Agent based on the operating system.
+        Orchestrates the uninstallation of the ss-agent based on the operating system.
         """
         logger.info("Uninstalling the ss-agent..")
         system = platform.system().lower()
@@ -775,7 +802,7 @@ class SSAgentInstaller:
 
     def uninstall_linux(self):
         """
-        Uninstalls the SS Agent on Linux using the appropriate package manager.
+        Uninstalls the ss-agent on Linux using the appropriate package manager.
         """
         try:
             result = subprocess.run(["sudo", "rm", "-f", SS_AGENT_EXECUTABLE_PATH_LINUX], check=True)
@@ -788,7 +815,7 @@ class SSAgentInstaller:
 
     def uninstall_with_apt(self, package_name):
         """
-        Uninstalls the SS Agent using apt on Debian-based systems.
+        Uninstalls the ss-agent using apt on Debian-based systems.
         """
         logger.debug(f"Using apt to uninstall {package_name}...")
         try:
@@ -805,7 +832,7 @@ class SSAgentInstaller:
 
     def uninstall_with_dnf_yum(self, package_name, distro_id):
         """
-        Uninstalls the SS Agent using dnf or yum on Fedora-based systems.
+        Uninstalls the ss-agent using dnf or yum on Fedora-based systems.
         """
         package_manager = "dnf" if distro_id in ["fedora", "rocky", "almalinux"] else "yum"
         logger.debug(f"Using {package_manager} to uninstall {package_name}...")
@@ -822,7 +849,7 @@ class SSAgentInstaller:
 
     def uninstall_with_rpm_or_dpkg(self, package_name):
         """
-        Fallback method to uninstall the SS Agent using rpm or dpkg directly.
+        Fallback method to uninstall the ss-agent using rpm or dpkg directly.
         """
         try:
             if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
@@ -845,21 +872,21 @@ class SSAgentInstaller:
 
     def uninstall_macos(self):
         """
-        Uninstalls the SS Agent on macOS by removing package receipts, binaries, configuration files, and launch daemons.
+        Uninstalls the ss-agent on macOS by removing package receipts, binaries, configuration files, and launch daemons.
         """
-        logger.debug("Attempting to uninstall SS Agent on macOS...")
+        logger.debug("Attempting to uninstall ss-agent on macOS...")
         try:
             # Step 1: Remove the package receipt using pkgutil
             package_id = self.get_macos_package_id()
             if package_id:
-                logger.debug(f"Found SS Agent package ID: {package_id}. Removing package receipt...")
+                logger.debug(f"Found ss-agent package ID: {package_id}. Removing package receipt...")
                 result_pkgutil = subprocess.run(["sudo", "pkgutil", "--forget", package_id], check=True)
                 if result_pkgutil.returncode == 0:
                     logger.debug("Package receipt removed.")
                 else:
                     logger.warning(f"Failed to remove package receipt for {package_id}.")
             else:
-                logger.warning("SS Agent package ID not found. Skipping pkgutil --forget step.")
+                logger.warning("ss-agent package ID not found. Skipping pkgutil --forget step.")
 
             # Step 2: Stop and remove LaunchDaemon
             launch_daemon = SS_AGENT_SERVICE_MACOS
@@ -884,12 +911,12 @@ class SSAgentInstaller:
                 else:
                     logger.debug(f"Path does not exist, skipping: {path}")
 
-            logger.debug("SS Agent has been successfully uninstalled from macOS.")
+            logger.debug("ss-agent has been successfully uninstalled from macOS.")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to uninstall SS Agent on macOS: {e}")
+            logger.error(f"Failed to uninstall ss-agent on macOS: {e}")
             raise
         except Exception as e:
-            logger.error(f"An unexpected error occurred during SS Agent uninstallation on macOS: {e}")
+            logger.error(f"An unexpected error occurred during ss-agent uninstallation on macOS: {e}")
             raise
 
     def remove_file(self, path):
@@ -915,15 +942,15 @@ class SSAgentInstaller:
 
     def uninstall_windows(self):
         """
-        Uninstalls the SS Agent on Windows by executing the uninstall command from the registry.
+        Uninstalls the ss-agent on Windows by executing the uninstall command from the registry.
         """
-        logger.debug("Attempting to uninstall SS Agent on Windows...")
+        logger.debug("Attempting to uninstall ss-agent on Windows...")
         if not SystemUtility.has_winreg():
             logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
             return
 
         try:
-            uninstall_command = self.get_windows_uninstall_command("SS Agent")
+            uninstall_command = self.get_windows_uninstall_command(SS_AGENT_PRODUCT_NAME)
             if uninstall_command:
                 logger.debug(f"Found uninstall command: {uninstall_command}. Executing...")
                 # Determine if it's an MSI or EXE installer
@@ -950,14 +977,14 @@ class SSAgentInstaller:
                         uninstall_cmd.append("/S")
                     logger.debug(f"Running EXE uninstall command: {' '.join(uninstall_cmd)}")
                     subprocess.run(uninstall_cmd, check=True)
-                logger.debug("SS Agent has been successfully uninstalled from Windows.")
+                logger.debug("ss-agent has been successfully uninstalled from Windows.")
             else:
-                logger.warning("Uninstall command for SS Agent not found in the registry.")
+                logger.warning("Uninstall command for ss-agent not found in the registry.")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to uninstall SS Agent on Windows: {e}")
+            logger.error(f"Failed to uninstall ss-agent on Windows: {e}")
             raise
         except Exception as e:
-            logger.error(f"An unexpected error occurred during SS Agent uninstallation on Windows: {e}")
+            logger.error(f"An unexpected error occurred during ss-agent uninstallation on Windows: {e}")
             raise
 
     def get_macos_package_id(self):

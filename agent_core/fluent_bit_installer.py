@@ -73,7 +73,6 @@ class FluentBitInstaller:
 
     def select_asset(self, categorized_assets):
         system = platform.system().lower()
-        logger.debug(f"Detected system: {system}")
         if system == "linux":
             distro_name = distro.id().lower()
             version = distro.major_version()
@@ -969,10 +968,11 @@ class FluentBitInstaller:
             logger.error("winreg module is not available. Uninstallation cannot proceed on Windows.")
             return
 
+        # uninstalling binary
         try:
             uninstall_command = self.get_windows_uninstall_command("Fluent Bit")
             if uninstall_command:
-                logger.debug(f"Found uninstall command: {uninstall_command}. Executing...")
+                logger.debug(f"Found uninstall command: {uninstall_command} for fluent-bit. Executing...")
                 # Determine if it's an MSI or EXE installer
                 if "msiexec" in uninstall_command.lower():
                     # Extract the product code

@@ -48,7 +48,6 @@ class SSNetworkAnalyzerInstaller:
 
     def select_asset(self, categorized_assets):
         system = platform.system().lower()
-        logger.info(f"Detected system: {system}")
         if system == "linux":
             return categorized_assets.get("linux")
         elif system == "darwin":

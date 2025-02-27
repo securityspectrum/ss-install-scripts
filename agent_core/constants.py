@@ -101,6 +101,7 @@ SS_AGENT_SSL_DIR_WINDOWS = "C:/ProgramData/ss-agent/ssl"
 SS_AGENT_SERVICE_MACOS = '/Library/LaunchDaemons/com.ss-agent.plist'
 SS_AGENT_SERVICE_LINUX = '/etc/systemd/system/ss-agent.service'
 SS_AGENT_SERVICE_NAME = "ss-agent"
+SS_AGENT_PRODUCT_NAME = "SS Agent"
 SS_AGENT_SERVICE_BINARY_WINDOWS = "C:/Program Files/ss-agent/ss-agent.exe"
 
 # ss-agent config file template
