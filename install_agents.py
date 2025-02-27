@@ -108,8 +108,7 @@ def install(args):
         ss_agent_installer.enable_and_start(final_executable_path)
         ss_agent_installer.start_all_services_ss_agent()
 
-        logger.info("✓ Installation completed successfully!")
-        logger.info("Security Spectrum agents are now running and monitoring your system.")
+        logger.info("Installation completed successfully!")
     except Exception as e:
         logger.error("Installation failed: %s", e, exc_info=quiet_install is not False)
         sys.exit(1)
@@ -122,28 +121,24 @@ def uninstall(args):
         confirm_uninstallation()
         logger.info("Starting uninstallation process...")
 
-        logger.info("Stopping Security Spectrum agent services...")
+        logger.info("Stopping all services..")
         ss_agent_installer = SSAgentInstaller()
         ss_agent_installer.stop_all_services_ss_agent()
         ss_agent_installer.stop_and_delete_windows_service()
         ss_agent_installer.stop_ss_agent()
 
-        logger.info("Uninstalling fluent-bit...")
         fluent_bit_installer = FluentBitInstaller()
         fluent_bit_installer.uninstall()
 
-        logger.info("Uninstalling osquery...")
         osquery_installer = OsqueryInstaller()
         osquery_installer.uninstall()
 
-        logger.info("Uninstalling zeek...")
         zeek_installer = ZeekInstaller()
         zeek_installer.uninstall()
 
-        logger.info("Uninstalling Security Spectrum agent...")
         ss_agent_installer.uninstall()
 
-        logger.info("✓ Uninstallation completed successfully!")
+        logger.info("Uninstallation completed successfully!")
     except Exception as e:
         logger.error("Uninstallation failed: %s", e,
                      exc_info=quiet_install is not False)
