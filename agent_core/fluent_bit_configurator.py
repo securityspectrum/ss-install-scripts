@@ -18,36 +18,35 @@ from agent_core.constants import (
 )
 from agent_core.platform_context import PlatformContext
 from agent_core.secrets_manager import ContextName
+from utils.uninstall_utils import UninstallUtils
 
 logger = logging.getLogger("InstallationLogger")
 quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
 
 
 class FluentBitConfigurator:
-    def __init__(self, api_url_domain, config_dir, ssl_dir, organization_slug):
-        self.api_url_domain = api_url_domain
+    def __init__(self, config_dir, ssl_dir):
         self.platform_context = PlatformContext()
         self.config_dir = Path(config_dir)
         self.ssl_dir = Path(ssl_dir)
-        self.organization_slug = organization_slug
 
         # Determine paths based on the OS during initialization
         system = platform.system().lower()
         if system == "linux":
             self.zeek_log_path = ZEEK_LOG_PATH_LINUX
-            self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_LINUX) / organization_slug / "cacert.crt"
+            self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_LINUX) / "cacert.crt"
             self.fluent_bit_config_path = Path(FLUENT_BIT_CONFIG_DIR_LINUX) / FLUENT_BIT_CONFIG_FILENAME
-            self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_LINUX) / organization_slug
+            self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_LINUX)
         elif system == "darwin":
             self.zeek_log_path = ZEEK_LOG_PATH_MACOS
-            self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_MACOS) / organization_slug / "cacert.crt"
+            self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_MACOS) / "cacert.crt"
             self.fluent_bit_config_path = Path(FLUENT_BIT_CONFIG_DIR_MACOS) / FLUENT_BIT_CONFIG_FILENAME
-            self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_MACOS) / organization_slug
+            self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_MACOS)
         elif system == "windows":
             self.zeek_log_path = SS_NETWORK_ANALYZER_LOG_PATH_WINDOWS + SS_NETWORK_ANALYZER_LOG_FILES_MATCH
-            self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_WINDOWS) / organization_slug / "cacert.crt"
+            self.ssl_ca_location = Path(FLUENT_BIT_SSL_DIR_WINDOWS) / "cacert.crt"
             self.fluent_bit_config_path = Path(FLUENT_BIT_DIR_WINDOWS) / FLUENT_BIT_CONFIG_FILENAME
-            self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_WINDOWS) / organization_slug
+            self.fluent_bit_ssl_path = Path(FLUENT_BIT_SSL_DIR_WINDOWS)
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
@@ -268,34 +267,11 @@ class FluentBitConfigurator:
             logger.error(f"Error creating or moving Fluent Bit parser config file: {e}")
 
     def remove_configurations(self):
-        logger.info("Uninstalling Fluent Bit configurations and certificates...")
+        """Remove FluentBit configurations and certificates."""
         paths_to_remove = [
             self.fluent_bit_config_path,  # Fluent Bit main configuration file
-            self.fluent_bit_ssl_path,      # SSL directory containing certificates
-            self.zeek_log_path,            # Zeek log path if applicable
+            self.fluent_bit_ssl_path,     # SSL directory containing certificates
+            self.zeek_log_path,           # Zeek log path if applicable
         ]
-
-        for path in paths_to_remove:
-            if path.is_dir():
-                try:
-                    shutil.rmtree(path)
-                    logger.debug(f"Removed directory: {path}")
-                except Exception as e:
-                    logger.error(f"Failed to remove directory {path}: {e}")
-            elif path.is_file():
-                try:
-                    path.unlink()
-                    logger.debug(f"Removed file: {path}")
-                except Exception as e:
-                    logger.error(f"Failed to remove file {path}: {e}")
-
-        unique_dirs = {path.parent for path in paths_to_remove}
-        for dir_path in unique_dirs:
-            if dir_path.is_dir() and not any(dir_path.iterdir()):
-                try:
-                    dir_path.rmdir()
-                    logger.debug(f"Removed empty directory: {dir_path}")
-                except Exception as e:
-                    logger.error(f"Failed to remove empty directory {dir_path}: {e}")
-
-        logger.info("Uninstallation of Fluent Bit configurations completed.")
+        
+        UninstallUtils.remove_configurations(paths_to_remove, "fluent-bit")

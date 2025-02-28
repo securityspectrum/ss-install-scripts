@@ -1,5 +1,6 @@
 # agent_core/ss_agent_configurator.py
 import os
+import shutil
 import tempfile  # Use tempfile for creating temporary files
 from pathlib import Path
 import logging
@@ -8,20 +9,20 @@ from agent_core.platform_context import PlatformContext
 from agent_core.secrets_manager import ContextName
 from agent_core.system_utils import SystemUtility
 from agent_core.constants import API_URL_DOMAIN, API_VERSION_PATH, SS_AGENT_TEMPLATE
+from utils.uninstall_utils import UninstallUtils
 
 logger = logging.getLogger("InstallationLogger")
 quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
 
 
 class SSAgentConfigurator:
-    def __init__(self, api_url_domain, config_dir, cert_dir):
-        self.api_url_domain = api_url_domain
+    def __init__(self, config_dir, cert_dir):
         # Ensure config_dir and cert_dir are Path objects
         self.config_dir = Path(config_dir)
         self.cert_dir = Path(cert_dir)
         self.platform_context = PlatformContext()
 
-    def configure_ss_agent(self, context: dict, template_path: Path):
+    def configure_ss_agent(self, context: dict, api_url_domain, template_path: Path):
         """
         Configures the ss-agent by generating a config.json from a template.
         """
@@ -35,7 +36,7 @@ class SSAgentConfigurator:
             return
 
         # Use as_posix() to ensure paths are JSON-compatible
-        config = template.substitute(api_url=f"{self.api_url_domain}/api/v1",
+        config = template.substitute(api_url=f"{api_url_domain}/api/v1",
                                      organization_key=context.get(ContextName.ORG_KEY, ""),
                                      api_access_key=context.get(ContextName.API_ACCESS_KEY, ""),
                                      api_secret_key=context.get(ContextName.API_SECRET_KEY, ""),
@@ -75,3 +76,12 @@ class SSAgentConfigurator:
             return
 
         logger.info(f"ss-agent configured successfully at {final_config_path}")
+
+    def remove_configurations(self):
+        """Remove SS Agent configurations and certificates."""
+        paths_to_remove = [
+            self.config_dir,
+            self.cert_dir,
+        ]
+
+        UninstallUtils.remove_configurations(paths_to_remove, "ss-agent")

@@ -9,10 +9,9 @@ import subprocess
 from pathlib import Path
 
 from agent_core import SystemUtility
-from agent_core.constants import (
-    FLUENT_BIT_REPO, FLUENT_BIT_ASSET_PATTERNS, FLUENT_BIT_SERVICE_NAME,
-    FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS, FLUENT_BIT_EXE_WINDOWS, FLUENT_BIT_SERVICE_MACOS
-)
+from agent_core.constants import (FLUENT_BIT_DIR_WINDOWS, FLUENT_BIT_PROGRAMDATA_DIR_WINDOWS, FLUENT_BIT_REPO,
+                                  FLUENT_BIT_ASSET_PATTERNS, FLUENT_BIT_SERVICE_NAME,
+                                  FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS, FLUENT_BIT_EXE_WINDOWS, FLUENT_BIT_SERVICE_MACOS)
 
 import tempfile
 import hashlib
@@ -25,9 +24,11 @@ except ImportError:
 
 # Setup logger
 from utils.files import get_temp_file_path
+from utils.uninstall_utils import UninstallUtils
 
 logger = logging.getLogger("InstallationLogger")
 quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
+
 
 class FluentBitInstaller:
 
@@ -45,8 +46,7 @@ class FluentBitInstaller:
             # Expected format: fluent-bit-<version>.<distro>-<distro_version>.<arch>.<extension>
             match = re.match(
                 r"fluent-bit-\d+\.\d+\.\d+\.(?P<distro>[^.-]+)-(?P<distro_version>[^.-]+)\.(?P<arch>[^.]+)\.(?P<extension>.+)",
-                asset_name
-            )
+                asset_name)
             if match:
                 return match.groupdict()
             else:
@@ -99,20 +99,12 @@ class FluentBitInstaller:
                     assets = categorized_assets.get(("centos", "9"))
             elif "debian" in distro_name:
                 # Map Debian versions to available packages
-                debian_versions = {
-                    '10': 'buster',
-                    '11': 'bullseye',
-                    '12': 'bookworm',
-                }
+                debian_versions = {'10': 'buster', '11': 'bullseye', '12': 'bookworm', }
                 debian_codename = debian_versions.get(version)
                 if debian_codename:
                     assets = categorized_assets.get(("debian", debian_codename))
             elif "ubuntu" in distro_name:
-                ubuntu_versions = {
-                    '18': '18',
-                    '20': '20',
-                    '22': '22',
-                }
+                ubuntu_versions = {'18': '18', '20': '20', '22': '22', }
                 ubuntu_version = ubuntu_versions.get(version)
                 if ubuntu_version:
                     assets = categorized_assets.get(("ubuntu", ubuntu_version))
@@ -204,13 +196,13 @@ class FluentBitInstaller:
         # Download the file
         logger.debug(f"Starting download from URL: {download_url}")
         logger.debug(f"Target download location: {os.path.abspath(dest_path)}")
-        
+
         response = requests.get(download_url, stream=True)
         response.raise_for_status()
-        
+
         # Get content size for logging
         content_size = int(response.headers.get('content-length', 0))
-        logger.debug(f"Download size: {content_size/1024/1024:.2f} MB")
+        logger.debug(f"Download size: {content_size / 1024 / 1024:.2f} MB")
 
         # Write the file in chunks
         with open(dest_path, 'wb') as file:
@@ -218,16 +210,16 @@ class FluentBitInstaller:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
                 bytes_downloaded += len(chunk)
-                
+
         logger.debug(f"Download completed successfully: {os.path.abspath(dest_path)}")
-        logger.debug(f"File size on disk: {os.path.getsize(dest_path)/1024/1024:.2f} MB")
+        logger.debug(f"File size on disk: {os.path.getsize(dest_path) / 1024 / 1024:.2f} MB")
         return dest_path
 
     def run_installation_command(self, dest_path):
         system = platform.system().lower()
         dest_path = Path(os.path.expanduser(dest_path))
         logger.debug(f"Installing fluent-bit from: {os.path.abspath(dest_path)}")
-        
+
         if system == "linux":
             if dest_path.suffix == ".rpm":
                 package_name = "fluent-bit"
@@ -395,12 +387,10 @@ class FluentBitInstaller:
         """Check if a different version of the package is installed."""
         try:
             if package_type == 'rpm':
-                result = subprocess.run(
-                    ["rpm", "-q", package_name],
+                result = subprocess.run(["rpm", "-q", package_name],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
-                )
+                    text=True)
                 if result.returncode == 0:
                     # rpm -q fluent-bit -> fluent-bit-3.1.6-1.centos9.x86_64
                     parts = result.stdout.strip().split('-')
@@ -410,12 +400,10 @@ class FluentBitInstaller:
                 return False
             else:
                 # DEB-based
-                result = subprocess.run(
-                    ["dpkg", "-s", package_name],
+                result = subprocess.run(["dpkg", "-s", package_name],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
-                )
+                    text=True)
                 if result.returncode == 0 and "Status: install ok installed" in result.stdout:
                     for line in result.stdout.split('\n'):
                         if line.startswith("Version:"):
@@ -430,12 +418,10 @@ class FluentBitInstaller:
         """Check if a newer version of the package is installed."""
         try:
             if package_type == 'rpm':
-                result = subprocess.run(
-                    ["rpm", "-q", package_name],
+                result = subprocess.run(["rpm", "-q", package_name],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
-                )
+                    text=True)
                 if result.returncode == 0:
                     # Extract installed version
                     parts = result.stdout.strip().split('-')
@@ -447,12 +433,10 @@ class FluentBitInstaller:
                 return False
             else:
                 # DEB-based
-                result = subprocess.run(
-                    ["dpkg", "-s", package_name],
+                result = subprocess.run(["dpkg", "-s", package_name],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
-                )
+                    text=True)
                 if result.returncode == 0 and "Status: install ok installed" in result.stdout:
                     installed_ver = None
                     for line in result.stdout.split('\n'):
@@ -501,7 +485,10 @@ class FluentBitInstaller:
 
             # Enable Fluent Bit on boot
             result = subprocess.run(['sudo', 'systemctl', 'enable', FLUENT_BIT_SERVICE_NAME],
-                                    check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                    check=True,
+                                    text=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
             logger.debug(f"Enable command output: {result.stdout.strip()}")
             logger.debug(f"Fluent Bit service enabled successfully.")
 
@@ -510,7 +497,10 @@ class FluentBitInstaller:
 
             # Start Fluent Bit service
             result = subprocess.run(['sudo', 'systemctl', 'start', FLUENT_BIT_SERVICE_NAME],
-                                    check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                    check=True,
+                                    text=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
             logger.debug(f"Start command output: {result.stdout.strip()}")
             logger.debug("Fluent Bit service started successfully.")
 
@@ -532,7 +522,10 @@ class FluentBitInstaller:
 
             # Load the Fluent Bit service plist
             result = subprocess.run(['sudo', 'launchctl', 'load', FLUENT_BIT_SERVICE_MACOS],
-                                    check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                    check=True,
+                                    text=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
             logger.debug(f"Load command output: {result.stdout.strip()}")
             logger.debug("Fluent Bit service loaded successfully.")
 
@@ -541,7 +534,10 @@ class FluentBitInstaller:
 
             # Enable Fluent Bit service to start automatically
             result = subprocess.run(['sudo', 'launchctl', 'enable', 'system/fluent-bit.plist'],
-                                    check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                    check=True,
+                                    text=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
             logger.debug(f"Enable command output: {result.stdout.strip()}")
             logger.debug("Fluent Bit service enabled successfully.")
 
@@ -565,23 +561,18 @@ class FluentBitInstaller:
         try:
             # Step 1: Check if the service exists
             logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists...")
-            result = subprocess.run(
-                ['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
+            result = subprocess.run(['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
-            )
+                text=True)
             service_exists = 'SERVICE_NAME: ' + FLUENT_BIT_SERVICE_NAME in result.stdout
 
             # Step 2: Create the service if it doesn't exist
             if not service_exists:
                 logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' not found. Creating the service...")
-                create_command = [
-                    'sc.exe', 'create', FLUENT_BIT_SERVICE_NAME,
-                    'binPath=', f'"{FLUENT_BIT_EXE_WINDOWS}" -c "{FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS}"',
-                    'start=', 'auto',
-                    'obj=', 'LocalSystem'
-                ]
+                create_command = ['sc.exe', 'create', FLUENT_BIT_SERVICE_NAME, 'binPath=',
+                    f'"{FLUENT_BIT_EXE_WINDOWS}" -c "{FLUENT_BIT_CONFIG_DIR_CONF_WINDOWS}"', 'start=', 'auto', 'obj=',
+                    'LocalSystem']
                 logger.debug(f"Creating service with command: {' '.join(create_command)}")
                 subprocess.run(create_command, check=True)
                 logger.debug(f"Service '{FLUENT_BIT_SERVICE_NAME}' created successfully.")
@@ -596,25 +587,21 @@ class FluentBitInstaller:
 
             # Step 4: Check the service status before attempting to start it
             logger.debug(f"Checking the status of service '{FLUENT_BIT_SERVICE_NAME}' before starting...")
-            query_result = subprocess.run(
-                ['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
+            query_result = subprocess.run(['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
-            )
+                text=True)
 
             if "RUNNING" in query_result.stdout:
                 logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' is already running. No need to start it.")
             else:
                 # Step 5: Start the service if not already running
                 logger.debug(f"Starting service '{FLUENT_BIT_SERVICE_NAME}'...")
-                start_result = subprocess.run(
-                    ['sc.exe', 'start', FLUENT_BIT_SERVICE_NAME],
+                start_result = subprocess.run(['sc.exe', 'start', FLUENT_BIT_SERVICE_NAME],
                     check=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
-                )
+                    text=True)
                 logger.info(f"Service '{FLUENT_BIT_SERVICE_NAME}' started successfully.")
 
         except subprocess.CalledProcessError as e:
@@ -641,9 +628,9 @@ class FluentBitInstaller:
         try:
             logger.debug(f"Checking if the '{FLUENT_BIT_SERVICE_NAME}' service exists before stopping and deleting...")
             result = subprocess.run(['sc.exe', 'query', FLUENT_BIT_SERVICE_NAME],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True)
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True)
             service_exists = 'SERVICE_NAME: ' + FLUENT_BIT_SERVICE_NAME in result.stdout
 
             if not service_exists:
@@ -691,31 +678,30 @@ class FluentBitInstaller:
         logger.debug(f"Verifying permissions for SYSTEM on {path}...")
 
         try:
-            result = subprocess.run(
-                ['icacls', path],
+            result = subprocess.run(['icacls', path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                check=True
-            )
+                check=True)
 
             if 'SYSTEM:(F)' not in result.stdout:
                 logger.error(f"SYSTEM does not have full control on {path}. Attempting to fix permissions...")
 
                 fix_permissions_command = ['icacls', path, '/grant', 'SYSTEM:F']
-                fix_result = subprocess.run(fix_permissions_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                            text=True, check=True)
+                fix_result = subprocess.run(fix_permissions_command,
+                                            stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE,
+                                            text=True,
+                                            check=True)
 
                 logger.debug(f"Fix permissions command output: {fix_result.stdout.strip()}")
 
                 # Re-check permissions after attempting to fix
-                result = subprocess.run(
-                    ['icacls', path],
+                result = subprocess.run(['icacls', path],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    check=True
-                )
+                    check=True)
                 if 'SYSTEM:(F)' not in result.stdout:
                     logger.error(f"Failed to grant SYSTEM full control on {path}.")
                     raise PermissionError(f"Failed to grant SYSTEM full control on {path}.")
@@ -734,6 +720,7 @@ class FluentBitInstaller:
             raise
 
     def uninstall(self):
+        """Uninstall Fluent Bit across all supported platforms."""
         logger.info("Uninstalling fluent-bit...")
         system = platform.system().lower()
 
@@ -829,13 +816,11 @@ class FluentBitInstaller:
         if Path(launch_daemon).exists():
             try:
                 logger.debug(f"Attempting to unload LaunchDaemon: {launch_daemon}")
-                result = subprocess.run(
-                    ["sudo", "launchctl", "unload", launch_daemon],
+                result = subprocess.run(["sudo", "launchctl", "unload", launch_daemon],
                     check=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
-                )
+                    text=True)
                 logger.debug(f"Unload command output: {result.stdout.strip()}")
                 logger.info(f"Unloaded LaunchDaemon: {launch_daemon}")
             except subprocess.CalledProcessError as e:
@@ -853,13 +838,11 @@ class FluentBitInstaller:
         if path.exists():
             try:
                 logger.debug(f"Attempting to remove LaunchDaemon plist: {launch_daemon}")
-                result = subprocess.run(
-                    ["sudo", "rm", "-f", launch_daemon],
+                result = subprocess.run(["sudo", "rm", "-f", launch_daemon],
                     check=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
-                )
+                    text=True)
                 logger.debug(f"Remove command output: {result.stdout.strip()}")
                 logger.info(f"Removed LaunchDaemon plist: {launch_daemon}")
             except subprocess.CalledProcessError as e:
@@ -887,13 +870,11 @@ class FluentBitInstaller:
                 if path.is_file() or path.is_symlink():
                     try:
                         logger.debug(f"Attempting to remove file: {path}")
-                        result = subprocess.run(
-                            ["sudo", "rm", "-f", path_str],
+                        result = subprocess.run(["sudo", "rm", "-f", path_str],
                             check=True,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
-                            text=True
-                        )
+                            text=True)
                         logger.debug(f"Remove file command output: {result.stdout.strip()}")
                         logger.info(f"Removed file: {path}")
                     except subprocess.CalledProcessError as e:
@@ -902,13 +883,11 @@ class FluentBitInstaller:
                 elif path.is_dir():
                     try:
                         logger.debug(f"Attempting to remove directory: {path}")
-                        result = subprocess.run(
-                            ["sudo", "rm", "-rf", path_str],
+                        result = subprocess.run(["sudo", "rm", "-rf", path_str],
                             check=True,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
-                            text=True
-                        )
+                            text=True)
                         logger.debug(f"Remove directory command output: {result.stdout.strip()}")
                         logger.info(f"Removed directory: {path}")
                     except subprocess.CalledProcessError as e:
@@ -925,13 +904,11 @@ class FluentBitInstaller:
         if package_id:
             try:
                 logger.debug(f"Found Fluent Bit package ID: {package_id}. Removing package receipt...")
-                result = subprocess.run(
-                    ["sudo", "pkgutil", "--forget", package_id],
+                result = subprocess.run(["sudo", "pkgutil", "--forget", package_id],
                     check=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
-                )
+                    text=True)
                 logger.debug(f"Forget package receipt command output: {result.stdout.strip()}")
                 logger.info(f"Package receipt removed: {package_id}")
             except subprocess.CalledProcessError as e:
@@ -946,13 +923,11 @@ class FluentBitInstaller:
         Assumes the package ID contains 'fluent-bit'.
         """
         try:
-            result = subprocess.run(
-                ["pkgutil", "--pkgs"],
+            result = subprocess.run(["pkgutil", "--pkgs"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                check=True
-            )
+                check=True)
             packages = result.stdout.splitlines()
             for pkg in packages:
                 if "fluent-bit" in pkg.lower():
@@ -1010,10 +985,8 @@ class FluentBitInstaller:
         """
         Searches the Windows Registry for the uninstall command of the given product.
         """
-        uninstall_subkeys = [
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
-            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
-        ]
+        uninstall_subkeys = [r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"]
 
         for root in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
             for subkey in uninstall_subkeys:
@@ -1045,24 +1018,20 @@ class FluentBitInstaller:
             if system == "linux":
                 # Check DEB first
                 if Path('/usr/bin/dpkg').exists() or Path('/bin/dpkg').exists():
-                    result = subprocess.run(
-                        ["dpkg", "-s", package_name],
+                    result = subprocess.run(["dpkg", "-s", package_name],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        text=True
-                    )
+                        text=True)
                     if result.returncode == 0 and "Status: install ok installed" in result.stdout:
                         for line in result.stdout.split('\n'):
                             if line.startswith("Version:"):
                                 return line.split(':')[1].strip()
                 # Check RPM if not DEB-based
                 elif Path('/usr/bin/rpm').exists() or Path('/bin/rpm').exists():
-                    result = subprocess.run(
-                        ["rpm", "-q", package_name],
+                    result = subprocess.run(["rpm", "-q", package_name],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        text=True
-                    )
+                        text=True)
                     if result.returncode == 0:
                         # Output like 'fluent-bit-1.7.4-2.el8.x86_64'
                         parts = result.stdout.strip().split('-')

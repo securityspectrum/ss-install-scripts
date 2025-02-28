@@ -85,14 +85,12 @@ def install(args):
         fluent_bit_installer.install()
         fluent_bit_installer.enable_and_start()
 
-        fluent_bit_configurator = FluentBitConfigurator(API_URL_DOMAIN,
-                                                        fluent_bit_config_dir,
-                                                        ss_agent_ssl_dir,
-                                                        organization_slug)
+        fluent_bit_configurator = FluentBitConfigurator(fluent_bit_config_dir,
+                                                        ss_agent_ssl_dir)
         fluent_bit_configurator.configure_fluent_bit(api_url, context)
 
-        ss_agent_configurator = SSAgentConfigurator(API_URL_DOMAIN, ss_agent_config_dir, ss_agent_ssl_dir)
-        ss_agent_configurator.configure_ss_agent(context, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
+        ss_agent_configurator = SSAgentConfigurator(ss_agent_config_dir, ss_agent_ssl_dir)
+        ss_agent_configurator.configure_ss_agent(context, API_URL_DOMAIN, Path(CONFIG_DIR_PATH) / SS_AGENT_TEMPLATE)
 
         ss_agent_installer.install()
 
@@ -121,27 +119,40 @@ def uninstall(args):
         confirm_uninstallation()
         logger.info("Starting uninstallation process...")
 
-        logger.info("Stopping all services..")
+        # Get platform-specific paths
+        (fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path) = get_platform_specific_paths()
+
+        # Stop all services first
+        logger.info("Stopping all services...")
         ss_agent_installer = SSAgentInstaller()
         ss_agent_installer.stop_all_services_ss_agent()
-        ss_agent_installer.stop_and_delete_windows_service()
-        ss_agent_installer.stop_ss_agent()
-
+        
+        # Uninstall services
+        logger.info("Uninstalling Security Spectrum components...")
+        
+        # Remove configurations first
+        logger.debug("Removing service configurations...")
+        ss_agent_configurator = SSAgentConfigurator(ss_agent_config_dir, ss_agent_ssl_dir)
+        ss_agent_configurator.remove_configurations()
+        
+        fluent_bit_configurator = FluentBitConfigurator(fluent_bit_config_dir, ss_agent_ssl_dir)
+        fluent_bit_configurator.remove_configurations()
+        
+        # Uninstall components
         fluent_bit_installer = FluentBitInstaller()
         fluent_bit_installer.uninstall()
-
+        
         osquery_installer = OsqueryInstaller()
         osquery_installer.uninstall()
-
+        
         zeek_installer = ZeekInstaller()
         zeek_installer.uninstall()
-
+        
         ss_agent_installer.uninstall()
 
         logger.info("Uninstallation completed successfully!")
     except Exception as e:
-        logger.error("Uninstallation failed: %s", e,
-                     exc_info=quiet_install is not False)
+        logger.error("Uninstallation failed: %s", e, exc_info=quiet_install is not False)
         sys.exit(1)
 
 

@@ -724,60 +724,110 @@ class SSAgentInstaller:
         else:
             logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
 
+
     def stop_all_services_ss_agent(self):
         """
         Stop all services using the ss-agent command if the service is running.
+        Gracefully handles cases where the binary doesn't exist.
         """
-        if self.is_service_running(SS_AGENT_SERVICE_NAME):
-            logger.debug(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop all services..")
-            try:
-                system = platform.system().lower()
-                if system == 'linux' or system == 'darwin':
-                    stop_cmd = ['sudo', 'ss-agent', 'service', 'stop', 'all']
-                elif system == 'windows':
-                    stop_cmd = [SS_AGENT_SERVICE_BINARY_WINDOWS, 'service', 'stop', 'all']
-
-                # Capture the output and errors
-                result = subprocess.run(stop_cmd, check=True, capture_output=True, text=True)
-
-                # Log the output and verify if all services stopped successfully
-                if result.stdout:
-                    logger.debug(f"Command output: {result.stdout}")
-                if result.stderr:
-                    logger.error(f"Command error output: {result.stderr}")
-
-                # Verify the output to ensure all services have stopped
-                if "success" in result.stdout.lower() or "stopped" in result.stdout.lower():
-                    logger.debug("All services stopped successfully.")
-                else:
-                    logger.error("Failed to stop some or all services.")
-                    raise RuntimeError("Service stop verification failed.")
-
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to stop services: {e}")
-                raise
-        else:
+        if not self.is_service_running(SS_AGENT_SERVICE_NAME):
             logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
+            return
+
+        logger.debug(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop all services..")
+        system = platform.system().lower()
+
+        # Check if system is supported and set stop_cmd
+        if system not in ['linux', 'darwin', 'windows']:
+            logger.warning(f"Unsupported system: {system}. Skipping service stop.")
+            return
+
+        try:
+            # Get the executable path using the existing method
+            executable_path = self.determine_executable_installation_path()
+
+            # Check if the executable exists
+            if not os.path.exists(executable_path):
+                logger.warning(f"ss-agent binary not found at {executable_path}. Skipping service stop.")
+                return
+
+            # Set the appropriate command based on the system
+            if system == 'linux' or system == 'darwin':
+                stop_cmd = ['sudo', str(executable_path), 'service', 'stop', 'all']
+            elif system == 'windows':
+                stop_cmd = [str(executable_path), 'service', 'stop', 'all']
+        except Exception as e:
+            logger.warning(f"Failed to determine executable path: {e}. Skipping service stop.")
+            return
+
+        # Attempt to stop the services
+        try:
+            result = subprocess.run(stop_cmd, capture_output=True, text=True, timeout=30)
+
+            # Log the output
+            if result.stdout:
+                logger.debug(f"Command output: {result.stdout}")
+            if result.stderr:
+                logger.debug(f"Command error output: {result.stderr}")  # Changed to debug instead of error
+
+            # Check return code instead of parsing output
+            if result.returncode == 0:
+                logger.debug("All services stopped successfully.")
+            else:
+                logger.warning(f"Command returned non-zero exit status {result.returncode}. Continuing anyway.")
+
+        except subprocess.TimeoutExpired:
+            logger.warning("Timeout when stopping services. Continuing anyway.")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to stop services: {e}. Continuing anyway.")
+        except Exception as e:
+            logger.warning(f"Unexpected error when stopping services: {e}. Continuing anyway.")
 
     def stop_ss_agent(self):
         """
-        Stop the ss-agent service.
+        Stop the ss-agent service with improved error handling.
+        Uses determine_executable_installation_path for consistency.
         """
-        if self.is_service_running(SS_AGENT_SERVICE_NAME):
-            logger.info(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop the service..")
-            try:
-                system = platform.system().lower()
-                if system == 'linux':
-                    self.stop_linux_service(SS_AGENT_SERVICE_NAME)
-                elif system == 'darwin':
-                    self.stop_macos_service(SS_AGENT_SERVICE_MACOS)
-                elif system == 'windows':
-                    self.stop_and_delete_windows_service()
-                logger.info("Service stopped successfully.")
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to stop service: {e}")
-        else:
+        if not self.is_service_running(SS_AGENT_SERVICE_NAME):
             logger.debug(f"{SS_AGENT_SERVICE_NAME} is not running or not installed.")
+            return
+
+        logger.info(f"{SS_AGENT_SERVICE_NAME} is running. Attempting to stop the service..")
+
+        try:
+            # Check if the executable exists before attempting to stop the service
+            try:
+                executable_path = self.determine_executable_installation_path()
+                if not os.path.exists(executable_path):
+                    logger.warning(f"ss-agent binary not found at {executable_path}. Skipping service stop.")
+                    return
+            except Exception as e:
+                logger.warning(f"Failed to determine executable path: {e}. Skipping service stop.")
+                return
+
+            system = platform.system().lower()
+            if system == 'linux':
+                try:
+                    self.stop_linux_service(SS_AGENT_SERVICE_NAME)
+                    logger.info("Service stopped successfully.")
+                except subprocess.CalledProcessError as e:
+                    logger.warning(f"Failed to stop Linux service: {e}. Continuing anyway.")
+            elif system == 'darwin':
+                try:
+                    self.stop_macos_service(SS_AGENT_SERVICE_MACOS)
+                    logger.info("Service stopped successfully.")
+                except subprocess.CalledProcessError as e:
+                    logger.warning(f"Failed to stop macOS service: {e}. Continuing anyway.")
+            elif system == 'windows':
+                try:
+                    self.stop_and_delete_windows_service()
+                    logger.info("Service stopped successfully.")
+                except Exception as e:
+                    logger.warning(f"Failed to stop Windows service: {e}. Continuing anyway.")
+            else:
+                logger.warning(f"Unsupported system: {system}. Skipping service stop.")
+        except Exception as e:
+            logger.warning(f"Unexpected error when stopping service: {e}. Continuing anyway.")
 
 
     def uninstall(self):
