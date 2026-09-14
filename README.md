@@ -26,6 +26,16 @@ export MASTER_KEY=""
 curl -sL https://github.com/securityspectrum/ss-install-scripts/raw/main/install.sh | bash
 ```
 
+For a local platform, export `SS_API_URL=https://localhost` and run
+`python install_agents.py --install` from this checkout after installing its
+requirements in a virtual environment. The default is the hosted service.
+The remote bootstrap uses the published repository. The Python installer
+retains the environment through `sudo -E`.
+
+The shell installer uses PyPI by default and ignores workstation pip config
+files. Set `PIP_INDEX_URL` explicitly if your environment needs another package
+index.
+
 For Windows
 ```bash
 $env:ORG_KEY = ""

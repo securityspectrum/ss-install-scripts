@@ -6,7 +6,7 @@ import os
 INSTALL_SCRIPT_VERSION = "1.0.0"
 
 # Base API URL
-API_URL_DOMAIN = "https://ui.securityspectrum.io"
+API_URL_DOMAIN = os.environ.get("SS_API_URL", "https://ui.securityspectrum.io").rstrip("/")
 
 # API version path
 API_VERSION_PATH = "/api/v1"

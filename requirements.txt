@@ -4,9 +4,6 @@
 #
 #    pip-compile
 #
---extra-index-url https://pypi.ngc.nvidia.com
---trusted-host pypi.ngc.nvidia.com
-
 certifi==2024.8.30
     # via
     #   -r requirements.in

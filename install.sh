@@ -268,7 +268,7 @@ fi
 
 # Upgrade pip within the virtual environment (use $PIP_QUIET)
 log "INFO" "Upgrading pip in virtual environment..."
-pip install $PIP_QUIET --upgrade pip
+PIP_CONFIG_FILE=/dev/null PIP_EXTRA_INDEX_URL= pip install $PIP_QUIET --index-url "${PIP_INDEX_URL:-https://pypi.org/simple}" --upgrade pip
 if [ $? -ne 0 ]; then
     error_exit "Failed to upgrade pip in virtual environment."
 fi
@@ -308,7 +308,7 @@ fi
 
 # Install requirements (use $PIP_QUIET)
 log "INFO" "Installing Python packages from requirements.txt..."
-pip install $PIP_QUIET -r requirements.txt
+PIP_CONFIG_FILE=/dev/null PIP_EXTRA_INDEX_URL= pip install $PIP_QUIET --index-url "${PIP_INDEX_URL:-https://pypi.org/simple}" -r requirements.txt
 if [ $? -ne 0 ]; then
     error_exit "Failed to install packages."
 fi
