@@ -37,6 +37,13 @@ class FluentBitInstaller:
         self.repo = FLUENT_BIT_REPO
 
     def parse_asset_name(self, asset_name):
+        # Standard downstream RPM names retain the release and EL target.
+        rpm_match = re.fullmatch(
+            r"fluent-bit-\d+\.\d+\.\d+-[A-Za-z0-9._+]+\.el(?P<major>[89])"
+            r"\.(?P<arch>x86_64|aarch64)\.rpm", asset_name)
+        if rpm_match:
+            return {'distro': 'centos', 'distro_version': rpm_match['major'],
+                    'arch': rpm_match['arch'], 'extension': 'rpm'}
         # Check for macOS and Windows first
         if 'intel.pkg' in asset_name:
             return {'distro': 'macos', 'distro_version': '', 'arch': '', 'extension': 'pkg'}
@@ -46,7 +53,8 @@ class FluentBitInstaller:
         else:
             # Expected format: fluent-bit-<version>.<distro>-<distro_version>.<arch>.<extension>
             match = re.match(
-                r"fluent-bit-\d+\.\d+\.\d+\.(?P<distro>[^.-]+)-(?P<distro_version>[^.-]+)\.(?P<arch>[^.]+)\.(?P<extension>.+)",
+                r"^fluent-bit-\d+\.\d+\.\d+\.(?P<distro>[^.-]+)-(?P<distro_version>[^.-]+)"
+                r"(?:\.\d+)?\.(?P<arch>x86_64|aarch64|amd64|arm64)\.(?P<extension>rpm|deb)$",
                 asset_name)
             if match:
                 return match.groupdict()
@@ -81,7 +89,7 @@ class FluentBitInstaller:
 
             assets = None
 
-            if "centos" in distro_name:
+            if distro_name in {"centos", "rhel", "rocky", "almalinux"}:
                 if version == "8":
                     assets = categorized_assets.get(("centos", "8"))
                 elif version == "9":
@@ -113,6 +121,14 @@ class FluentBitInstaller:
                 logger.error(f"No matching asset found for distro {distro_name} {version}")
                 return None
 
+            if assets:
+                machine = platform.machine().lower()
+                supported_arches = {"x86_64": {"x86_64", "amd64"},
+                                    "amd64": {"x86_64", "amd64"},
+                                    "aarch64": {"aarch64", "arm64"},
+                                    "arm64": {"aarch64", "arm64"}}.get(machine, {machine})
+                assets = [asset for asset in assets
+                          if self.parse_asset_name(asset[0])['arch'] in supported_arches]
             if assets:
                 logger.debug(f"Selected assets for {distro_name} {version}: {assets}")
                 return assets[0]  # Return the first matching asset
@@ -284,19 +300,41 @@ class FluentBitInstaller:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
     def extract_rpm_version(self, dest_path):
-        """
-        Extracts the version number from the RPM filename.
+        """Read the epoch, version and release from the package itself."""
+        result = subprocess.run(
+            ["rpm", "-qp", "--queryformat", "%{NAME}\n%{EPOCHNUM}:%{VERSION}-%{RELEASE}\n", str(dest_path)],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        lines = result.stdout.splitlines()
+        if len(lines) != 2 or lines[0] != "fluent-bit":
+            raise ValueError("Expected a fluent-bit RPM")
+        self._validate_rpm_version(lines[1])
+        return lines[1]
 
-        Expected Filename Format: fluent-bit-<version>.<distro>-<distro_version>.<arch>.rpm
-        Example: fluent-bit-3.1.6.centos-9.x86_64.rpm
-        """
-        stem = dest_path.stem  # e.g., fluent-bit-3.1.6.centos-9.x86_64
-        match = re.match(r"fluent-bit-(\d+\.\d+\.\d+)\.[^.]+-\d+\..*", stem)
-        if match:
-            return match.group(1)
-        else:
-            logger.error(f"Could not extract version from RPM filename: {stem}")
-            raise ValueError(f"Could not extract version from RPM filename: {stem}")
+    @staticmethod
+    def _validate_rpm_version(version):
+        if not re.fullmatch(r"\d+:[A-Za-z0-9._+~^]+-[A-Za-z0-9._+~^]+", version):
+            raise ValueError("Invalid RPM epoch/version/release")
+
+    def _installed_rpm_versions(self, package_name):
+        result = subprocess.run(
+            ["rpm", "-q", "--queryformat", "%{EPOCHNUM}:%{VERSION}-%{RELEASE}\n", package_name],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            return []
+        versions = result.stdout.splitlines()
+        for version in versions:
+            self._validate_rpm_version(version)
+        return versions
+
+    def _compare_rpm_versions(self, installed, candidate):
+        # Use RPM's comparison rules (including numeric segments, ~ and ^).
+        # Validate before placing metadata in the Lua expression.
+        self._validate_rpm_version(installed)
+        self._validate_rpm_version(candidate)
+        expression = '%{lua:print(rpm.vercmp("' + installed + '", "' + candidate + '"))}'
+        result = subprocess.run(["rpm", "--eval", expression], check=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        return int(result.stdout.strip())
 
     def extract_deb_version(self, dest_path):
         # Try the original underscore-based logic first
@@ -358,17 +396,8 @@ class FluentBitInstaller:
         """
         try:
             if package_type == 'rpm':
-                # Construct the RPM command; append --quiet if quiet_install is True.
-                cmd = ["rpm", "-q", f"{package_name}-{version}"]
-                if quiet_install:
-                    cmd.append("--quiet")
-                if not quiet_install:
-                    logger.debug("Executing command: " + " ".join(cmd))
-                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                if not quiet_install:
-                    logger.debug("RPM command stdout: " + result.stdout.strip())
-                    logger.debug("RPM command stderr: " + result.stderr.strip())
-                return result.returncode == 0
+                return any(self._compare_rpm_versions(installed, version) == 0
+                           for installed in self._installed_rpm_versions(package_name))
             else:
                 # For dpkg, use 'dpkg -s' to check package status.
                 cmd = ["dpkg", "-s", package_name]
@@ -393,17 +422,8 @@ class FluentBitInstaller:
         """Check if a different version of the package is installed."""
         try:
             if package_type == 'rpm':
-                result = subprocess.run(["rpm", "-q", package_name],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True)
-                if result.returncode == 0:
-                    # rpm -q fluent-bit -> fluent-bit-3.1.6-1.centos9.x86_64
-                    parts = result.stdout.strip().split('-')
-                    if len(parts) > 2:
-                        installed_version = parts[2]  # Extract the version
-                        return installed_version != version
-                return False
+                return any(self._compare_rpm_versions(installed, version) != 0
+                           for installed in self._installed_rpm_versions(package_name))
             else:
                 # DEB-based
                 result = subprocess.run(["dpkg", "-s", package_name],
@@ -424,19 +444,8 @@ class FluentBitInstaller:
         """Check if a newer version of the package is installed."""
         try:
             if package_type == 'rpm':
-                result = subprocess.run(["rpm", "-q", package_name],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True)
-                if result.returncode == 0:
-                    # Extract installed version
-                    parts = result.stdout.strip().split('-')
-                    if len(parts) > 2:
-                        installed_version = parts[2]
-                        # Compare versions lexicographically (simple approach)
-                        # If installed_version is '3.1.7' and version is '3.1.6', '3.1.7' > '3.1.6' works lexicographically
-                        return installed_version > version
-                return False
+                return any(self._compare_rpm_versions(installed, version) > 0
+                           for installed in self._installed_rpm_versions(package_name))
             else:
                 # DEB-based
                 result = subprocess.run(["dpkg", "-s", package_name],

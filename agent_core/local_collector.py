@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 
 
-REVISION = "d4d43e252b58d387a4dcb35f7340bd2a2019eaf6"
+REVISION = "3c25db66ce6b47ee118f271dcccc986be8cba2b6"
 BINARY_PATH = Path("usr/local/libexec/security-spectrum") / f"fluent-bit-{REVISION[:9]}"
 UNIT_PATH = Path("etc/systemd/system/fluent-bit.service")
 DROPIN_PATH = Path("etc/systemd/system/fluent-bit.service.d/20-security-spectrum-local.conf")

@@ -29,7 +29,9 @@ curl -sL https://github.com/securityspectrum/ss-install-scripts/raw/main/install
 For a local platform, export `SS_API_URL=https://localhost` and run
 the V2 project's `scripts/install-local-agent.sh` after exporting the organization
 variables from its setup wizard. Use updated checkouts of V2, this installer,
-and Fluent Bit (including commit `d4d43e252b58d387a4dcb35f7340bd2a2019eaf6`).
+and Fluent Bit (including commit `3c25db66ce6b47ee118f271dcccc986be8cba2b6`).
+This includes the encryption repair, the EL8 compiler fix, and correct handling
+of empty text in deterministic AES-GCM.
 The launcher prepares a corrected collector and passes `--fluent-bit-binary`
 to this installer's Python entry point. A fresh host gets its binary and systemd
 unit; an existing host gets a service override and a restart. Cached builds are
