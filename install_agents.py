@@ -4,6 +4,9 @@ import argparse
 import platform
 import logging
 import sys
+import os
+import subprocess
+import time
 from pathlib import Path
 
 from agent_core.configure_logging import configure_logging
@@ -18,6 +21,8 @@ from agent_core.constants import *
 from agent_core.certificate_manager import CertificateManager
 from agent_core.zeek_installer import ZeekInstaller
 from agent_core.osquery import OsqueryInstaller
+from agent_core.preflight import check_installation
+from agent_core.local_collector import validate_binary
 
 
 def get_platform_specific_paths():
@@ -60,18 +65,24 @@ def install(args):
         logger.debug(f"ss-install-script version: {INSTALL_SCRIPT_VERSION}")
         logger.info(f"Operating system: {current_os} ({architecture})")
 
-        SystemUtility.elevate_privileges()
-
-        # Instantiate classes without passing logger explicitly.
-        ss_agent_installer = SSAgentInstaller()
-        ss_agent_installer.stop_all_services_ss_agent()
-        ss_agent_installer.stop_ss_agent()
-
         secrets_manager = SecretsManager()
         context = secrets_manager.load_secrets_from_var_envs()
         organization_slug = secrets_manager.get_organization_slug()
 
         api_url = f"{API_URL_DOMAIN}{API_VERSION_PATH}/r/{organization_slug}"
+        check_installation(api_url, context, keep_existing_sensors=args.keep_existing_sensors)
+        if args.fluent_bit_binary:
+            validate_binary(args.fluent_bit_binary)
+        if args.check:
+            logger.info("Preflight passed. No packages, services, or system configuration changed.")
+            return
+
+        SystemUtility.elevate_privileges()
+        ss_agent_installer = SSAgentInstaller()
+        if not args.keep_existing_sensors:
+            ss_agent_installer.stop_all_services_ss_agent()
+        ss_agent_installer.stop_ss_agent()
+
         (fluent_bit_config_dir, ss_agent_config_dir, ss_agent_ssl_dir, zeek_log_path) = get_platform_specific_paths()
 
         cert_manager = CertificateManager(api_url, ss_agent_ssl_dir, organization_slug)
@@ -82,8 +93,7 @@ def install(args):
             npcap_installer.install_npcap()
 
         fluent_bit_installer = FluentBitInstaller()
-        fluent_bit_installer.install()
-        fluent_bit_installer.enable_and_start()
+        fluent_bit_installer.install(args.fluent_bit_binary)
 
         fluent_bit_configurator = FluentBitConfigurator(fluent_bit_config_dir,
                                                         ss_agent_ssl_dir)
@@ -94,17 +104,27 @@ def install(args):
 
         ss_agent_installer.install()
 
-        zeek_installer = ZeekInstaller()
-        zeek_installer.install()
-        zeek_installer.configure_and_start_windows()
+        if args.keep_existing_sensors:
+            logger.info("Keeping the existing Zeek and osquery packages, configuration, and services.")
+        else:
+            zeek_installer = ZeekInstaller()
+            zeek_installer.install()
+            zeek_installer.configure_and_start_windows()
 
-        osquery_installer = OsqueryInstaller()
-        osquery_installer.install(extract_dir=OSQUERY_EXTRACT_DIR)
-        osquery_installer.configure_and_start()
+            osquery_installer = OsqueryInstaller()
+            osquery_installer.install(extract_dir=OSQUERY_EXTRACT_DIR)
+            osquery_installer.configure_and_start()
 
+        fluent_bit_installer.enable_and_start()
         final_executable_path = ss_agent_installer.determine_executable_installation_path()
         ss_agent_installer.enable_and_start(final_executable_path)
-        ss_agent_installer.start_all_services_ss_agent()
+        if not args.keep_existing_sensors:
+            ss_agent_installer.start_all_services_ss_agent()
+        if current_os == "linux":
+            # systemctl can accept a start before a collector fails initialization.
+            time.sleep(5)
+            for service in ("fluent-bit", "ss-agent", "zeek", "osqueryd"):
+                subprocess.run(["systemctl", "is-active", "--quiet", service], check=True)
 
         logger.info("Installation completed successfully!")
     except Exception as e:
@@ -159,6 +179,9 @@ def uninstall(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Install or uninstall SS Agent')
     parser.add_argument('--install', action='store_true', help='Install SS Agent')
+    parser.add_argument('--check', action='store_true', help='Validate credentials, configuration and certificate downloads without installing')
+    parser.add_argument('--keep-existing-sensors', action='store_true', help='Linux: require active Zeek and osquery and preserve their installations and configuration')
+    parser.add_argument('--fluent-bit-binary', help='Linux: install this prepared collector instead of downloading a release package')
     parser.add_argument('--uninstall', action='store_true', help='Uninstall SS Agent')
     parser.add_argument('--log-level',
                         default='INFO',
@@ -167,9 +190,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     LOG_DIR_PATH = "logs"
+    if platform.system() != "windows":
+        os.umask(0o077)
     configure_logging(log_dir_path=LOG_DIR_PATH, console_level=args.log_level)
 
-    if args.install:
+    if args.install or args.check:
         install(args)
     elif args.uninstall:
         uninstall(args)

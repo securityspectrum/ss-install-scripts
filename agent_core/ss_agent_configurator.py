@@ -33,7 +33,7 @@ class SSAgentConfigurator:
             logger.debug(f"Loaded ss-agent template from {template_path}")
         except Exception as e:
             logger.error(f"Error loading ss-agent template: {e}")
-            return
+            raise RuntimeError("SS Agent configuration failed; see the preceding error")
 
         # Use as_posix() to ensure paths are JSON-compatible
         config = template.substitute(api_url=f"{api_url_domain}/api/v1",
@@ -44,7 +44,7 @@ class SSAgentConfigurator:
                                      key_file=(self.cert_dir / "client.key").as_posix(),
                                      ca_file=(self.cert_dir / "cacert.crt").as_posix())
 
-        logger.debug(f"Generated ss-agent configuration: {config}")
+        logger.debug("Generated ss-agent configuration (credentials omitted)")
 
         # Validate JSON
         try:
@@ -53,7 +53,7 @@ class SSAgentConfigurator:
             logger.debug("JSON configuration is valid.")
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON configuration: {e}")
-            return
+            raise RuntimeError("SS Agent configuration failed; see the preceding error")
 
         try:
             # Create a temporary file to store the config
@@ -63,17 +63,19 @@ class SSAgentConfigurator:
             logger.debug(f"Created temporary config file: {temp_config_path}")
         except Exception as e:
             logger.error(f"Error creating temporary config file: {e}")
-            return
+            raise RuntimeError("SS Agent configuration failed; see the preceding error")
 
         final_config_path = self.config_dir / "config.json"
         try:
             self.platform_context.create_directory(self.config_dir)
             # Convert Path objects to strings before passing to the move_with_sudo function
             SystemUtility.move_with_sudo(str(Path(temp_config_path)), str(final_config_path))
+            if os.name != "nt":
+                final_config_path.chmod(0o600)
             logger.debug(f"Moved config file to {final_config_path}")
         except Exception as e:
             logger.error(f"Error moving config file to {final_config_path}: {e}")
-            return
+            raise RuntimeError("SS Agent configuration failed; see the preceding error")
 
         logger.info(f"ss-agent configured successfully at {final_config_path}")
 

@@ -73,41 +73,41 @@ class FluentBitConfigurator:
             logger.info(f"Configuration data retrieved from: {api_url}/configurations/agents")
         except Exception as e:
             logger.error(f"Error fetching Fluent Bit configuration: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         # Validate configuration data structure
         required_keys = {"certificates": list, "kafka": dict, "key_server": dict, "backend_server": dict}
         for key, expected_type in required_keys.items():
             if key not in config_data:
                 logger.error(f"Missing required key in config_data: '{key}'")
-                return
+                raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
             if not isinstance(config_data[key], expected_type):
                 logger.error(f"Incorrect type for key '{key}': Expected {expected_type.__name__}, got {type(config_data[key]).__name__}")
-                return
+                raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         if not config_data["certificates"]:
             logger.error("The 'certificates' list in config_data is empty.")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         certificate = config_data["certificates"][0]
         for cert_key in ["principal", "sasl_password"]:
             if cert_key not in certificate:
                 logger.error(f"Missing required key in certificate: '{cert_key}'")
-                return
+                raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         for kafka_key in ["brokers", "topics"]:
             if kafka_key not in config_data["kafka"]:
                 logger.error(f"Missing required key in Kafka config: '{kafka_key}'")
-                return
+                raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         for ks_key in ["host", "port", "path"]:
             if ks_key not in config_data["key_server"]:
                 logger.error(f"Missing required key in key_server config: '{ks_key}'")
-                return
+                raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         if "path" not in config_data["backend_server"]:
             logger.error("Missing required key in backend_server config: 'path'")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         # Generate Fluent Bit configuration using a template
         logger.info("Generating Fluent Bit configuration from template...")
@@ -119,7 +119,7 @@ class FluentBitConfigurator:
             logger.debug(f"Loaded Fluent Bit template file: {fluent_bit_template_file}")
         except Exception as e:
             logger.error(f"Error loading Fluent Bit template file: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         try:
             substitution_dict = {
@@ -142,14 +142,14 @@ class FluentBitConfigurator:
             }
         except KeyError as e:
             logger.error(f"Missing required context key: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         try:
             config = template.substitute(substitution_dict)
             logger.debug("Fluent Bit configuration generated via template substitution.")
         except Exception as e:
             logger.error(f"Error in template substitution: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         # Write configuration to a temporary file and move it to final location
         try:
@@ -159,7 +159,7 @@ class FluentBitConfigurator:
             logger.debug(f"Created temporary Fluent Bit config file: {temp_config_path}")
         except Exception as e:
             logger.error(f"Error creating Fluent Bit config file: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         try:
             self.platform_context.create_directory(self.fluent_bit_config_path.parent)
@@ -167,7 +167,7 @@ class FluentBitConfigurator:
             logger.info(f"Fluent Bit configuration stored at: {self.fluent_bit_config_path}")
         except Exception as e:
             logger.error(f"Error moving Fluent Bit config file to {self.fluent_bit_config_path}: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         # Download certificates and create parser config
         try:
@@ -175,7 +175,7 @@ class FluentBitConfigurator:
             self.create_fluent_bit_parser_config(self.fluent_bit_config_path.with_name(FLUENT_BIT_PARSER_CONFIG_FILENAME))
         except Exception as e:
             logger.error(f"Error during post-configuration steps: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         logger.info("Fluent Bit configuration successfully generated and applied.")
 
@@ -185,7 +185,7 @@ class FluentBitConfigurator:
             self.platform_context.create_directory(certs_path)
         except Exception as e:
             logger.error(f"Error creating Fluent Bit certificates directory {certs_path}: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         certificate_uuid = config_data["certificates"][0]["certificate_uuid"]
         cert_url = f"{api_url}/kafka/pki-certs/{certificate_uuid}/"
@@ -211,7 +211,7 @@ class FluentBitConfigurator:
             logger.debug(f"Saved certificate ZIP to: {zip_path}")
         except Exception as e:
             logger.error(f"Error saving Fluent Bit certificates ZIP file: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         try:
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
@@ -225,12 +225,12 @@ class FluentBitConfigurator:
             logger.debug("Extraction via shutil.unpack_archive successful.")
         except Exception as e:
             logger.error(f"Error extracting Fluent Bit certificates ZIP file: {e}")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         cacert_path = temp_certs_path / CACERT_FILENAME
         if not cacert_path.exists():
             logger.error(f"Error: {CACERT_FILENAME} not found in the ZIP file.")
-            return
+            raise RuntimeError("Fluent Bit configuration failed; see the preceding error")
 
         for item in temp_certs_path.iterdir():
             try:
@@ -241,6 +241,7 @@ class FluentBitConfigurator:
                 logger.debug(f"Moved {item} to {dest_path}")
             except Exception as e:
                 logger.error(f"Error moving {item} to {dest_path}: {e}")
+                raise
 
         try:
             shutil.rmtree(temp_certs_path)
@@ -265,6 +266,7 @@ class FluentBitConfigurator:
             logger.info(f"Fluent Bit parser configuration stored at: {parser_config_path}")
         except Exception as e:
             logger.error(f"Error creating or moving Fluent Bit parser config file: {e}")
+            raise
 
     def remove_configurations(self):
         """Remove FluentBit configurations and certificates."""

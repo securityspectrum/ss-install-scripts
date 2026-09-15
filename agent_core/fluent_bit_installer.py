@@ -25,6 +25,7 @@ except ImportError:
 # Setup logger
 from utils.files import get_temp_file_path
 from utils.uninstall_utils import UninstallUtils
+from agent_core.local_collector import install_collector
 
 logger = logging.getLogger("InstallationLogger")
 quiet_install = (logger.getEffectiveLevel() > logging.DEBUG)
@@ -142,8 +143,13 @@ class FluentBitInstaller:
         else:
             raise NotImplementedError(f"Unsupported OS: {system}")
 
-    def install(self):
+    def install(self, local_binary=None):
         logger.info("Installing fluent-bit log collector...")
+        if local_binary:
+            target = install_collector(local_binary)
+            subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
+            logger.info("Installed prepared collector: %s", target)
+            return
         try:
             release_urls = self.get_latest_release_url()
             categorized_assets = self.categorize_assets(release_urls)
@@ -495,8 +501,8 @@ class FluentBitInstaller:
             # Log starting Fluent Bit service
             logger.debug("Starting Fluent Bit service...")
 
-            # Start Fluent Bit service
-            result = subprocess.run(['sudo', 'systemctl', 'start', FLUENT_BIT_SERVICE_NAME],
+            # Reinstallations must load the new binary and configuration too.
+            result = subprocess.run(['sudo', 'systemctl', 'restart', FLUENT_BIT_SERVICE_NAME],
                                     check=True,
                                     text=True,
                                     stdout=subprocess.PIPE,

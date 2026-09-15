@@ -300,8 +300,7 @@ class SSAgentInstaller:
 
     def setup_systemd_service(self, executable_path):
         """
-        Sets up a systemd service for the SS Agent on Linux.
-        The service uses the 'ss-agent --debug start' command to start.
+        Create the Linux unit if missing, then enable and start it on every install.
         """
         SS_AGENT_SERVICE_LINUX = "/etc/systemd/system/ss-agent.service"
         service_name = SS_AGENT_SERVICE_NAME
@@ -316,7 +315,7 @@ class SSAgentInstaller:
 
                 [Service]
                 Type=simple
-                ExecStart={executable_path} --debug start
+                ExecStart={executable_path} start
                 Restart=always
                 User=root
 
@@ -345,22 +344,7 @@ class SSAgentInstaller:
                 if SystemUtility.run_command_with_retries(daemon_reload_command, logger):
                     logger.debug("systemd daemon reloaded.")
                 else:
-                    logger.error("Failed to reload systemd daemon.")
-
-                # Enable the service to start on boot
-                enable_command = ['sudo', 'systemctl', 'enable', service_name]
-                if SystemUtility.run_command_with_retries(enable_command, logger):
-                    logger.debug(f"Service '{service_name}' enabled to start on boot.")
-                else:
-                    logger.error(f"Failed to enable service '{service_name}'.")
-                    return
-
-                # Start the service immediately
-                start_command = ['sudo', 'systemctl', 'start', service_name]
-                if SystemUtility.run_command_with_retries(start_command, logger):
-                    logger.debug(f"Service '{service_name}' started successfully.")
-                else:
-                    logger.error(f"Failed to start service '{service_name}'. Check the service logs for details.")
+                    raise RuntimeError("Failed to reload systemd daemon.")
 
             except subprocess.CalledProcessError as e:
                 logger.error(f"Command '{e.cmd}' failed with exit code {e.returncode}.")
@@ -368,6 +352,14 @@ class SSAgentInstaller:
             except Exception as e:
                 logger.error(f"Failed to set up systemd service: {e}")
                 raise
+
+        # Installation stops the agent before replacing its binary/configuration.
+        # An existing unit must be started again just like a newly created unit.
+        for action in ("enable", "start"):
+            command = ['sudo', 'systemctl', action, service_name]
+            if not SystemUtility.run_command_with_retries(command, logger):
+                raise RuntimeError(f"Failed to {action} service '{service_name}'. Check its systemd journal.")
+        logger.info(f"Service '{service_name}' enabled and started.")
 
     def setup_launchd_service(self, executable_path):
         """
